@@ -1,0 +1,16 @@
+:root { --fondo: #101114; --tarjeta: #181a1f; --linea: #2a2d34; --texto: #e8eaee; --tenue: #9aa0ab; --acento: #7fdcff; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--fondo); color: var(--texto); font: 16px/1.65 system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width: 760px; margin: 0 auto; padding: 56px 20px 72px; }
+header.marca { display: flex; align-items: center; gap: 12px; margin-bottom: 36px; }
+.notch { width: 54px; height: 28px; background: #000; border-radius: 0 0 14px 14px; border: 1px solid var(--linea); display: flex; gap: 8px; align-items: center; justify-content: center; }
+.notch i { width: 7px; height: 11px; border-radius: 4px; background: var(--acento); }
+h1 { font-size: 2.3rem; line-height: 1.2; margin: 0 0 12px; }
+h2 { font-size: 1.25rem; margin: 36px 0 8px; }
+p, li { color: var(--tenue); }
+li { margin-bottom: 6px; }
+a { color: var(--acento); }
+.tarjeta { background: var(--tarjeta); border: 1px solid var(--linea); border-radius: 12px; padding: 16px 20px; margin: 18px 0; }
+.tarjeta p { margin: 0; }
+footer { margin-top: 48px; padding-top: 18px; border-top: 1px solid var(--linea); font-size: 14px; color: var(--tenue); }
+footer a { margin-right: 14px; }
