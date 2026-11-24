@@ -100,9 +100,10 @@ Para armar el instalador en Windows: `npm run armar-instalador` (queda en `dist/
 ### Publicar una versión nueva
 
 1. Subí el número en `package.json` (`"version": "1.0.1"`).
-2. `git commit -am "Versión 1.0.1" && git tag v1.0.1 && git push && git push origin v1.0.1`
-3. GitHub Actions (`.github/workflows/publicar.yml`) arma el instalador y el portable y los publica
-   en Releases. Las copias instaladas se actualizan solas.
+2. `git commit -am "Versión 1.0.1" && git push`
+3. GitHub Actions (`.github/workflows/publicar.yml`) ve el cambio de `package.json`, arma el
+   instalador y el portable y los publica en Releases como `v1.0.1`. Las copias instaladas se
+   actualizan solas. (También se puede correr a mano: pestaña Actions → Publicar versión → Run workflow.)
 
 Antes de subir, `npm run revisar-privacidad` busca claves, mails, teléfonos y rutas personales. Si
 creás un archivo `.privado.txt` (no se sube) con tus nombres, mails o contactos, uno por línea,

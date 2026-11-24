@@ -1,10 +1,14 @@
-# Arma el instalador de Windows y lo publica como Release de GitHub.
-# Se dispara al subir una etiqueta de versión (por ejemplo: git tag v1.0.1 && git push origin v1.0.1),
-# o a mano desde la pestaña Actions. Las copias instaladas de Jarvis se actualizan solas desde esa Release.
+# Arma el instalador de Windows y lo publica como Release de GitHub (etiqueta v<versión de package.json>).
+# Se dispara solo cuando cambia package.json en main (por ejemplo, al subir "version": "1.0.1"),
+# al subir una etiqueta v*, o a mano desde la pestaña Actions (Run workflow).
+# Si la Release de esa versión ya existe, no se vuelve a publicar.
+# Las copias instaladas de Jarvis se actualizan solas desde la Release más nueva.
 name: Publicar versión
 
 on:
   push:
+    branches: [main]
+    paths: ['package.json', '.github/workflows/publicar.yml']
     tags: ['v*']
   workflow_dispatch:
 
