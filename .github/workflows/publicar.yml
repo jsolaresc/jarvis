@@ -1,14 +1,13 @@
 # Arma el instalador de Windows y lo publica como Release de GitHub (etiqueta v<versión de package.json>).
-# Se dispara solo cuando cambia package.json en main (por ejemplo, al subir "version": "1.0.1"),
-# al subir una etiqueta v*, o a mano desde la pestaña Actions (Run workflow).
-# Si la Release de esa versión ya existe, no se vuelve a publicar.
+# Se dispara cuando cambia package.json (o este archivo) en main, con una etiqueta v*, o a mano
+# desde la pestaña Actions (Run workflow). Si la Release ya existe, reemplaza sus archivos.
 # Las copias instaladas de Jarvis se actualizan solas desde la Release más nueva.
 name: Publicar versión
 
 on:
   push:
     branches: [main]
-    paths: ['package.json', '.github/workflows/publicar.yml']
+    paths: ['package.json', '.github/workflows/publicar.yml', 'build/**']
     tags: ['v*']
   workflow_dispatch:
 
@@ -32,7 +31,31 @@ jobs:
       - name: Instalar dependencias
         run: npm ci
 
-      - name: Armar y publicar (instalador + portable)
+      - name: Armar el instalador
+        run: npx electron-builder --win nsis --x64 --publish never
+
+      - name: Armar la versión portable
+        continue-on-error: true
+        run: npx electron-builder --win portable --x64 --publish never
+
+      - name: Qué se armó
+        shell: bash
+        run: ls -la dist
+
+      - name: Publicar en Releases
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx electron-builder --win nsis portable --x64 --publish always
+        run: |
+          V=$(node -p "require('./package.json').version")
+          T="v$V"
+          NOTAS=$'**Para instalar:** bajá `Jarvis-Setup-'"$V"$'.exe` (no el .blockmap ni el .yml), abrilo y seguí los pasos.\n\nSi Windows muestra "Windows protegió su PC", tocá **Más información → Ejecutar de todas formas** (el instalador no está firmado).\n\nLa primera vez que abre, baja solo los componentes elegidos (la voz son ~530 MB). Después se actualiza solo.'
+          gh release view "$T" > /dev/null 2>&1 || gh release create "$T" --title "Jarvis $V" --notes "$NOTAS" --target "$GITHUB_SHA"
+          gh release edit "$T" --notes "$NOTAS" --draft=false
+          ARCHIVOS=("dist/Jarvis-Setup-$V.exe" "dist/Jarvis-Setup-$V.exe.blockmap" "dist/latest.yml")
+          [ -f "dist/Jarvis-Portable-$V.exe" ] && ARCHIVOS+=("dist/Jarvis-Portable-$V.exe")
+          for i in 1 2 3; do
+            gh release upload "$T" "${ARCHIVOS[@]}" --clobber && exit 0
+            echo "Falló la subida (intento $i), reintento en 20 s"; sleep 20
+          done
+          exit 1

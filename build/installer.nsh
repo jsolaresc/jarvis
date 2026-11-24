@@ -3,6 +3,11 @@
 ; %APPDATA%\Jarvis\datos\instalacion.txt y Jarvis lo aplica la primera vez que abre
 ; (ver src/main/componentes.js). En las actualizaciones automáticas esta página no aparece.
 
+; Siempre "solo para mí": no pide permisos de administrador ni muestra la página de modo de instalación.
+!macro customInstallMode
+  StrCpy $isForceCurrentInstall "1"
+!macroend
+
 !macro customPageAfterChangeDir
   !include nsDialogs.nsh
   !include LogicLib.nsh
