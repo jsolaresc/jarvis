@@ -1,0 +1,129 @@
+{
+  "name": "jarvis",
+  "productName": "Jarvis",
+  "version": "1.0.0",
+  "description": "Jarvis: asistente de voz en un notch para Windows. Escucha, decide y habla gratis, en tu PC.",
+  "main": "src/main/main.js",
+  "scripts": {
+    "start": "electron .",
+    "prueba": "node pruebas/prueba-modulos.js",
+    "prueba-voz": "node pruebas/prueba-voz.js",
+    "armar": "electron-builder --win nsis portable --x64",
+    "armar-instalador": "electron-builder --win nsis --x64",
+    "armar-exe": "electron-builder --win portable --x64",
+    "publicar": "electron-builder --win nsis portable --x64 --publish always",
+    "revisar-privacidad": "node scripts/revisar-privacidad.js"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  },
+  "dependencies": {
+    "androidtv-remote": "^1.0.10",
+    "baileys": "^7.0.0-rc14",
+    "bonjour-service": "^1.4.4",
+    "castv2-client": "^1.2.0",
+    "electron-updater": "^6.8.11",
+    "imapflow": "2.11.0",
+    "node-ical": "^0.27.6",
+    "nodemailer": "10.5.0",
+    "onnxruntime-web": "^1.31.1",
+    "pino": "^10.4.0",
+    "qrcode": "^1.5.4",
+    "sherpa-onnx-node": "1.13.8",
+    "tar-stream": "3.2.2",
+    "unbzip2-stream": "1.4.3"
+  },
+  "devDependencies": {
+    "electron": "^45.2.3",
+    "electron-builder": "^26.18.0",
+    "hoodiecrow-imap": "3.3.1",
+    "smtp-server": "3.21.4"
+  },
+  "build": {
+    "appId": "ar.jsolares.jarvis",
+    "productName": "Jarvis",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "modelos/**/*",
+      "package.json",
+      "!pruebas/**",
+      "!scripts/**",
+      "!node_modules/electron-builder/**",
+      "!node_modules/@img/sharp-linux*/**",
+      "!node_modules/@img/sharp-libvips-linux*/**",
+      "!node_modules/sherpa-onnx-linux-*/**",
+      "!node_modules/sherpa-onnx-darwin-*/**"
+    ],
+    "asar": true,
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico"
+    },
+    "portable": {
+      "artifactName": "Jarvis-Portable-${version}.${ext}",
+      "unpackDirName": "Jarvis-app"
+    },
+    "asarUnpack": [
+      "node_modules/sherpa-onnx-node/**",
+      "node_modules/sherpa-onnx-win-x64/**"
+    ],
+    "copyright": "Jarvis · código abierto (MIT)",
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "allowElevation": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Jarvis",
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false,
+      "include": "build/installer.nsh",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerLanguages": [
+        "es_ES"
+      ],
+      "language": "3082",
+      "multiLanguageInstaller": false,
+      "unicode": true,
+      "artifactName": "Jarvis-Setup-${version}.${ext}",
+      "uninstallDisplayName": "Jarvis"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "jsolaresc",
+        "repo": "jarvis",
+        "releaseType": "release"
+      }
+    ]
+  },
+  "author": {
+    "name": "jsolaresc",
+    "url": "https://github.com/jsolaresc"
+  },
+  "homepage": "https://github.com/jsolaresc/jarvis",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jsolaresc/jarvis.git"
+  }
+}

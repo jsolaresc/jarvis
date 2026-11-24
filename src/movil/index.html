@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="es-AR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+  <meta name="theme-color" content="#000000">
+  <meta name="color-scheme" content="dark">
+  <title>Jarvis</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icono-192.png">
+  <link rel="apple-touch-icon" href="/icono-192.png">
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <header id="arriba">
+    <div id="pastilla" data-fase="reposo" aria-hidden="true"><i></i><i></i></div>
+    <div id="quien">
+      <b id="pc">Jarvis</b>
+      <span id="estado-pc">Conectando…</span>
+    </div>
+    <button type="button" id="boton-menu" class="icono" aria-label="Opciones" aria-haspopup="menu" aria-expanded="false"></button>
+  </header>
+
+  <div id="aviso" role="status" hidden></div>
+
+  <!-- Vincular -->
+  <main id="vincular" hidden>
+    <h1>Vinculá este celular con tu PC</h1>
+    <p>En la PC, abrí Jarvis → Ajustes → Dispositivos → Celular y tocá <b>Vincular un celular</b>. Escribí acá el código que aparece.</p>
+    <form id="form-vincular" autocomplete="off">
+      <label for="codigo">Código de 6 cifras</label>
+      <input id="codigo" inputmode="numeric" pattern="[0-9 ]*" maxlength="7" placeholder="000 000" required>
+      <label for="nombre-cel">Nombre de este celular</label>
+      <input id="nombre-cel" maxlength="40" placeholder="Mi celular">
+      <button type="submit" class="principal">Vincular</button>
+      <p id="error-vincular" class="error" role="alert"></p>
+    </form>
+  </main>
+
+  <!-- App -->
+  <main id="app" hidden>
+    <section id="s-charla" class="hoja" aria-label="Charla">
+      <ol id="mensajes" aria-live="polite"></ol>
+      <div id="respuestas-rapidas" hidden></div>
+      <form id="form-texto">
+        <textarea id="texto" rows="1" maxlength="2000" placeholder="Escribile a Jarvis" aria-label="Escribile a Jarvis"></textarea>
+        <button type="submit" class="icono principal" id="enviar" aria-label="Mandar"></button>
+      </form>
+    </section>
+
+    <section id="s-rutinas" class="hoja" aria-label="Rutinas" hidden>
+      <h2>Rutinas</h2>
+      <div id="lista-rutinas" class="botonera"></div>
+      <h2>Modo</h2>
+      <div id="lista-modos" class="fichas" role="radiogroup" aria-label="Modo de Jarvis"></div>
+      <h2>Música en la PC</h2>
+      <p id="musica-ahora" class="tenue"></p>
+      <div class="controles">
+        <button type="button" class="icono" data-musica="anterior" aria-label="Anterior"></button>
+        <button type="button" class="icono grande" data-musica="alternar" aria-label="Pausa o play"></button>
+        <button type="button" class="icono" data-musica="siguiente" aria-label="Siguiente"></button>
+      </div>
+    </section>
+
+    <section id="s-clips" class="hoja" aria-label="Clips" hidden>
+      <h2>Clips</h2>
+      <p id="clips-estado" class="tenue"></p>
+      <div class="botonera">
+        <button type="button" data-clip="guardar">Guardar clip</button>
+        <button type="button" data-clip="grabar" id="boton-grabar">Empezar a grabar</button>
+        <button type="button" data-clip="captura">Captura de pantalla</button>
+      </div>
+      <label for="clip-para">Mandar a</label>
+      <div class="fila">
+        <input id="clip-para" list="contactos" placeholder="Contacto o grupo" maxlength="80">
+        <button type="button" data-clip="enviar">Clip nuevo</button>
+      </div>
+      <div class="fila-titulo"><h2>Últimos clips</h2><button type="button" id="actualizar-clips" class="texto">Actualizar</button></div>
+      <ul id="lista-clips"></ul>
+    </section>
+
+    <section id="s-mensaje" class="hoja" aria-label="Mensaje" hidden>
+      <h2>WhatsApp desde la PC</h2>
+      <form id="form-wa">
+        <label for="wa-para">Para</label>
+        <input id="wa-para" list="contactos" placeholder="Contacto, grupo o número" required maxlength="80">
+        <label for="wa-texto">Mensaje</label>
+        <textarea id="wa-texto" rows="4" maxlength="4000" placeholder="Lo que le querés decir"></textarea>
+        <button type="submit" class="principal">Mandar mensaje</button>
+        <button type="button" id="wa-foto">Mandar foto de la webcam</button>
+      </form>
+      <p class="tenue" id="wa-estado"></p>
+    </section>
+  </main>
+
+  <nav id="abajo" hidden>
+    <button type="button" data-hoja="charla" aria-current="page"><span class="i" data-i="charla"></span>Charla</button>
+    <button type="button" data-hoja="rutinas"><span class="i" data-i="rayo"></span>Rutinas</button>
+    <button type="button" data-hoja="clips"><span class="i" data-i="clip"></span>Clips</button>
+    <button type="button" data-hoja="mensaje"><span class="i" data-i="whatsapp"></span>Mensaje</button>
+  </nav>
+
+  <div id="menu" role="menu" hidden>
+    <p id="menu-yo" class="tenue"></p>
+    <button type="button" role="menuitem" id="m-borrar">Borrar la charla</button>
+    <button type="button" role="menuitem" id="m-desvincular" class="peligro">Desvincular este celular</button>
+  </div>
+
+  <dialog id="visor">
+    <video id="video" controls playsinline preload="metadata"></video>
+    <div class="fila"><span id="visor-nombre"></span><button type="button" id="cerrar-visor">Cerrar</button></div>
+  </dialog>
+
+  <datalist id="contactos"></datalist>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

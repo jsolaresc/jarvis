@@ -1,0 +1,450 @@
+:root {
+  --ojo: #8BE9FF;
+  --fondo: #000000;
+  --texto: #f4f5f7;
+  --tenue: #9ba1ac;
+  --linea: rgba(255, 255, 255, 0.12);
+  --tarjeta: rgba(255, 255, 255, 0.07);
+  --tarjeta-encima: rgba(255, 255, 255, 0.13);
+  --curva: cubic-bezier(0.3, 0.9, 0.3, 1);
+}
+:root.claro {
+  --texto: #15171a;
+  --tenue: #5b616b;
+  --linea: rgba(0, 0, 0, 0.14);
+  --tarjeta: rgba(0, 0, 0, 0.06);
+  --tarjeta-encima: rgba(0, 0, 0, 0.11);
+}
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; height: 100%; overflow: hidden; background: transparent;
+  font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  color: var(--texto); user-select: none; -webkit-user-select: none;
+}
+button { font: inherit; color: inherit; border: 0; background: none; cursor: pointer; padding: 0; }
+#escena {
+  height: 100vh; display: flex; flex-direction: column; align-items: flex-start;
+  justify-content: flex-start; pointer-events: none;
+}
+/* La posición horizontal de #notch y #burbuja la calcula notch.js con margin-left, para que
+   puedan quedar pegados a un borde de la pantalla sin que la ventana se salga de ella. */
+body.arriba #escena { justify-content: flex-end; }
+.zona { pointer-events: auto; }
+
+/* ---------- La pastilla ---------- */
+#notch {
+  width: 165px;
+  background: color-mix(in srgb, var(--fondo) calc(var(--fondo-opacidad, 1) * 100%), transparent);
+  opacity: var(--notch-opacidad, 1);
+  border-radius: 20px; overflow: hidden;
+  display: flex; flex-direction: column; flex: none;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+  transition: width 0.3s var(--curva), border-radius 0.3s var(--curva), opacity 0.2s, background 0.2s, margin-left 0.25s var(--curva);
+}
+body.arriba #notch { flex-direction: column-reverse; }
+body.pegado.abajo #notch { border-radius: 0 0 20px 20px; }
+#notch.activo { width: 280px; }
+#notch.abierto { width: 360px; border-radius: 26px; }
+body.pegado.abajo #notch.abierto { border-radius: 0 0 26px 26px; }
+
+#pastilla {
+  height: 40px; flex: none; position: relative; cursor: grab;
+  display: flex; align-items: center; justify-content: center; gap: 10px; padding: 0 20px;
+}
+#notch.arrastrando #pastilla { cursor: grabbing; }
+#notch.abierto #pastilla { height: 52px; }
+#pastilla { transition: height 0.3s var(--curva); }
+
+/* El punto solo aparece cuando tiene algo que decir: falta bajar algo (amarillo), está escuchando o
+   pensando (color de los ojos), hubo un error (rojo) o hay novedades (verde WhatsApp / celeste mail).
+   En reposo y sin nada pendiente, no se ve. */
+#punto {
+  position: absolute; right: 14px; top: 50%; width: 6px; height: 6px; margin-top: -3px;
+  border-radius: 50%; background: transparent; transition: background 0.2s;
+  font-size: 0; color: transparent; overflow: hidden; /* el número solo se ve en reposo con novedades (abajo) */
+}
+#notch.sin-clave #punto { background: #FFC857; }
+#notch[data-fase="error"] #punto { background: #FF6B6B; }
+#notch[data-fase="escuchando"] #punto { background: var(--ojo); animation: pulso 1.2s ease-in-out infinite; }
+#notch[data-fase="pensando"] #punto, #notch[data-fase="hablando"] #punto { background: var(--ojo); }
+@keyframes pulso { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ojo) 70%, transparent); } 50% { box-shadow: 0 0 0 6px transparent; } }
+
+/* Hay novedades (mensajes o mails): el punto crece y toma el color de quien escribió último. */
+/* [D26] Con novedades, el punto es un contador legible. */
+#notch.con-avisos[data-fase="reposo"] #punto { min-width: 17px; width: auto; height: 17px; margin-top: -8.5px; right: 10px; padding: 0 5px; border-radius: 999px;
+  background: var(--aviso, #25D366); color: #04140a; font: 700 10.5px/17px "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; font-style: normal; text-align: center; box-shadow: 0 0 8px color-mix(in srgb, var(--aviso, #25D366) 60%, transparent); }
+#mudo { position: absolute; left: 12px; top: 50%; margin-top: -8px; height: 16px; color: var(--tenue); display: none; }
+#notch.sin-voz #mudo { display: block; }
+/* Sin conexión (cortada o modo manual): un ícono tachado al lado de los ojos; si algún servicio falla con internet, queda en ámbar. */
+#sinred { position: absolute; left: 12px; top: 50%; margin-top: -8px; height: 16px; color: #F4B400; display: none; cursor: help; }
+#notch.sin-red #sinred, #notch.servicio-caido #sinred { display: block; }
+#notch.servicio-caido:not(.sin-red) #sinred { color: #ff9e64; opacity: .9; }
+#notch.sin-voz #sinred { left: 32px; }
+
+#leyenda {
+  font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  max-width: 0; opacity: 0; transition: max-width 0.3s var(--curva), opacity 0.2s;
+}
+#leyenda:empty { margin-left: -10px; } /* sin texto no ocupa lugar (ni el hueco entre elementos): así los ojos quedan justo en el centro */
+#notch.activo #leyenda { max-width: 170px; opacity: 1; }
+#notch.abierto #leyenda { max-width: 230px; }
+
+/* ---------- Los ojos ---------- */
+.ojos {
+  display: flex; gap: 13px; flex: none;
+  transform: translate(calc(var(--mx, 0) * 1px), calc(var(--my, 0) * 1px));
+  transition: transform 0.14s ease-out;
+}
+#notch.abierto .ojos { scale: 1.25; }
+.ojo {
+  display: block; width: 12px; height: 19px; border-radius: 6px; background: var(--ojo);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--ojo) 55%, transparent);
+  transform: scaleY(var(--abre, 1));
+  opacity: var(--ojos-opacidad, 1);
+  transition: height 0.18s, width 0.18s, border-radius 0.18s, background 0.2s, transform 0.09s, rotate 0.18s, opacity 0.2s;
+}
+/* Música sonando y Jarvis sin hacer nada más: los ojos bailan. Todo el movimiento lo calcula notch.js en cada cuadro
+   y lo deja en variables: --by/--bx desplazamiento, --lean inclinación, --sq/--sx estirado, --ai/--ad apertura de cada
+   ojo (pestañeo y guiño), --forma (0 ojos redondos y abiertos, 1 arcos contentos) y --brillo. Por eso no hay transiciones. */
+#notch.baila[data-fase="reposo"] .ojos { translate: calc(var(--bx, 0) * 1px) calc(var(--by, 0) * 1px); }
+#notch.baila[data-fase="reposo"] .ojo:first-child { --aj: var(--ai, 1); }
+#notch.baila[data-fase="reposo"] .ojo:last-child { --aj: var(--ad, 1); }
+#notch.baila[data-fase="reposo"] .ojo {
+  height: calc(19px - var(--forma, 0.4) * 9px);
+  border-radius: calc(6px + var(--forma, 0.4) * 3px) calc(6px + var(--forma, 0.4) * 3px) calc(6px - var(--forma, 0.4) * 3px) calc(6px - var(--forma, 0.4) * 3px);
+  transform: scale(var(--sx, 1), calc(var(--sq, 1) * var(--aj, 1))); transform-origin: 50% 85%;
+  rotate: calc(var(--lean, 0) * 1deg);
+  box-shadow: 0 0 calc(8px + var(--brillo, 0) * 14px) color-mix(in srgb, var(--ojo) calc(40% + var(--brillo, 0) * 40%), transparent);
+  transition: background 0.2s, opacity 0.2s;
+}
+.ojos.parpadeo .ojo { transform: scaleY(0.08); }
+#notch[data-fase="escuchando"] .ojo { height: 22px; width: 13px; }
+#notch[data-fase="pensando"] .ojo { height: 13px; }
+#notch[data-fase="pensando"] .ojos { animation: pensar 1.6s ease-in-out infinite; }
+@keyframes pensar { 0%, 100% { transform: translate(-5px, -3px); } 50% { transform: translate(5px, -3px); } }
+/* Hecho: los ojos asienten dos veces (como un "listo"), con un saltito y más brillo. */
+#notch[data-fase="ok"] .ojo { box-shadow: 0 0 18px color-mix(in srgb, var(--ojo) 85%, transparent); animation: asentir 0.8s ease-in-out; }
+#notch[data-fase="ok"] .ojos { animation: salto 0.45s var(--curva); }
+@keyframes asentir { 0%, 100% { transform: scaleY(1); } 22% { transform: scaleY(0.22); } 44% { transform: scaleY(1); } 66% { transform: scaleY(0.22); } 88% { transform: scaleY(1); } }
+@keyframes salto { 40% { transform: translateY(-4px); } }
+#notch[data-fase="error"] .ojo { height: 12px; background: #FF6B6B; box-shadow: 0 0 10px rgba(255, 107, 107, 0.5); }
+#notch[data-fase="error"] .ojo:first-child { rotate: 16deg; }
+#notch[data-fase="error"] .ojo:last-child { rotate: -16deg; }
+#notch[data-fase="alerta"] .ojo { height: 23px; }
+/* Un recordatorio o evento sin atender: los ojos brillan con su color y dan un saltito cada tanto, hasta que lo saques. */
+#notch[data-aviso][data-fase="reposo"] .ojo { height: 21px; animation: ojoAviso 1.8s ease-in-out infinite; }
+#notch[data-aviso][data-fase="reposo"] .ojos { animation: saltitoAviso 2.8s var(--curva) infinite; }
+@keyframes ojoAviso { 0%, 100% { box-shadow: 0 0 6px color-mix(in srgb, var(--aviso-ojos, #F4B400) 45%, transparent); } 50% { box-shadow: 0 0 16px 2px color-mix(in srgb, var(--aviso-ojos, #F4B400) 85%, transparent); } }
+@keyframes saltitoAviso { 0%, 55%, 100% { translate: 0 0; } 63% { translate: 0 -4px; } 71% { translate: 0 0; } 79% { translate: 0 -3px; } 87% { translate: 0 0; } }
+@media (prefers-reduced-motion: reduce) { #notch[data-aviso][data-fase="reposo"] .ojos { animation: none; } }
+#notch[data-fase="alerta"] .ojos { animation: salto 0.5s var(--curva) 3; }
+
+/* ---------- El panel ---------- */
+#panel { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 0.3s var(--curva); }
+#notch.abierto #panel { grid-template-rows: 1fr; }
+#panel-in { overflow: hidden; min-height: 0; opacity: 0; transition: opacity 0.18s; }
+#notch.abierto #panel-in { opacity: 1; transition-delay: 0.08s; }
+.contenido {
+  width: 360px; padding: 4px 12px 12px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; align-content: start; align-items: stretch;
+  max-height: 560px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--tarjeta-encima) transparent;
+}
+/* Los widgets: cada uno ocupa 1 (chico), 2 (mitad) o 4 (ancho) de las 4 columnas (--tam) y va en el lugar que dice el modo (--orden).
+   Los de una misma fila se estiran a la misma altura. Lo vacío no se ve. */
+.w { grid-column: span var(--tam, 4); order: var(--orden, 0); min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.w > .tile-b, .w > .tile-agenda, .w > .tile-nota { flex: 1; }
+.w[hidden], .w[data-fuera], .w[data-vacio] { display: none; }
+#aviso { grid-column: 1 / -1; order: -5; }
+#w-texto { order: var(--orden, -1); }
+#w-texto[data-sintexto] #entrada { display: none; }
+#w-texto[data-sintexto]:not(:has(#charla:not([hidden]), #respuesta:not([hidden]))) { display: none; }
+#w-novedades:not(:has(#avisos:not([hidden]))) { display: none; }
+#w-clips:has(#clips[hidden]) { display: none; }
+#w-modos:has(.pie[hidden]) { display: none; }
+body.arriba .contenido { padding: 14px 14px 4px; }
+
+#aviso {
+  display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 12px;
+  background: rgba(255, 200, 87, 0.13); font-size: 12.5px; line-height: 1.35;
+}
+#aviso[hidden], #charla[hidden] { display: none; }
+#aviso button { flex: none; padding: 6px 12px; border-radius: 999px; background: #FFC857; color: #1a1300; font-weight: 600; font-size: 12.5px; }
+
+#entrada { display: flex; gap: 8px; align-items: center; }
+#texto {
+  flex: 1; min-width: 0; height: 40px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--linea);
+  background: var(--tarjeta); color: var(--texto); font: inherit; font-size: 14px; outline: none;
+  user-select: text; -webkit-user-select: text;
+}
+#texto::placeholder { color: var(--tenue); }
+#texto:focus { border-color: color-mix(in srgb, var(--ojo) 70%, transparent); }
+#mic {
+  flex: none; width: 40px; height: 40px; border-radius: 50%; background: var(--ojo); color: #04121a;
+  display: grid; place-items: center; transition: scale 0.15s;
+}
+#mic:hover { scale: 1.06; }
+#notch[data-fase="escuchando"] #mic { animation: pulso 1.2s ease-in-out infinite; }
+
+#charla { font-size: 13px; line-height: 1.45; display: flex; align-items: flex-start; gap: 6px; max-height: 110px; overflow: hidden; }
+#charla > div { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+#charla p { margin: 0; overflow-wrap: anywhere; }
+#charla-borrar, #respuesta-cancelar { flex: none; width: 22px; height: 22px; border-radius: 6px; display: grid; place-items: center; color: var(--tenue); }
+#charla-borrar:hover, #respuesta-cancelar:hover { color: var(--texto); background: var(--tarjeta-encima); }
+
+#respuesta { display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 12px; border-radius: 10px; background: color-mix(in srgb, var(--ojo) 16%, transparent); font-size: 12.5px; }
+#respuesta[hidden] { display: none; }
+#respuesta span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#respuesta i { font-style: normal; color: var(--tenue); }
+#charla .vos { color: var(--tenue); }
+#charla p:empty { display: none; }
+
+#avisos { display: flex; flex-direction: column; gap: 5px; max-height: 140px; overflow: hidden; }
+#avisos[hidden], .titulo[hidden] { display: none; }
+/* Cada novedad: el renglón (click = contestar) y, al lado, el tacho para borrarla. */
+#avisos .aviso { display: flex; align-items: stretch; gap: 4px; min-width: 0; }
+#avisos .cuerpo { flex: 1; display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 10px; background: var(--tarjeta); text-align: left; font-size: 12.5px; min-width: 0; }
+#avisos .cuerpo .origen { flex: none; line-height: 0; color: #25D366; }
+#avisos .mail .cuerpo .origen { color: #6EA8FE; }
+#avisos .calendario .cuerpo .origen { color: #F4B400; }
+#avisos .nota .cuerpo .origen { color: #C792EA; }
+#avisos .resto .cuerpo .origen { color: var(--tenue); }
+#avisos .cuerpo time { flex: none; font-size: 11px; color: var(--tenue); font-variant-numeric: tabular-nums; }
+#avisos .cuerpo:hover, #avisos .tacho:hover { background: var(--tarjeta-encima); }
+#avisos .aviso.elegida .cuerpo { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ojo) 70%, transparent); }
+#avisos .cuerpo i { flex: none; width: 7px; height: 7px; border-radius: 50%; align-self: center; background: #25D366; }
+#avisos .mail .cuerpo i { background: #6EA8FE; }
+#avisos .resto .cuerpo i { background: var(--tenue); }
+#avisos .cuerpo b { flex: none; font-weight: 600; max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#avisos .cuerpo span.txt { flex: 1; min-width: 0; color: var(--tenue); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#avisos .aviso { gap: 6px; }
+#avisos .silenciar, #avisos .tacho { flex: none; width: 32px; border-radius: 10px; display: grid; place-items: center; color: var(--tenue); background: var(--tarjeta); }
+#avisos .tacho:hover { color: #FF8A8A; }
+#avisos .silenciar:hover { background: var(--tarjeta-encima); color: var(--texto); }
+.titulo { display: flex; justify-content: space-between; align-items: baseline; font-size: 12px; color: var(--tenue); margin-bottom: -4px; }
+.titulo button { font-size: 12px; color: var(--tenue); padding: 2px 6px; border-radius: 6px; }
+.titulo button:hover { color: var(--texto); background: var(--tarjeta); }
+
+#acciones { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; max-height: 248px; overflow: hidden; }
+#acciones button, .tile-b {
+  display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 10px; padding: 0 12px; min-height: 56px;
+  border-radius: 14px; background: var(--tarjeta); text-align: center; font-size: 12.5px; line-height: 1.25;
+  transition: background 0.15s, scale 0.12s;
+}
+#acciones button:hover, .tile-b:hover { background: var(--tarjeta-encima); }
+#acciones button:active, .tile-b:active { scale: 0.97; }
+#acciones button svg, .tile-b svg { color: var(--ojo); flex: none; }
+#acciones button.ocupado, .tile-b.ocupado { opacity: 0.55; pointer-events: none; }
+#acciones .vacio { grid-column: 1 / -1; font-size: 12.5px; color: var(--tenue); padding: 6px 0; }
+
+
+.pie { display: flex; align-items: center; gap: 8px; }
+#modos { flex: 1; display: flex; gap: 2px; background: var(--tarjeta); border-radius: 999px; padding: 3px; min-width: 0; }
+#modos button {
+  flex: 1; min-width: 0; height: 28px; border-radius: 999px; font-size: 12px; color: var(--tenue);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 4px;
+  transition: background 0.15s, color 0.15s;
+}
+#modos button:hover { color: var(--texto); }
+/* [D24] El modo activo se distingue de verdad (color de los ojos), no solo por un gris un poco más claro. */
+#modos button { font-size: 12px; height: 30px; padding: 0 2px; }
+#modos button.elegido { background: color-mix(in srgb, var(--ojo) 22%, var(--tarjeta-encima)); color: var(--texto); font-weight: 600; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ojo) 45%, transparent); }
+/* El engranaje vive en la esquina de la pastilla (donde están los ojos), solo con el panel abierto: no gasta alto. */
+/* [D25] Botones del encabezado más grandes (32 px) y más separados del punto. */
+#ajustes {
+  position: absolute; right: 8px; top: 50%; margin-top: -16px; width: 32px; height: 32px; border-radius: 50%;
+  display: none; place-items: center; color: var(--tenue); background: transparent; transition: background 0.15s, color 0.15s;
+}
+#notch.abierto #ajustes { display: grid; }
+#ajustes:hover { color: var(--texto); background: var(--tarjeta); }
+#notch.abierto #punto { right: 50px; }
+#notch.abierto.con-avisos[data-fase="reposo"] #punto { right: 48px; }
+.pie[hidden] { display: none; }
+button:focus-visible, #texto:focus-visible, #pastilla:focus-visible { outline: 2px solid var(--ojo); outline-offset: 2px; }
+#pastilla:focus { outline: none; }
+#pastilla:focus-visible { outline-offset: -3px; border-radius: inherit; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+/* [E36] Contraste alto de Windows */
+@media (forced-colors: active) {
+  #notch, #panel-in, #acciones button, .tile-b, #avisos .cuerpo, #modos button { border: 1px solid CanvasText; }
+  #modos button.elegido { forced-color-adjust: none; background: Highlight; color: HighlightText; }
+  .ojo { forced-color-adjust: none; }
+}
+
+/* ---------- Burbuja (texto cuando está en silencio, avisos) ---------- */
+#burbuja {
+  max-width: 400px; margin: 8px 0; padding: 10px 14px; border-radius: 16px; background: var(--fondo);
+  font-size: 13.5px; line-height: 1.4; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+  opacity: 0; transform: translateY(-6px); transition: opacity 0.2s, transform 0.2s, margin-left 0.25s var(--curva); pointer-events: none;
+  user-select: text; -webkit-user-select: text;
+}
+body.arriba #burbuja { order: -1; transform: translateY(6px); }
+#burbuja.visible { opacity: 1; transform: none; pointer-events: auto; }
+#notch.abierto ~ #burbuja { opacity: 0; pointer-events: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition-duration: 0.01ms !important; }
+}
+
+
+/* Clips: grabar, pausar, guardar los últimos segundos, mandar el último. */
+.clips { display: flex; align-items: center; gap: 8px; }
+.clips[hidden] { display: none; }
+.clips button { height: 34px; min-width: 34px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 0 12px; font-size: 12.5px; color: var(--texto); background: var(--tarjeta); transition: background 0.15s, scale 0.12s; }
+.clips button:hover { background: var(--tarjeta-encima); }
+.clips button:active { scale: 0.95; }
+.clips button[hidden] { display: none; }
+.clips button.ocupado { opacity: 0.55; pointer-events: none; }
+#clip-grabar { padding: 0; width: 34px; color: #FF6B6B; }
+#clip-grabar.grabando { background: #FF6B6B; color: #fff; animation: latido 1.4s ease-in-out infinite; }
+#clip-pausa { padding: 0; width: 34px; }
+#clip-info { margin-left: auto; font-size: 11.5px; color: var(--tenue); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@keyframes latido { 50% { opacity: 0.6; } }
+
+/* Widgets sueltos: botones (rutina, atajo de voz, clips), nota rápida, próximo evento. */
+.tile-b { width: 100%; font: inherit; font-size: 12.5px; color: var(--texto); }
+.tile-b span { min-width: 0; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.tile-b span { text-align: inherit; }
+.w[data-tam="1"] .tile-b { flex-direction: column; justify-content: flex-start; gap: 6px; padding: 10px 4px 6px; }
+/* Grabar: el círculo rojo de siempre (y lleno mientras graba). */
+.tile-b[data-accion="clip-grabar"] svg { color: #FF6B6B; }
+.tile-b.grabando[data-accion="clip-grabar"] svg { color: #fff; }
+.tile-b.grabando { background: #FF6B6B; color: #fff; animation: latido 1.4s ease-in-out infinite; }
+.tile-b.grabando svg { color: #fff; }
+.tile-nota { display: flex; gap: 8px; align-items: center; min-height: 48px; }
+.tile-nota input { flex: 1; min-width: 0; height: 36px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--linea); background: var(--tarjeta); color: var(--texto); font: inherit; font-size: 13px; outline: none; user-select: text; -webkit-user-select: text; }
+.tile-nota input:focus { border-color: color-mix(in srgb, var(--ojo) 70%, transparent); }
+.tile-nota button { flex: none; width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; background: var(--tarjeta); color: var(--ojo); }
+.tile-nota button:hover { background: var(--tarjeta-encima); }
+.tile-agenda { display: flex; align-items: center; gap: 10px; padding: 0 12px; border-radius: 14px; background: var(--tarjeta); text-align: left; width: 100%; min-height: 56px; }
+.tile-agenda:hover { background: var(--tarjeta-encima); }
+.tile-agenda svg { color: #F4B400; flex: none; }
+.tile-agenda b { display: block; font-size: 12.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tile-agenda small { display: block; font-size: 11.5px; color: var(--tenue); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tile-agenda > span { min-width: 0; flex: 1; }
+/* La música es una ficha más: mismo alto que los botones de al lado, controles centrados. */
+
+/* ---------- Widgets: alto doble, color propio y los nuevos ---------- */
+.contenido { grid-auto-rows: minmax(48px, auto); }
+.w { grid-row: span var(--alto, 1); }
+.w[data-alto="2"] { min-height: 112px; }
+.w[style*="--wc"] .tile-b svg, .w[style*="--wc"] .tile-info svg, .w[style*="--wc"] .tile-agenda svg, .w[style*="--wc"] .tile-volumen svg, .w[style*="--wc"] .tile-lista svg { color: var(--wc); }
+.w[style*="--wc"] .tile-b, .w[style*="--wc"] .tile-info, .w[style*="--wc"] .tile-agenda, .w[style*="--wc"] .tile-volumen, .w[style*="--wc"] .tile-lista { background: color-mix(in srgb, var(--wc) 12%, var(--tarjeta)); }
+.w[data-alto="2"] .tile-b { flex-direction: column; justify-content: center; gap: 8px; text-align: center; }
+.w[data-alto="2"] .tile-b svg { width: 28px; height: 28px; }
+.tile-b.activo { background: color-mix(in srgb, var(--wc, var(--ojo)) 26%, var(--tarjeta)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--wc, var(--ojo)) 55%, transparent); }
+.w > .tile-info, .w > .tile-volumen, .w > .tile-lista { flex: 1; }
+.tile-info { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 8px 12px; border-radius: 14px; background: var(--tarjeta); color: var(--texto); width: 100%; text-align: left; min-width: 0; }
+button.tile-info:hover { background: var(--tarjeta-encima); }
+.tile-info svg { color: var(--ojo); flex: none; }
+.tile-info > span { display: flex; flex-direction: column; min-width: 0; }
+.tile-info b { font-size: 18px; font-weight: 650; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.tile-info small { font-size: 11.5px; color: var(--tenue); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tile-reloj { flex-direction: column; gap: 2px; }
+.w[data-alto="2"] .tile-reloj b { font-size: 34px; }
+.w[data-alto="2"] .tile-clima { flex-direction: column; text-align: center; }
+.w[data-alto="2"] .tile-clima > span { align-items: center; }
+.w[data-alto="2"] .tile-clima b { font-size: 28px; }
+.w[data-tam="1"] .tile-info { padding: 6px 4px; gap: 4px; }
+.w[data-tam="1"] .tile-clima { flex-direction: column; text-align: center; }
+.w[data-tam="1"] .tile-clima > span { align-items: center; }
+.tile-titulo { font-size: 11px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--tenue); padding: 6px 4px 0; }
+.w[data-tipo="titulo"] { min-height: 0; }
+.tile-volumen { display: flex; align-items: center; gap: 10px; padding: 0 12px; border-radius: 14px; background: var(--tarjeta); min-height: 48px; }
+.tile-volumen button { flex: none; width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; color: var(--ojo); }
+.tile-volumen button:hover { background: var(--tarjeta-encima); }
+.tile-volumen input { flex: 1; min-width: 0; accent-color: var(--wc, var(--ojo)); }
+.tile-volumen output { flex: none; width: 26px; text-align: right; font-size: 12px; color: var(--tenue); font-variant-numeric: tabular-nums; }
+.tile-lista { display: flex; flex-direction: column; gap: 2px; padding: 6px; border-radius: 14px; background: var(--tarjeta); }
+.tile-lista button { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 8px; text-align: left; color: var(--texto); font-size: 12.5px; min-width: 0; }
+.tile-lista button:hover { background: var(--tarjeta-encima); }
+.tile-lista svg { flex: none; color: var(--ojo); }
+.tile-lista span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tile-agenda.varios { flex-direction: column; align-items: stretch; justify-content: center; gap: 6px; padding: 10px 12px; }
+.tile-agenda.varios > span { display: grid; grid-template-columns: 16px 1fr auto; align-items: center; gap: 8px; }
+.tile-agenda.varios svg { width: 14px; height: 14px; }
+.tile-agenda.varios small { white-space: nowrap; }
+/* Música en doble alto: qué suena arriba, controles grandes abajo */
+/* Doble alto, de 3 o 4 columnas: tapa grande a la izquierda; a la derecha, canción arriba y controles abajo. */
+/* De 2 columnas no entra todo: la tapa queda de fondo (apagada) y los controles, bien centrados. */
+.contenido { grid-auto-rows: auto; }
+.w { min-height: 48px; }
+.w[data-tipo="titulo"] { min-height: 0; }
+.tile-info > span { max-width: 100%; }
+.w[data-alto="2"] .tile-clima > span, .w[data-tam="1"] .tile-clima > span { width: 100%; }
+.tile-info small { max-width: 100%; }
+
+/* Posición en la grilla (col y fila vienen del editor; --filac son las filas ya sin las que quedaron vacías). */
+.w[data-fila] { grid-column: var(--col) / span var(--tam, 4); grid-row: var(--filac, var(--fila)) / span var(--alto, 1); order: 0; }
+#aviso, #w-texto:not([data-fila]) { grid-column: 1 / -1; grid-row: var(--filac, auto); }
+
+/* Cast: el menú nativo va encima del ícono (transparente) para que el click abra la lista de aparatos. */
+
+
+/* ---------- Tarjeta de música ----------
+   Todo tiene su lugar fijo (tapa, título, botones), suene algo o no: el play/pausa nunca se mueve.
+   La tapa es un recuadro con un disco de adorno hasta que haya portada. */
+.musica { position: relative; flex: 1; min-width: 0; min-height: 56px; overflow: hidden; border-radius: 14px; background: var(--tarjeta);
+  display: grid; align-items: center; gap: 4px 10px; padding: 8px 10px;
+  grid-template-columns: 44px minmax(0, 1fr) auto; grid-template-areas: "disco titulo botones"; }
+.musica-disco { grid-area: disco; position: relative; width: 44px; height: 44px; border-radius: 10px; overflow: hidden; display: grid; place-items: center; color: var(--tenue); background: var(--tarjeta-encima); }
+.musica-disco > span { display: grid; place-items: center; }
+.musica-tapa { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.musica-tapa[hidden] { display: none; }
+.musica.con-tapa .musica-disco > span { display: none; }
+.musica-titulo { grid-area: titulo; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 1px; }
+.musica-titulo b { font-size: 12.5px; font-weight: 600; color: var(--texto); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.musica-titulo.vacio b { color: var(--tenue); font-weight: 500; }
+.musica-titulo small { font-size: 11px; color: var(--tenue); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.musica-titulo small:empty { display: none; }
+.musica-botones { grid-area: botones; display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+.musica button { flex: none; width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; color: var(--tenue); background: transparent; transition: background 0.15s, color 0.15s, scale 0.12s; }
+.musica button:hover { color: var(--texto); background: var(--tarjeta-encima); }
+.musica button:active { scale: 0.94; }
+.musica button.abierto { color: var(--ojo); background: var(--tarjeta-encima); }
+#musica-play { width: 40px; height: 40px; color: var(--texto); background: var(--tarjeta-encima); }
+.musica-cast[hidden] { display: none; }
+.musica-cast svg { pointer-events: none; }
+/* Tamaños angostos: sin título al lado (queda en el tooltip), botones más chicos */
+.w[data-tam="3"] .musica, .w[data-tam="2"] .musica { grid-template-columns: 44px minmax(0, 1fr); grid-template-areas: "disco botones"; }
+.w[data-tam="3"] .musica-titulo, .w[data-tam="2"] .musica-titulo { display: none; }
+.w[data-tam="3"] .musica-botones, .w[data-tam="2"] .musica-botones { justify-content: space-evenly; gap: 2px; }
+.w[data-tam="2"] .musica { grid-template-columns: 38px minmax(0, 1fr); gap: 6px; padding: 8px; }
+.w[data-tam="2"] .musica-disco { width: 38px; height: 38px; }
+.w[data-tam="2"] .musica button { width: 28px; height: 28px; }
+.w[data-tam="2"] #musica-play { width: 34px; height: 34px; }
+.w[data-tam="2"] .musica-cast { display: none; }
+/* Dos filas de alto: la tapa se ve más grande y los botones van debajo/al costado, siempre en el mismo orden */
+#w-musica[data-alto="2"] .musica { padding: 12px; gap: 8px 12px; grid-template-columns: 84px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; grid-template-areas: "disco titulo" "disco botones"; align-items: center; }
+#w-musica[data-alto="2"] .musica-disco { width: 84px; height: 84px; border-radius: 12px; }
+#w-musica[data-alto="2"] .musica-titulo { display: flex; align-self: end; }
+#w-musica[data-alto="2"] .musica-titulo b { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; font-size: 13.5px; }
+#w-musica[data-alto="2"] .musica-botones { justify-content: flex-start; align-self: start; }
+#w-musica[data-alto="2"][data-tam="3"] .musica, #w-musica[data-alto="2"][data-tam="2"] .musica { grid-template-columns: 56px minmax(0, 1fr); grid-template-rows: auto auto; grid-template-areas: "disco titulo" "botones botones"; align-items: center; gap: 8px 10px; padding: 10px; }
+#w-musica[data-alto="2"][data-tam="3"] .musica-disco, #w-musica[data-alto="2"][data-tam="2"] .musica-disco { width: 56px; height: 56px; }
+#w-musica[data-alto="2"][data-tam="3"] .musica-titulo, #w-musica[data-alto="2"][data-tam="2"] .musica-titulo { align-self: center; }
+#w-musica[data-alto="2"][data-tam="3"] .musica-botones, #w-musica[data-alto="2"][data-tam="2"] .musica-botones { justify-content: space-evenly; }
+#w-musica[data-alto="2"][data-tam="2"] .musica-cast { display: none; }
+
+/* ---------- Botón que abre un menú (Enviar a…, Grabar…) ---------- */
+.tile-sel { flex: 1; min-height: 48px; width: 100%; display: flex; align-items: center; gap: 8px; padding: 0 10px; border-radius: 14px; background: var(--tarjeta); color: var(--texto); font-size: 12.5px; text-align: left; transition: background 0.15s; }
+.tile-sel:hover, .tile-sel.abierto { background: var(--tarjeta-encima); }
+.tile-sel > svg:first-child { flex: none; color: var(--ojo); }
+.tile-sel > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tile-sel > svg:last-child { flex: none; color: var(--tenue); transition: rotate 0.15s; }
+.tile-sel.abierto > svg:last-child { rotate: 180deg; }
+.w[style*="--wc"] .tile-sel { background: color-mix(in srgb, var(--wc) 12%, var(--tarjeta)); }
+.w[style*="--wc"] .tile-sel > svg:first-child { color: var(--wc); }
+
+/* ---------- Menú desplegable de Jarvis (reemplaza la lista nativa del sistema) ---------- */
+#notch { position: relative; }
+.menu-j { position: absolute; z-index: 60; box-sizing: border-box; max-height: 70%; overflow-y: auto; padding: 5px; border-radius: 14px;
+  background: color-mix(in srgb, var(--fondo) 88%, #2a2d35); border: 1px solid var(--linea); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(14px); animation: menuEntra 0.14s var(--curva); transform-origin: top center; scrollbar-width: thin; }
+:root.claro .menu-j { background: color-mix(in srgb, #ffffff 92%, var(--tarjeta)); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18); }
+.menu-op { width: 100%; display: flex; align-items: center; gap: 9px; padding: 8px 10px; border-radius: 10px; color: var(--texto); font-size: 12.5px; text-align: left; transition: background 0.12s; }
+.menu-op svg { flex: none; color: var(--tenue); }
+.menu-op > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.menu-op:hover, .menu-op:focus-visible { background: var(--tarjeta-encima); outline: none; }
+.menu-op.actual, .menu-op.actual svg { color: var(--ojo); }
+.menu-op > svg:last-child:not(:first-child) { margin-left: auto; }
+@keyframes menuEntra { from { opacity: 0; translate: 0 -4px; scale: 0.98; } to { opacity: 1; translate: 0 0; scale: 1; } }
+@media (prefers-reduced-motion: reduce) { .menu-j { animation: none; } }

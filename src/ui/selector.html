@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>Jarvis · elegir qué grabar</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; height: 100%; font: 14px "Segoe UI", system-ui, sans-serif; color: #eef1f6; }
+  body.lista { background: #14171d; }
+  h1 { font-size: 15px; font-weight: 600; margin: 0; padding: 16px 18px 10px; }
+  #rejilla { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 12px; padding: 6px 18px 18px; overflow: auto; max-height: calc(100% - 100px); }
+  .item { background: #1e2330; border: 1px solid #2d3445; border-radius: 10px; padding: 8px; cursor: pointer; text-align: left; color: inherit; font: inherit; display: flex; flex-direction: column; gap: 6px; }
+  .item:hover, .item:focus-visible { border-color: #6ea8ff; outline: none; background: #232a3b; }
+  .item img { width: 100%; aspect-ratio: 16/9; object-fit: contain; background: #0b0d12; border-radius: 6px; }
+  .item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+  #pie { position: fixed; left: 0; right: 0; bottom: 0; padding: 10px 18px; background: #14171d; border-top: 1px solid #2d3445; display: flex; justify-content: flex-end; }
+  #pie button { background: #2a3144; color: inherit; border: 0; border-radius: 8px; padding: 8px 16px; font: inherit; cursor: pointer; }
+  #pie button:hover { background: #343d55; }
+  /* Recuadro: una capa oscura sobre la pantalla y se arrastra el rectángulo */
+  body.recuadro { background: rgba(0, 0, 0, .35); cursor: crosshair; user-select: none; overflow: hidden; }
+  #caja { position: fixed; border: 2px solid #6ea8ff; background: rgba(110, 168, 255, .12); box-shadow: 0 0 0 9999px rgba(0, 0, 0, .35); display: none; pointer-events: none; }
+  #ayuda { position: fixed; top: 24px; left: 50%; transform: translateX(-50%); background: #14171d; color: #eef1f6; padding: 10px 18px; border-radius: 10px; border: 1px solid #2d3445; pointer-events: none; }
+  #medida { position: fixed; background: #14171d; color: #eef1f6; font-size: 12px; padding: 2px 8px; border-radius: 6px; display: none; pointer-events: none; }
+</style></head>
+<body>
+<script type="module" src="selector.js"></script>
+</body></html>

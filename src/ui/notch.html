@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <title>Jarvis</title>
+  <link rel="stylesheet" href="notch.css">
+</head>
+<body class="abajo pegado">
+  <div id="escena">
+    <div id="notch" class="zona" data-fase="reposo" data-modo="normal">
+      <div id="pastilla" title="Click: hablar · Arrastrar: mover" role="button" tabindex="0" aria-label="Hablar con Jarvis" aria-describedby="anuncio">
+        <span id="mudo" aria-hidden="true"></span>
+        <span id="sinred" aria-hidden="true"></span>
+        <div class="ojos" id="ojos"><i class="ojo"></i><i class="ojo"></i></div>
+        <div id="leyenda"></div>
+        <i id="punto" aria-hidden="true"></i>
+        <button type="button" id="ajustes" title="Abrir Jarvis (notas, clips, calendario y ajustes)" aria-label="Abrir la ventana de Jarvis"></button>
+      </div>
+      <div id="panel">
+        <div id="panel-in">
+          <div class="contenido" id="widgets">
+            <div id="aviso" hidden>
+              <span id="aviso-texto">Para escucharte, Jarvis baja una vez sus modelos de voz.</span>
+              <button type="button" id="configurar">Bajar</button>
+            </div>
+            <section class="w" id="w-texto" data-w="texto">
+              <div id="respuesta" hidden>
+                <span>Respondiendo a <b id="respuesta-a"></b><i id="respuesta-ayuda"></i></span>
+                <button type="button" id="respuesta-cancelar" title="Cancelar la respuesta"></button>
+              </div>
+              <form id="entrada">
+                <input id="texto" type="text" placeholder="Escribile o hablale a Jarvis…" autocomplete="off" spellcheck="false" aria-label="Pedido para Jarvis">
+                <button type="button" id="mic" title="Hablar" aria-label="Hablar"></button>
+              </form>
+              <div id="charla" hidden aria-live="polite">
+                <div>
+                  <p class="vos"></p>
+                  <p class="jarvis"></p>
+                </div>
+                <button type="button" id="charla-borrar" title="Borrar"></button>
+              </div>
+            </section>
+            <section class="w" id="w-novedades" data-w="novedades">
+              <div class="titulo" id="avisos-titulo" hidden>
+                <span>Novedades</span>
+                <button type="button" id="avisos-limpiar">Limpiar</button>
+              </div>
+              <div id="avisos" hidden></div>
+            </section>
+            <section class="w" id="w-rutinas" data-w="rutinas">
+              <div class="titulo" id="acciones-titulo">
+                <span>Acciones rápidas</span>
+              </div>
+              <div id="acciones"></div>
+            </section>
+            <section class="w" id="w-clips" data-w="clips">
+              <div id="clips" class="clips" hidden>
+                <button type="button" id="clip-grabar" title="Grabar la pantalla"></button>
+                <button type="button" id="clip-pausa" title="Pausar la grabación" hidden></button>
+                <button type="button" id="clip-guardar" title="Guardar los últimos segundos"><span>Clip</span></button>
+                <button type="button" id="clip-enviar" title="Mandar el último clip por WhatsApp"><span>Enviar</span></button>
+                <span id="clip-info"></span>
+              </div>
+            </section>
+            <section class="w" id="w-musica" data-w="musica">
+              <div id="musica" class="musica" role="group" aria-label="Música">
+                <div class="musica-disco" aria-hidden="true"><img id="musica-tapa" class="musica-tapa" alt="" hidden><span id="musica-disco-icono"></span></div>
+                <div id="musica-titulo" class="musica-titulo"><b id="musica-cancion">Nada sonando</b><small id="musica-artista"></small></div>
+                <div class="musica-botones">
+                  <button type="button" id="musica-anterior" title="Anterior"></button>
+                  <button type="button" id="musica-play" title="Reproducir / pausar"></button>
+                  <button type="button" id="musica-siguiente" title="Siguiente"></button>
+                  <button type="button" id="musica-cast" class="musica-cast" title="Enviar la música a otro aparato" aria-haspopup="menu" hidden></button>
+                </div>
+              </div>
+            </section>
+            <section class="w" id="w-modos" data-w="modos">
+              <div class="pie" id="pie">
+                <div id="modos" role="group" aria-label="Modo de Jarvis"></div>
+              </div>
+            </section>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div id="burbuja" role="status" aria-live="polite"></div>
+    <div id="anuncio" class="sr" aria-live="polite"></div>
+  </div>
+  <script src="/vendor/ort/ort.wasm.min.js"></script>
+  <script type="module" src="notch.js"></script>
+</body>
+</html>

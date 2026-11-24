@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <title>Jarvis</title>
+  <link rel="stylesheet" href="ajustes.css">
+</head>
+<body>
+  <a class="saltar" href="#contenido">Saltar al contenido</a>
+  <nav id="menu" aria-label="Secciones de Jarvis">
+    <div class="marca"><span class="ojitos" aria-hidden="true"><i></i><i></i></span><strong>Jarvis</strong><span class="edicion" hidden></span></div>
+    <div class="buscador" role="search">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/></svg>
+      <input id="buscar" type="search" placeholder="Buscar…" autocomplete="off" spellcheck="false"
+        role="combobox" aria-label="Buscar en Jarvis (Ctrl+F)" aria-expanded="false" aria-controls="resultados" aria-autocomplete="list">
+      <kbd aria-hidden="true">Ctrl F</kbd>
+      <ul id="resultados" role="listbox" aria-label="Resultados" hidden></ul>
+    </div>
+    <div id="menu-fin">
+      <button id="salir" class="salir" type="button">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M12 3v8"/><path d="M6.5 7a7 7 0 1 0 11 0"/></svg>
+        <span>Cerrar Jarvis</span>
+      </button>
+    </div>
+  </nav>
+  <main id="contenido" tabindex="-1"></main>
+  <div id="guardado" role="status" aria-live="polite"></div>
+  <div id="cartel" role="status" aria-live="polite" hidden></div>
+  <script>
+    // [B11] Si algo se rompe al armar la pantalla: un mensaje claro, con el detalle técnico plegado y a mano para copiar.
+    (function () {
+      function mostrar(texto) {
+        var c = document.getElementById('contenido');
+        if (!c || c.dataset.error) return;
+        c.dataset.error = '1';
+        c.innerHTML = '<div class="error-pantalla" role="alert">'
+          + '<div class="ep-icono" aria-hidden="true"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17h.01"/></svg></div>'
+          + '<h1>No se pudo mostrar esta pantalla</h1>'
+          + '<p class="bajada">Tus ajustes no se perdieron. Probá de nuevo; si vuelve a pasar, copiá el detalle y compartilo para revisarlo (también quedó guardado en el Historial).</p>'
+          + '<div class="fila"><button type="button" class="boton principal" id="ep-reintentar">Reintentar</button>'
+          + '<button type="button" class="boton" id="ep-copiar">Copiar detalle</button>'
+          + '<button type="button" class="boton" id="ep-inicio">Ir al Resumen</button></div>'
+          + '<details class="avanzado"><summary>Detalle técnico</summary><pre></pre></details></div>';
+        c.querySelector('pre').textContent = texto;
+        document.getElementById('ep-reintentar').onclick = function () { location.reload(); };
+        document.getElementById('ep-inicio').onclick = function () { location.hash = '#resumen'; location.reload(); };
+        document.getElementById('ep-copiar').onclick = function (e) {
+          navigator.clipboard.writeText(texto).then(function () { e.target.textContent = 'Copiado'; }, function () { e.target.textContent = 'No se pudo copiar'; });
+        };
+      }
+      window.addEventListener('error', function (e) { mostrar((e.message || 'Error') + (e.filename ? '\n' + e.filename + ':' + e.lineno : '') + (e.error && e.error.stack ? '\n' + e.error.stack : '')); });
+      // Un pedido que falló después de que la pantalla ya estaba armada no tiene por qué tirar la pantalla entera: va al cartel.
+      window.addEventListener('unhandledrejection', function (e) {
+        var c = document.getElementById('contenido');
+        var detalle = e.reason && (e.reason.message || e.reason) || 'Error';
+        if (c && c.childElementCount && !c.dataset.error) {
+          var k = document.getElementById('cartel');
+          k.textContent = 'Algo no salió bien: ' + detalle; k.className = 'mal'; k.hidden = false;
+          return;
+        }
+        mostrar('Promesa rechazada: ' + (e.reason && (e.reason.stack || e.reason.message) || e.reason));
+      });
+    })();
+  </script>
+  <script type="module" src="ajustes.js"></script>
+</body>
+</html>

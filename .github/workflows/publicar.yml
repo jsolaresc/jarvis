@@ -1,0 +1,34 @@
+# Arma el instalador de Windows y lo publica como Release de GitHub.
+# Se dispara al subir una etiqueta de versión (por ejemplo: git tag v1.0.1 && git push origin v1.0.1),
+# o a mano desde la pestaña Actions. Las copias instaladas de Jarvis se actualizan solas desde esa Release.
+name: Publicar versión
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Revisar que no haya datos personales
+        run: node scripts/revisar-privacidad.js
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Armar y publicar (instalador + portable)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx electron-builder --win nsis portable --x64 --publish always
