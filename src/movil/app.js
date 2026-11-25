@@ -26,6 +26,21 @@ const ICONOS = {
   auriculares: '<path d="M4 14v-2a8 8 0 0 1 16 0v2"/><rect x="3" y="14" width="4" height="6" rx="1.5"/><rect x="17" y="14" width="4" height="6" rx="1.5"/>',
   parlante: '<rect x="6" y="3" width="12" height="18" rx="2"/><circle cx="12" cy="14" r="3"/><circle cx="12" cy="7" r="1"/>',
   apagar: '<path d="M12 3v9"/><path d="M6.3 6.3a8 8 0 1 0 11.4 0"/>',
+  reloj: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
+  sol: '<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M4.6 4.6l1.4 1.4M18 18l1.4 1.4M2.5 12h2M19.5 12h2M4.6 19.4L6 18M18 6l1.4-1.4"/>',
+  nube: '<path d="M7 18h10a4 4 0 0 0 .5-8A6 6 0 0 0 6 9.5 4.3 4.3 0 0 0 7 18z"/>',
+  lluvia: '<path d="M7 15h10a4 4 0 0 0 .5-8A6 6 0 0 0 6 6.5 4.3 4.3 0 0 0 7 15z"/><path d="M9 18l-1 2.5M13 18l-1 2.5M17 18l-1 2.5"/>',
+  calendario: '<rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
+  nota: '<path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5M9 13h7M9 17h5"/>',
+  modos: '<rect x="3" y="4" width="7" height="7" rx="1.5"/><rect x="14" y="4" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
+  mas: '<path d="M12 5v14M5 12h14"/>',
+  cerrar: '<path d="M6 6l12 12M18 6L6 18"/>',
+  arriba: '<path d="M12 19V5M6 11l6-6 6 6"/>',
+  abajo: '<path d="M12 5v14M6 13l6 6 6-6"/>',
+  ancho: '<path d="M4 12h16M8 8l-4 4 4 4M16 8l4 4-4 4"/>',
+  alto: '<path d="M12 4v16M8 8l4-4 4 4M8 16l4 4 4-4"/>',
+  pintar: '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="3.5" fill="currentColor"/>',
+  mudo: '<path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M17 9l4 6M21 9l-4 6"/>',
   trabajo: '<rect x="3" y="7" width="18" height="13" rx="2"/><path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M3 13h18"/>',
 };
 const svg = (n, t = 22) => `<svg width="${t}" height="${t}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONOS[n] || ICONOS.rayo}</svg>`;
@@ -61,6 +76,9 @@ const guardado = {
 // En la app de Android, la PC elegida: { base: 'http://192.168.0.10:47821', id, nombre }. En el navegador, la misma página.
 const pcElegida = () => (NATIVO ? guardado.leer('pc', null) : null);
 const u = (ruta) => { const pc = pcElegida(); return pc && typeof ruta === 'string' && ruta.startsWith('/api/') ? pc.base + ruta : ruta; };
+// Videos, audios y miniaturas: en la app de Android pasan por la propia app (https://localhost/pc/…), que se los pide a la PC.
+// Así el WebView los trata como propios (sin bloqueos por venir de otra dirección) y se pueden adelantar.
+const medio = (ruta) => (NATIVO && pcElegida() && typeof ruta === 'string' && ruta.startsWith('/api/') ? `/pc${ruta}` : u(ruta));
 class SinPC extends Error {}
 class NoVinculado extends Error {}
 async function api(ruta, { metodo = 'GET', cuerpo, espera = 20000, base, reintento = false } = {}) {
@@ -120,7 +138,7 @@ function reencontrar() {
   reencontrando = (async () => {
     let hallada = null;
     await buscarPCs({ alEncontrar: (x) => { if (x.id === pc.id) hallada = x; } });
-    if (hallada && hallada.base !== pc.base) { guardado.escribir('pc', { ...pc, base: hallada.base, ip: hallada.ip }); return true; }
+    if (hallada && hallada.base !== pc.base) { guardado.escribir('pc', { ...pc, base: hallada.base, ip: hallada.ip }); ultimaSincro = 0; return true; }
     return false;
   })().finally(() => { reencontrando = null; });
   return reencontrando;
@@ -148,11 +166,13 @@ function aviso(texto, { tipo = '', ms = 3500, accion } = {}) {
 // ---------- Estado de la PC ----------
 let estado = null;
 let conectado = false;
+let ultimaSincro = 0;
 async function refrescar({ silencioso = false } = {}) {
   try {
     estado = await api('/api/estado', { espera: 8000 });
     if (!conectado) { conectado = true; aviso(''); }
     pintarEstado();
+    if (NATIVO && Date.now() - ultimaSincro > 5 * 60000) { ultimaSincro = Date.now(); sincronizarAvisos(); }
     if (pastilla.dataset.fase === 'dormido') fase('reposo');
   } catch (e) {
     if (e instanceof SinPC) {
@@ -173,14 +193,7 @@ function pintarEstado() {
   $('#menu-yo').textContent = `Este celular: ${(e.yo && e.yo.nombre) || ''}`;
   // Contactos para "Para" (sugerencias; también se puede escribir cualquier nombre o número).
   $('#contactos').replaceChildren(...['Yo', ...(e.contactos || [])].map((c) => h('option', { value: c })));
-  // Rutinas: las rápidas primero.
-  const rutinas = [...(e.rutinas || [])].sort((a, b) => (b.rapida - a.rapida));
-  $('#lista-rutinas').replaceChildren(...(rutinas.length ? rutinas.map((r) => h('button', { type: 'button', class: 'rutina', 'data-id': r.id, onclick: (ev) => accion({ tipo: 'rutina', id: r.id }, ev.currentTarget) }, h('span', { html: svg(r.icono) }), h('span', {}, r.nombre)))
-    : [h('p', { class: 'tenue' }, 'No tenés rutinas. Se arman en la PC, en Ajustes → Rutinas.')]));
-  $('#lista-modos').replaceChildren(...(e.modos || []).map((m) => h('button', { type: 'button', role: 'radio', 'aria-checked': String(m.id === e.modo), class: m.id === e.modo ? 'on' : '', onclick: (ev) => accion({ tipo: 'modo', modo: m.id }, ev.currentTarget) }, m.nombre)));
-  const mu = e.musica || {};
-  $('#musica-ahora').textContent = mu.cancion ? `${mu.sonando ? 'Sonando' : 'En pausa'}: ${mu.cancion}${mu.artista ? `, ${mu.artista}` : ''}${mu.destino ? ` (en ${mu.destino})` : ''}` : 'No hay nada sonando. Play arranca la música de siempre.';
-  $('[data-musica="alternar"]').innerHTML = svg(mu.sonando ? 'pausa' : 'play', 28);
+  pintarInicio();
   const c = e.clips || {};
   $('#clips-estado').textContent = c.grabando ? `Grabando${c.pausado ? ' (en pausa)' : ''}…` : !c.activo ? 'La repetición instantánea está apagada en la PC: "Guardar clip" no va a tener nada.' : !c.permitido ? 'El modo actual no graba clips.' : c.corriendo ? `Repetición instantánea andando${c.segundos ? ` (${c.segundos} s guardados)` : ''}.` : c.error ? `Clips: ${c.error}` : 'Repetición instantánea en pausa.';
   const g = $('#boton-grabar');
@@ -234,6 +247,7 @@ async function mandarTexto(t) {
     const r = await api('/api/texto', { metodo: 'POST', cuerpo: { texto }, espera: 120000 });
     pensando.remove();
     sumar('jarvis', r.texto || 'Listo.');
+    if (NATIVO) setTimeout(sincronizarAvisos, 1500); // por si fue "recordame…": que el celular ya lo tenga
     fase(/^(No pude|Algo falló)/.test(r.texto || '') ? 'error' : 'ok', 1400);
     // Jarvis preguntó "¿lo hago?": botones para contestar de un toque.
     if (r.espera || /\?\s*$/.test(r.texto || '')) {
@@ -416,7 +430,7 @@ async function pintarArchivos() {
       : 'Todavía no guardaste nada en este celular. Descargá algo eligiendo "En este celular", o abrí un archivo de la PC y tocá "Pasar al celular".';
   ul.replaceChildren(...(lista.length ? lista.map((a) => h('li', {},
     h('button', { type: 'button', class: 'abrir', 'aria-label': `Abrir ${sinExt(a.nombre)}`, onclick: () => abrirArchivo(a) },
-      a.miniatura ? h('span', { class: 'mini' }, h('img', { src: u(a.miniatura), alt: '', loading: 'lazy', onerror: (e) => e.target.replaceWith(h('span', { html: svg(a.tipo === 'audio' ? 'musica' : 'clip', 26) })) }))
+      a.miniatura ? h('span', { class: 'mini' }, h('img', { src: medio(a.miniatura), alt: '', loading: 'lazy', onerror: (e) => e.target.replaceWith(h('span', { html: svg(a.tipo === 'audio' ? 'musica' : 'clip', 26) })) }))
         : h('span', { class: 'mini', html: svg(a.tipo === 'audio' ? 'musica' : 'clip', 26) }),
       h('span', { class: 'datos' }, h('b', {}, sinExt(a.nombre)), h('span', {}, [TIPO[a.tipo] || '', a.tipo === 'clip' ? a.carpeta : '', cuando(a.fecha), tam(a.bytes)].filter(Boolean).join(', ')))))) : [h('li', { class: 'tenue vacio' }, vacio)]));
   if (donde === 'celular' && navigator.storage && navigator.storage.estimate) {
@@ -430,11 +444,11 @@ const hoja = $('#hoja-archivo');
 let abierto = null; // { a, donde, url }
 async function abrirArchivo(a) {
   const enCel = donde === 'celular';
-  let src = u(a.ver);
+  let src = medio(a.ver);
   if (enCel) { try { src = URL.createObjectURL(await local.blob(a.id)); } catch (e) { aviso(e.message, { tipo: 'mal' }); return; } }
   abierto = { a, enCel, url: enCel ? src : '' };
-  const medio = a.tipo === 'audio' ? h('audio', { controls: '', src, preload: 'metadata' }) : h('video', { controls: '', playsinline: '', src, preload: 'metadata' });
-  $('#ha-medio').replaceChildren(medio);
+  const reproductor = a.tipo === 'audio' ? h('audio', { controls: '', src, preload: 'metadata' }) : h('video', { controls: '', playsinline: '', src, preload: 'metadata' });
+  $('#ha-medio').replaceChildren(reproductor);
   $('#ha-medio').className = a.tipo === 'audio' ? 'audio' : '';
   $('#ha-nombre').textContent = sinExt(a.nombre);
   $('#ha-datos').textContent = [TIPO[a.tipo], enCel ? 'En este celular' : `En la PC${a.carpeta ? ` (${a.carpeta})` : ''}`, tam(a.bytes)].filter(Boolean).join('. ');
@@ -557,7 +571,7 @@ document.querySelectorAll('[data-clip]').forEach((b) => b.addEventListener('clic
 }));
 
 // ---------- Música ----------
-document.querySelectorAll('[data-musica]').forEach((b) => { b.innerHTML = svg(b.dataset.musica === 'alternar' ? 'play' : b.dataset.musica, b.classList.contains('grande') ? 28 : 22); b.addEventListener('click', () => accion({ tipo: 'musica', accion: b.dataset.musica }, b)); });
+
 
 // ---------- WhatsApp ----------
 $('#form-wa').addEventListener('submit', async (e) => {
@@ -570,14 +584,16 @@ $('#form-wa').addEventListener('submit', async (e) => {
 $('#wa-foto').addEventListener('click', (e) => {
   const para = $('#wa-para').value.trim();
   if (!para) { aviso('Escribí a quién mandarle la foto.', { tipo: 'mal' }); $('#wa-para').focus(); return; }
-  accion({ tipo: 'foto', contacto: para }, e.currentTarget);
+  const mensaje = $('#wa-texto').value.trim();
+  accion({ tipo: 'foto', contacto: para, ...(mensaje ? { mensaje } : {}) }, e.currentTarget).then((r) => { if (r && mensaje) $('#wa-texto').value = ''; });
 });
 
 // ---------- Navegación ----------
-const HOJAS = ['charla', 'rutinas', 'descargar', 'archivos', 'mensaje'];
-let hojaActual = 'charla';
+const HOJAS = ['inicio', 'charla', 'descargar', 'archivos', 'mensaje'];
+let hojaActual = 'inicio';
 function irA(hoja) {
-  if (!HOJAS.includes(hoja)) hoja = 'charla';
+  if (!HOJAS.includes(hoja)) hoja = 'inicio';
+  if (hoja !== 'inicio' && editando) terminarEdicion();
   for (const x of HOJAS) $(`#s-${x}`).hidden = x !== hoja;
   document.querySelectorAll('#abajo button').forEach((b) => { if (b.dataset.hoja === hoja) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); });
   guardado.escribir('hoja', hoja);
@@ -585,6 +601,7 @@ function irA(hoja) {
   if (hoja === 'archivos') cargarArchivos();
   if (hoja === 'descargar') seguirDescargas();
   if (hoja === 'charla') $('#mensajes').scrollTop = 1e9;
+  if (hoja === 'inicio') { pintarInicio(); cargarInicio(); }
 }
 document.querySelectorAll('#abajo button').forEach((b) => { b.querySelector('.i').innerHTML = svg(b.querySelector('.i').dataset.i); b.addEventListener('click', () => irA(b.dataset.hoja)); });
 $('#enviar').innerHTML = svg('enviar');
@@ -621,7 +638,7 @@ function mostrarApp() {
   $('#vincular').hidden = true;
   $('#app').hidden = false; $('#abajo').hidden = false; $('#boton-menu').hidden = false;
   pintarCharla();
-  irA(guardado.leer('hoja', 'charla'));
+  irA('inicio'); // siempre arranca en Inicio (y "atrás" vuelve acá)
 }
 const campoCodigo = $('#codigo');
 campoCodigo.addEventListener('input', () => { const d = campoCodigo.value.replace(/\D/g, '').slice(0, 6); campoCodigo.value = d.length > 3 ? `${d.slice(0, 3)} ${d.slice(3)}` : d; });
@@ -670,6 +687,7 @@ $('#form-vincular').addEventListener('submit', async (e) => {
     fase('ok', 1400);
     mostrarApp();
     aviso(`Listo, "${r.nombre}" quedó vinculado.`, { tipo: 'bien' });
+    if (NATIVO) { nativo.pedirPermisoAvisos().catch(() => {}); ultimaSincro = 0; }
     refrescar();
     seguir();
   } catch (x) {
@@ -680,6 +698,224 @@ $('#form-vincular').addEventListener('submit', async (e) => {
 function nombrePorDefecto() {
   const m = /Android[^;]*;\s*([^;)]+?)(?:\s+Build|\))/.exec(navigator.userAgent);
   return m && !/^K$/.test(m[1].trim()) ? m[1].trim().slice(0, 40) : 'Mi celular';
+}
+
+// ---------- Inicio: widgets (como el panel del notch de la PC, en una grilla de 2 columnas) ----------
+// Cada celular tiene el suyo (se guarda en el celular). tam: 1 = media fila, 2 = fila entera. alto: 1 o 2.
+const COLORES_W = ['', '#6EE787', '#FFC857', '#FF8FA3', '#C3A6FF', '#6EA8FE', '#FF9F5A', '#FFFFFF'];
+const TIPOS_W = {
+  reloj: { nombre: 'Reloj', icono: 'reloj', tams: [1, 2], unico: true },
+  clima: { nombre: 'Clima', icono: 'sol', tams: [1, 2], altos: [1, 2], unico: true },
+  agenda: { nombre: 'Próximos eventos', icono: 'calendario', tams: [2], altos: [1, 2], unico: true },
+  notas: { nombre: 'Recordatorios y notas', icono: 'nota', tams: [2], altos: [1, 2], unico: true },
+  nota: { nombre: 'Nota rápida', icono: 'nota', tams: [2], unico: true },
+  rutinas: { nombre: 'Rutinas', icono: 'rayo', tams: [2], unico: true },
+  rutina: { nombre: 'Una rutina', icono: 'estrella', tams: [1, 2], datos: 'rutina' },
+  modos: { nombre: 'Modos', icono: 'modos', tams: [2], unico: true },
+  modo: { nombre: 'Botón de un modo', icono: 'modos', tams: [1, 2], datos: 'modo' },
+  musica: { nombre: 'Música en la PC', icono: 'musica', tams: [2], altos: [1, 2], unico: true },
+  volumen: { nombre: 'Volumen de la PC', icono: 'parlante', tams: [2], unico: true },
+  'clip-guardar': { nombre: 'Guardar clip', icono: 'clip', tams: [1, 2], unico: true },
+  captura: { nombre: 'Captura de pantalla', icono: 'camara', tams: [1, 2], unico: true },
+  frase: { nombre: 'Atajo de voz', icono: 'charla', tams: [1, 2], datos: 'frase' },
+};
+const INICIO_DE_SIEMPRE = [
+  { tipo: 'reloj', tam: 1 }, { tipo: 'clima', tam: 1 }, { tipo: 'agenda', tam: 2 }, { tipo: 'rutinas', tam: 2 },
+  { tipo: 'modos', tam: 2 }, { tipo: 'musica', tam: 2 }, { tipo: 'clip-guardar', tam: 1 }, { tipo: 'captura', tam: 1 }, { tipo: 'notas', tam: 2 },
+];
+const idW = () => `w${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
+function normalizarW(w) {
+  const t = TIPOS_W[w && w.tipo];
+  if (!t) return null;
+  const tam = t.tams.includes(Number(w.tam)) ? Number(w.tam) : t.tams[t.tams.length - 1];
+  const alto = (t.altos || [1]).includes(Number(w.alto)) ? Number(w.alto) : 1;
+  return { ...w, id: w.id || idW(), tam, alto, color: COLORES_W.includes(w.color) ? w.color : '' };
+}
+let widgets = (guardado.leer('inicio', null) || INICIO_DE_SIEMPRE).map(normalizarW).filter(Boolean);
+const guardarWidgets = () => guardado.escribir('inicio', widgets);
+let datosInicio = guardado.leer('inicio.datos', { clima: null, agenda: [], notas: [] });
+let pidiendoInicio = false; let ultimoInicio = 0;
+async function cargarInicio(forzar) {
+  if (pidiendoInicio || (!forzar && Date.now() - ultimoInicio < 60000)) return;
+  pidiendoInicio = true;
+  try { datosInicio = await api('/api/inicio', { espera: 15000 }); ultimoInicio = Date.now(); guardado.escribir('inicio.datos', datosInicio); pintarInicio(); } catch {} finally { pidiendoInicio = false; }
+}
+setInterval(() => { if (!document.hidden && hojaActual === 'inicio' && guardado.token) { pintarInicio(); cargarInicio(); } }, 30000);
+// Le dice algo a Jarvis como si lo escribieras en la Charla.
+function decirAJarvis(texto) { irA('charla'); mandarTexto(texto); }
+const hhmm = (t) => new Date(t).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+function enCuanto(ev) {
+  const ahora = Date.now();
+  if (ev.todoElDia) return 'Todo el día';
+  if (ev.inicio <= ahora) return `Ahora · hasta las ${hhmm(ev.fin)}`;
+  const min = Math.round((ev.inicio - ahora) / 60000);
+  if (min < 60) return `En ${Math.max(1, min)} min · ${hhmm(ev.inicio)}`;
+  const manana = new Date(ahora + 86400000).toDateString() === new Date(ev.inicio).toDateString();
+  return `${new Date(ev.inicio).toDateString() === new Date(ahora).toDateString() ? 'Hoy' : manana ? 'Mañana' : new Date(ev.inicio).toLocaleDateString('es-AR', { weekday: 'long' })} · ${hhmm(ev.inicio)}`;
+}
+const cuandoNota = (t) => { const d = new Date(t); const hoy = d.toDateString() === new Date().toDateString(); return `${hoy ? 'Hoy' : d.toLocaleDateString('es-AR', { day: 'numeric', month: 'short' })} ${hhmm(t)}`; };
+const ICONO_CIELO = (c, dia) => (c === 0 || c === 1 ? (dia ? 'sol' : 'luna') : c <= 3 ? 'nube' : c >= 51 && c <= 82 ? 'lluvia' : c >= 95 ? 'rayo' : 'nube');
+let volumenLocal = guardado.leer('volumen', 50);
+
+function contenidoW(w) {
+  const e = estado || {};
+  const boton = (ic, texto, fn, extra = {}) => h('button', { type: 'button', class: 'w-boton', onclick: (ev) => fn(ev.currentTarget), ...extra }, h('span', { class: 'w-ic', html: svg(ic, w.alto === 2 ? 30 : 22) }), h('span', {}, texto));
+  switch (w.tipo) {
+    case 'reloj': {
+      const d = new Date();
+      return h('div', { class: 'w-reloj' }, h('b', {}, hhmm(d)), h('span', {}, d.toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' })));
+    }
+    case 'clima': {
+      const c = datosInicio.clima;
+      if (!c || c.sinCiudad) return h('div', { class: 'w-info tenue' }, c && c.sinCiudad ? 'Cargá tu ciudad en la PC (Ajustes → Asistente).' : 'Clima…');
+      if (c.error) return h('div', { class: 'w-info tenue' }, 'El clima no respondió.');
+      return h('button', { type: 'button', class: 'w-clima', onclick: () => decirAJarvis('¿Cómo está el clima?') },
+        h('span', { class: 'w-ic', html: svg(ICONO_CIELO(c.codigo, c.dia), 30) }),
+        h('span', {}, h('b', {}, `${c.temp}°`), h('small', {}, w.tam === 2 ? `${c.cielo} · ${c.ciudad}` : c.cielo),
+          w.alto === 2 && c.max != null ? h('small', {}, `Máx ${c.max}° · Mín ${c.min}°${c.lluvia != null ? ` · Lluvia ${c.lluvia}%` : ''}`) : null));
+    }
+    case 'agenda': {
+      const evs = (datosInicio.agenda || []).filter((x) => x.fin > Date.now()).slice(0, w.alto === 2 ? 3 : 1);
+      if (!evs.length) return h('button', { type: 'button', class: 'w-lista', onclick: () => decirAJarvis('¿Qué tengo hoy?') }, h('span', { class: 'w-fila' }, h('span', { class: 'w-ic', html: svg('calendario', 18) }), h('span', {}, h('b', {}, 'Sin eventos'), h('small', {}, 'Nada próximo en tu calendario'))));
+      return h('button', { type: 'button', class: 'w-lista', onclick: () => decirAJarvis('¿Qué tengo hoy?') }, ...evs.map((ev) => h('span', { class: 'w-fila' }, h('span', { class: 'w-ic', html: svg('calendario', 18) }), h('span', {}, h('b', {}, ev.titulo), h('small', {}, enCuanto(ev))))));
+    }
+    case 'notas': {
+      const ns = (datosInicio.notas || []).slice(0, w.alto === 2 ? 5 : 2);
+      if (!ns.length) return h('div', { class: 'w-info tenue' }, 'Sin notas. Probá: "recordame comprar pan a las 5".');
+      return h('div', { class: 'w-lista' }, ...ns.map((n) => h('span', { class: 'w-fila' }, h('span', { class: 'w-ic', html: svg(n.cuando && !n.avisada ? 'reloj' : 'nota', 18) }), h('span', {}, h('b', {}, n.texto), n.cuando ? h('small', {}, cuandoNota(n.cuando)) : null))));
+    }
+    case 'nota': {
+      const campo = h('input', { type: 'text', placeholder: 'Anotá algo…', maxlength: '500', 'aria-label': 'Nota rápida' });
+      const mandar = async (b) => { const t = campo.value.trim(); if (!t) return; const r = await accion({ tipo: 'nota', texto: t }, b); if (r) { campo.value = ''; ultimoInicio = 0; cargarInicio(true); } };
+      campo.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); mandar(null); } });
+      return h('div', { class: 'w-nota' }, campo, h('button', { type: 'button', class: 'icono principal', 'aria-label': 'Guardar nota', html: svg('mas'), onclick: (ev) => mandar(ev.currentTarget) }));
+    }
+    case 'rutinas': {
+      const rs = [...(e.rutinas || [])].sort((a, b) => (b.rapida - a.rapida)).slice(0, 8);
+      if (!rs.length) return h('div', { class: 'w-info tenue' }, 'No tenés rutinas. Se arman en la PC, en Rutinas.');
+      return h('div', { class: 'w-rutinas' }, ...rs.map((r) => h('button', { type: 'button', class: 'rutina', onclick: (ev) => accion({ tipo: 'rutina', id: r.id }, ev.currentTarget) }, h('span', { html: svg(r.icono || 'rayo', 20) }), h('span', {}, r.nombre))));
+    }
+    case 'rutina': {
+      const r = (e.rutinas || []).find((x) => x.id === w.rutina);
+      return boton(r ? (r.icono || 'estrella') : 'estrella', r ? r.nombre : 'Rutina borrada', (b) => r && accion({ tipo: 'rutina', id: r.id }, b));
+    }
+    case 'modos':
+      return h('div', { class: 'fichas', role: 'radiogroup', 'aria-label': 'Modo de Jarvis' }, ...(e.modos || []).map((m) => h('button', { type: 'button', role: 'radio', 'aria-checked': String(m.id === e.modo), class: m.id === e.modo ? 'on' : '', onclick: (ev) => accion({ tipo: 'modo', modo: m.id }, ev.currentTarget) }, m.nombre)));
+    case 'modo': {
+      const m = (e.modos || []).find((x) => x.id === w.modo);
+      return boton('modos', m ? `Modo ${m.nombre.toLowerCase()}` : 'Modo borrado', (b) => m && accion({ tipo: 'modo', modo: m.id }, b), { 'aria-pressed': String(!!m && e.modo === m.id), class: `w-boton${m && e.modo === m.id ? ' activo' : ''}` });
+    }
+    case 'musica': {
+      const mu = e.musica || {};
+      const ctrl = (a, ic, etiqueta, grande) => h('button', { type: 'button', class: `icono${grande ? ' grande' : ''}`, 'aria-label': etiqueta, html: svg(ic, grande ? 28 : 22), onclick: (ev) => accion({ tipo: 'musica', accion: a }, ev.currentTarget) });
+      return h('div', { class: 'w-musica' },
+        h('p', { class: 'tenue' }, mu.cancion ? `${mu.sonando ? 'Sonando' : 'En pausa'}: ${mu.cancion}${mu.artista ? `, ${mu.artista}` : ''}${mu.destino ? ` (en ${mu.destino})` : ''}` : 'Nada sonando. Play arranca la música de siempre.'),
+        h('div', { class: 'controles' }, ctrl('anterior', 'anterior', 'Anterior'), ctrl('alternar', mu.sonando ? 'pausa' : 'play', 'Pausa o play', true), ctrl('siguiente', 'siguiente', 'Siguiente')));
+    }
+    case 'volumen': {
+      const barra = h('input', { type: 'range', min: '0', max: '100', step: '5', value: String(volumenLocal), 'aria-label': 'Volumen de la PC' });
+      barra.addEventListener('change', () => { volumenLocal = Number(barra.value); guardado.escribir('volumen', volumenLocal); accion({ tipo: 'volumen', nivel: volumenLocal }); });
+      return h('div', { class: 'w-volumen' }, h('span', { class: 'w-ic', html: svg('parlante', 22) }), barra, h('button', { type: 'button', class: 'icono', 'aria-label': 'Silenciar la PC', html: svg('mudo', 22), onclick: (ev) => accion({ tipo: 'volumen', mudo: true }, ev.currentTarget) }));
+    }
+    case 'clip-guardar': return boton('clip', 'Guardar clip', (b) => accion({ tipo: 'clip', accion: 'guardar' }, b));
+    case 'captura': return boton('camara', 'Captura', (b) => accion({ tipo: 'clip', accion: 'captura' }, b));
+    case 'frase': return boton('charla', w.nombre || w.texto || 'Atajo', () => decirAJarvis(w.texto || ''));
+    default: return h('span');
+  }
+}
+
+let editando = false;
+function pintarInicio() {
+  const caja = $('#widgets');
+  if (!caja) return;
+  const hora = new Date().getHours();
+  $('#saludo').textContent = `${hora < 6 ? 'Buenas noches' : hora < 13 ? 'Buen día' : hora < 20 ? 'Buenas tardes' : 'Buenas noches'}${estado && estado.usuario ? `, ${estado.usuario}` : ''}`;
+  caja.classList.toggle('editando', editando);
+  caja.replaceChildren(...widgets.map((w, i) => {
+    const t = TIPOS_W[w.tipo];
+    const el = h('div', { class: `widget wt-${w.tipo} tam-${w.tam} alto-${w.alto}`, style: w.color ? `--c:${w.color}` : '', 'data-id': w.id }, contenidoW(w));
+    if (editando) {
+      const mover = (d) => { const j = i + d; if (j < 0 || j >= widgets.length) return; [widgets[i], widgets[j]] = [widgets[j], widgets[i]]; guardarWidgets(); pintarInicio(); };
+      const cambiar = (k, lista) => { const p = lista.indexOf(w[k]); w[k] = lista[(p + 1) % lista.length]; guardarWidgets(); pintarInicio(); };
+      el.append(h('div', { class: 'w-editar' },
+        h('span', { class: 'w-nombre' }, t.nombre),
+        h('div', { class: 'w-botones' },
+          h('button', { type: 'button', class: 'icono', 'aria-label': `Subir ${t.nombre}`, html: svg('arriba', 18), disabled: i === 0, onclick: () => mover(-1) }),
+          h('button', { type: 'button', class: 'icono', 'aria-label': `Bajar ${t.nombre}`, html: svg('abajo', 18), disabled: i === widgets.length - 1, onclick: () => mover(1) }),
+          t.tams.length > 1 ? h('button', { type: 'button', class: 'icono', 'aria-label': `Ancho de ${t.nombre}`, html: svg('ancho', 18), onclick: () => cambiar('tam', t.tams) }) : null,
+          (t.altos || []).length > 1 ? h('button', { type: 'button', class: 'icono', 'aria-label': `Alto de ${t.nombre}`, html: svg('alto', 18), onclick: () => cambiar('alto', t.altos) }) : null,
+          h('button', { type: 'button', class: 'icono', 'aria-label': `Color de ${t.nombre}`, html: svg('pintar', 18), onclick: () => cambiar('color', COLORES_W) }),
+          h('button', { type: 'button', class: 'icono peligro', 'aria-label': `Quitar ${t.nombre}`, html: svg('cerrar', 18), onclick: () => { widgets.splice(i, 1); guardarWidgets(); pintarInicio(); } }))));
+    }
+    return el;
+  }));
+  if (!widgets.length && !editando) caja.append(h('p', { class: 'tenue' }, 'Inicio vacío. Tocá Editar para sumar widgets.'));
+}
+function terminarEdicion() { editando = false; $('#editando').hidden = true; $('#editar-inicio').textContent = 'Editar'; pintarInicio(); }
+$('#editar-inicio').addEventListener('click', () => { if (editando) { terminarEdicion(); return; } editando = true; $('#editando').hidden = false; $('#editar-inicio').textContent = 'Listo'; pintarInicio(); });
+$('#restaurar-inicio').addEventListener('click', () => { if (!confirm('¿Volver al inicio de siempre? Se pierden los cambios.')) return; widgets = INICIO_DE_SIEMPRE.map(normalizarW); guardarWidgets(); pintarInicio(); });
+const hojaW = $('#hoja-widgets');
+$('#hw-cerrar').addEventListener('click', () => hojaW.close());
+function sumarWidget(w) { widgets.push(normalizarW(w)); guardarWidgets(); hojaW.close(); pintarInicio(); cargarInicio(true); setTimeout(() => { const ult = $('#widgets').lastElementChild; if (ult) ult.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 50); }
+function catalogo() {
+  const e = estado || {};
+  const opcion = (ic, nombre, fn) => h('button', { type: 'button', class: 'w-opcion', onclick: fn }, h('span', { class: 'w-ic', html: svg(ic, 20) }), h('span', {}, nombre));
+  $('#hw-titulo').textContent = 'Agregar un widget';
+  $('#catalogo').replaceChildren(...Object.entries(TIPOS_W).filter(([k, t]) => !(t.unico && widgets.some((w) => w.tipo === k))).map(([k, t]) => opcion(t.icono, t.nombre, () => {
+    if (t.datos === 'rutina') {
+      $('#hw-titulo').textContent = '¿Qué rutina?';
+      $('#catalogo').replaceChildren(...((e.rutinas || []).length ? e.rutinas.map((r) => opcion(r.icono || 'estrella', r.nombre, () => sumarWidget({ tipo: 'rutina', tam: 1, rutina: r.id }))) : [h('p', { class: 'tenue' }, 'No tenés rutinas: se arman en la PC.')]));
+      return;
+    }
+    if (t.datos === 'modo') {
+      $('#hw-titulo').textContent = '¿Qué modo?';
+      $('#catalogo').replaceChildren(...(e.modos || []).map((m) => opcion('modos', m.nombre, () => sumarWidget({ tipo: 'modo', tam: 1, modo: m.id }))));
+      return;
+    }
+    if (t.datos === 'frase') {
+      const texto = (prompt('¿Qué le decís a Jarvis con este botón? (por ejemplo: "poné música")') || '').trim();
+      if (!texto) return;
+      const nombre = (prompt('Nombre del botón', texto.slice(0, 24)) || texto).trim().slice(0, 30);
+      sumarWidget({ tipo: 'frase', tam: 1, texto: texto.slice(0, 300), nombre });
+      return;
+    }
+    sumarWidget({ tipo: k, tam: t.tams[t.tams.length - 1] });
+  })));
+  hojaW.showModal();
+}
+$('#sumar-widget').addEventListener('click', catalogo);
+
+// ---------- Avisos del celular (app de Android) ----------
+// La PC dice qué avisar en las próximas 48 h (recordatorios y eventos, si en Ajustes → Celular se eligió el celular);
+// Android los programa como notificaciones, aunque la app esté cerrada. Cada 15 minutos Android vuelve a preguntar solo.
+const avisosActivos = () => guardado.leer('avisos', true);
+async function sincronizarAvisos() {
+  if (!NATIVO || !guardado.token) return;
+  const pc = pcElegida();
+  try { await nativo.configurarPC({ base: pc ? pc.base : '', token: guardado.token, avisos: avisosActivos() }); } catch {}
+  if (!avisosActivos()) { nativo.programarAvisos({ avisos: [] }).catch(() => {}); return; }
+  try {
+    const r = await api('/api/avisos', { espera: 10000 });
+    await nativo.programarAvisos({ avisos: r.avisos || [] });
+  } catch {}
+}
+function pintarMenuAvisos() { const b = $('#m-avisos'); b.hidden = !NATIVO; b.textContent = `Avisos en este celular: ${avisosActivos() ? 'sí' : 'no'}`; }
+$('#m-avisos').addEventListener('click', async () => {
+  guardado.escribir('avisos', !avisosActivos()); pintarMenuAvisos(); menu.hidden = true;
+  if (avisosActivos()) await nativo.pedirPermisoAvisos().catch(() => {});
+  sincronizarAvisos();
+  aviso(avisosActivos() ? 'Listo: los recordatorios y eventos también te avisan en este celular.' : 'Listo: este celular no te va a avisar nada.', { tipo: 'bien' });
+});
+
+// ---------- Botón "atrás" de Android ----------
+// Cierra lo que esté abierto; si no hay nada, vuelve a Inicio; en Inicio, sale de la app.
+function atras() {
+  const dialogo = document.querySelector('dialog[open]');
+  if (dialogo) { dialogo.close(); return; }
+  if (!menu.hidden) { menu.hidden = true; return; }
+  if (editando) { terminarEdicion(); return; }
+  if (!$('#app').hidden && hojaActual !== 'inicio') { irA('inicio'); return; }
+  nativo.salir();
 }
 
 // ---------- Lo propio de la app de Android ----------
@@ -709,6 +945,8 @@ function prepararNativo() {
   nativo.addListener('compartido', (d) => recibirCompartido(d && d.texto));
   nativo.compartidoPendiente().then((d) => recibirCompartido(d && d.texto)).catch(() => {});
   $('#buscar-pcs').addEventListener('click', () => buscarParaVincular());
+  nativo.addListener('atras', () => atras());
+  pintarMenuAvisos();
   revisarVersion();
 }
 

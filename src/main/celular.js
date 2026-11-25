@@ -49,6 +49,8 @@ const puente = {
   descargar: async () => ({ id: 0, texto: '' }), // ({ url, modo, calidad, para, carpeta }) con yt-dlp
   descarga: () => null, // id -> { estado, pct, nombre, archivo, error, … }
   guardarSubida: async () => 'Listo.', // (ruta, nombre) lo que mandó el celular, a la carpeta de Descargas de la PC
+  inicio: async () => ({}), // datos de los widgets de Inicio: { clima, agenda, notas }
+  avisos: () => [], // lo que el celular tiene que avisar: [{ id, cuando, titulo, texto, tipo }] (si el usuario lo quiere ahí)
   anotar: () => {}, // (texto, { error }) al Historial
   cambio: () => {}, // avisa a Ajustes que cambió la lista de aparatos o el código
 };
@@ -249,7 +251,7 @@ function frenar() {
   return ++fallidos.n > 30;
 }
 
-const ACCIONES = new Set(['rutina', 'clip', 'whatsapp', 'foto', 'modo', 'musica']);
+const ACCIONES = new Set(['rutina', 'clip', 'whatsapp', 'foto', 'modo', 'musica', 'volumen', 'nota']);
 
 // ---------- Archivos temporales del celular ----------
 const misDescargas = new Map(); // id de la descarga -> { dispositivo, para, carpeta }
@@ -385,6 +387,8 @@ async function atender(req, res, { casa = false } = {}) {
       json(res, 200, { texto: String(await puente.accion(b, { id: yo.id, nombre: yo.nombre }) || 'Listo.') });
       return;
     }
+    if (ruta === '/api/inicio' && metodo === 'GET') { json(res, 200, await puente.inicio(yo)); return; }
+    if (ruta === '/api/avisos' && metodo === 'GET') { json(res, 200, { avisos: puente.avisos(yo) || [], ahora: Date.now() }); return; }
     if (ruta === '/api/clips' && metodo === 'GET') { json(res, 200, { clips: LISTA_ARCHIVOS(yo).filter((a) => a.tipo === 'clip').slice(0, 30) }); return; }
     if (ruta === '/api/archivos' && metodo === 'GET') { json(res, 200, { archivos: LISTA_ARCHIVOS(yo) }); return; }
     if ((ruta === '/api/clips/enviar' || ruta === '/api/archivos/enviar') && metodo === 'POST') {

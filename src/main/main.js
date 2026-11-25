@@ -1058,6 +1058,8 @@ app.on('window-all-closed', () => {}); // Jarvis sigue vivo en la bandeja aunque
 // Lo que el celular puede pedir: lo mismo que la voz o los botones, por las mismas funciones. Queda en el Historial como "celular".
 const MODOS_CLIP = new Set(['guardar', 'grabar', 'parar', 'pausar', 'seguir', 'enviar', 'captura', 'captura-enviar']);
 const MUSICA_CEL = new Set(['alternar', 'pausar', 'reanudar', 'siguiente', 'anterior']);
+// "Le mandé el mensaje a Ana" / "Te mandé el mensaje a tu WhatsApp" (nunca "a Yo").
+const mandeA = (que, contacto) => (whatsapp.esParaMi(contacto) ? `Listo, te mandé ${que} a tu WhatsApp.` : `Listo, le mandé ${que} a ${contacto}.`);
 async function accionDelCelular(b, quien) {
   const etiqueta = (t) => `${t} (desde ${quien.nombre || 'el celular'})`;
   const conHistorial = async (texto, fn) => {
@@ -1080,11 +1082,22 @@ async function accionDelCelular(b, quien) {
     case 'whatsapp': {
       const mensaje = String(b.mensaje || '').trim().slice(0, 4000);
       if (!contacto || !mensaje) throw Object.assign(new Error('Falta a quién o el mensaje.'), { status: 400 });
-      return conHistorial(`WhatsApp a ${contacto}: ${mensaje.slice(0, 80)}`, async () => { await acciones.ejecutarPaso({ tipo: 'whatsapp', contacto, mensaje }, { porVoz: false }); return `Listo, le mandé el mensaje a ${contacto}.`; });
+      return conHistorial(`WhatsApp a ${contacto}: ${mensaje.slice(0, 80)}`, async () => { await acciones.ejecutarPaso({ tipo: 'whatsapp', contacto, mensaje }, { porVoz: false }); return mandeA('el mensaje', contacto); });
     }
     case 'foto': {
       if (!contacto) throw Object.assign(new Error('Elegí a quién mandarle la foto.'), { status: 400 });
-      return conHistorial(`Foto de la webcam a ${contacto}`, async () => { await acciones.ejecutarPaso({ tipo: 'foto_whatsapp', contacto }, { porVoz: false }); return `Listo, le mandé la foto a ${contacto}.`; });
+      // Con el texto del mensaje (si hay) como epígrafe de la foto.
+      const epigrafe = String(b.mensaje || '').trim().slice(0, 1000);
+      return conHistorial(`Foto de la webcam a ${contacto}${epigrafe ? ` con el texto: ${epigrafe.slice(0, 60)}` : ''}`, async () => { await acciones.ejecutarPaso({ tipo: 'foto_whatsapp', contacto, ...(epigrafe ? { epigrafe } : {}) }, { porVoz: false }); return mandeA(epigrafe ? 'la foto con el mensaje' : 'la foto', contacto); });
+    }
+    case 'volumen': {
+      if (b.mudo !== undefined) return conHistorial(b.mudo ? 'Silenciar la PC' : 'Sacar el silencio de la PC', () => require('./pc').silenciar(!!b.mudo));
+      return conHistorial(`Volumen de la PC en ${Math.round(Number(b.nivel))}`, () => require('./pc').volumen(b.nivel));
+    }
+    case 'nota': {
+      const texto = String(b.texto || '').trim().slice(0, 2000);
+      if (!texto) throw Object.assign(new Error('Escribí la nota.'), { status: 400 });
+      return conHistorial(`Nota: ${texto.slice(0, 60)}`, async () => { await notas.crear({ texto }); return 'Listo, quedó en tus notas.'; });
     }
     case 'modo': {
       const modo = String(b.modo || '');
@@ -1145,7 +1158,28 @@ function estadoParaCelular() {
     conexion: { sin: !!conexion.estado().sin },
   };
 }
+// Inicio del celular: lo que muestran los widgets que necesitan datos de la PC.
+async function inicioParaCelular() {
+  const c = leerConfig();
+  const clima = c.ciudad ? await require('./internet').climaDatos(c.ciudad).catch((e) => ({ error: e.message })) : { sinCiudad: true };
+  const lista = notas.listar().slice().sort((a, b) => (Number(!!(b.cuando && !b.avisada)) - Number(!!(a.cuando && !a.avisada))) || (b.creada - a.creada)).slice(0, 6)
+    .map((n) => ({ id: n.id, texto: n.texto, cuando: n.cuando || null, avisada: !!n.avisada }));
+  return { clima, agenda: calendario.proximos(3), notas: lista };
+}
+// Lo que el celular avisa como notificación (si en Ajustes → Celular se eligió avisar ahí): recordatorios y eventos de las próximas 48 h.
+function avisosParaCelular() {
+  const av = leerConfig().avisos || {};
+  const ahora = Date.now(); const hasta = ahora + 48 * 3600000;
+  const salida = [];
+  if ((av.recordatorios || {}).celular !== false) {
+    for (const n of notas.pendientes()) if (!n.enviar && n.cuando > ahora && n.cuando <= hasta) salida.push({ id: `nota|${n.id}|${n.cuando}`, cuando: n.cuando, titulo: 'Recordatorio', texto: n.texto, tipo: 'recordatorio' });
+  }
+  if ((av.calendario || {}).celular !== false) salida.push(...calendario.proximosAvisos(ahora, hasta));
+  return salida.sort((a, b) => a.cuando - b.cuando).slice(0, 60);
+}
 celular.configurar({
+  inicio: inicioParaCelular,
+  avisos: avisosParaCelular,
   texto: (texto, quien) => cerebro.textoRemoto(texto, { id: `cel:${quien.id}`, enVoz: !!leerConfig().celular.hablarEnPC, origen: 'celular' }),
   accion: accionDelCelular,
   estado: estadoParaCelular,
@@ -1293,7 +1327,7 @@ app.whenReady().then(async () => {
     responderA: mail.responderA, mensajeId: mail.mensajeId, clave: `${mail.cuenta}:${mail.uid}`,
   });
   calendario.configurar({
-    alAvisar: (a) => notificaciones.agregar(a),
+    alAvisar: (a) => { if (((leerConfig().avisos || {}).calendario || {}).pc !== false) notificaciones.agregar(a); },
     // Los avisos por WhatsApp y por mail de cada evento (a mí o a otra persona): salen a su hora, o apenas se abre Jarvis si estaba cerrado (calendario.procesar reintenta hasta que salen).
     enviarWhatsapp: (para, texto) => whatsapp.enviarTexto(para, texto),
     enviarMail: (datos) => correo.enviar(datos),
@@ -1310,7 +1344,7 @@ app.whenReady().then(async () => {
       const sinRed = !muyTarde && conexion.sinConexion();
       if (sinRed) { conexion.encolar({ tipo: 'whatsapp', contacto: r.enviar.contacto, mensaje: r.enviar.mensaje }); decir(`${conexion.motivo()}: dejé en cola el mensaje para ${r.enviar.contacto}; sale apenas vuelva internet.`); historial.anotar(`WhatsApp programado a ${r.enviar.contacto}: sin conexión, quedó en cola.`); return; }
       const listo = muyTarde ? Promise.reject(new Error('la PC estuvo apagada y ya pasó mucho tiempo')) : whatsapp.enviarTexto(r.enviar.contacto, r.enviar.mensaje);
-      listo.then(() => { decir(`Le mandé a ${r.enviar.contacto}: ${r.enviar.mensaje}`); historial.anotar(`WhatsApp programado enviado a ${r.enviar.contacto}.`); })
+      listo.then(() => { decir(whatsapp.esParaMi(r.enviar.contacto) ? `Te mandé a tu WhatsApp: ${r.enviar.mensaje}` : `Le mandé a ${r.enviar.contacto}: ${r.enviar.mensaje}`); historial.anotar(`WhatsApp programado enviado a ${r.enviar.contacto}.`); })
         .catch((e) => { fase('error', e.message); decir(`No pude mandar el mensaje programado a ${r.enviar.contacto}: ${e.message}`); historial.anotar(`WhatsApp programado a ${r.enviar.contacto} falló: ${e.message}`, { error: true }); });
       return;
     }
@@ -1318,6 +1352,7 @@ app.whenReady().then(async () => {
     if ((leerConfig().notas || {}).porWhatsapp !== false && whatsapp.leerEstado().fase === 'conectado') {
       whatsapp.enviarTexto('yo', `Recordatorio: ${r.texto}${r.enlace ? `\n${r.enlace}` : ''}`).catch((e) => historial.anotar(`No pude mandarme el recordatorio por WhatsApp: ${e.message}`, { error: true }));
     }
+    if (((leerConfig().avisos || {}).recordatorios || {}).pc === false) return; // avisa solo en el celular
     const conLink = !!r.enlace;
     const mudo = r.sonido === 'ninguno';
     // Queda en la lista de novedades (con su sonido y los ojos pidiendo atención) hasta que lo saques con el tacho.

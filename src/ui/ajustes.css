@@ -786,3 +786,6 @@ ol.pasos > li::before, ol.pasos-lista > li::before, ol.pasos-qr > li::before { c
 .cel-disp input:hover, .cel-disp input:focus { border-color: var(--linea); background: #0c0d10; }
 .cel-disp p { margin: 0; }
 .cel-icono { color: var(--acento); display: inline-flex; }
+
+/* Avisos: en la PC / en el celular */
+.casilla-texto { display: inline-flex; align-items: center; gap: 8px; margin-right: 20px; }

@@ -2728,6 +2728,18 @@ const secciones = {
       pasoVincular(),
       h('h2', {}, 'Celulares vinculados'),
       lista,
+      h('h2', {}, 'Avisos de recordatorios y eventos'),
+      h('p', { class: 'ayuda' }, 'Dónde te avisa Jarvis. En el celular llegan como notificación de la app de Android, aunque esté cerrada (la app los pide a la PC cada 15 minutos y al abrirla; en cada celular se pueden apagar desde su menú).'),
+      (() => {
+        const av = cfg.avisos = cfg.avisos || {};
+        const fila = (clave, nombre) => {
+          const x = av[clave] = av[clave] || { pc: true, celular: true };
+          return campo(nombre, h('div', { class: 'fila' },
+            h('span', { class: 'casilla-texto' }, casilla(x, 'pc', guardar, true), h('span', {}, 'En la PC')),
+            h('span', { class: 'casilla-texto' }, casilla(x, 'celular', guardar, true), h('span', {}, 'En el celular'))));
+        };
+        return [fila('recordatorios', 'Recordatorios ("recordame… a las 5")'), fila('calendario', 'Eventos del calendario')];
+      })(),
       h('h2', {}, 'Cuando le escribís desde el celular'),
       campo('Contestar también en voz alta en la PC', casilla(c, 'hablarEnPC', guardar),
         'Apagado (recomendado): la respuesta solo aparece en el celular; en la PC queda escrita en el notch y en el Historial ("desde el celular").'),

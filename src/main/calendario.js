@@ -294,6 +294,31 @@ function revisar(ahora = Date.now(), { desde } = {}) {
   return avisos;
 }
 
+// Los avisos "en Jarvis" que vienen (para que el celular los programe como notificaciones): [{ id, cuando, titulo, texto }].
+function proximosAvisos(desde = Date.now(), hasta = desde + 48 * 3600000) {
+  const c = leerConfig().calendario;
+  if (!c) return [];
+  const minutosDeSiempre = (Array.isArray(c.minutosAntes) ? c.minutosAntes : [10]).map(Number).filter((m) => m >= 0 && m <= MAX_ANTES);
+  const cfgAvisos = leerConfig().notificaciones || {};
+  const modoAvisos = ['nada', 'elegidos', 'todo'].includes((cfgAvisos.calendario || {}).modo) ? cfgAvisos.calendario.modo : 'todo';
+  if (modoAvisos === 'nada') return [];
+  const cambios = leerCambios();
+  const locales = new Map(leerLocales().map((l) => [l.id, l]));
+  const salida = [];
+  for (const e of eventos) {
+    const { lista } = avisosDe(e, { cambios, locales, minutosDeSiempre, modo: modoAvisos });
+    const ref = e.todoElDia ? e.inicio.getTime() + 9 * 3600000 : e.inicio.getTime();
+    for (const a of lista) {
+      if (a.canal !== 'jarvis') continue;
+      const cuando = ref - a.antes * 60000;
+      if (cuando <= desde || cuando > hasta) continue;
+      const dice = a.antes === 0 ? 'Empieza ahora' : `Empieza ${enCuanto(a.antes, e.inicio)}`;
+      salida.push({ id: `cal|${e.id}|${Math.floor(ref / 60000)}|${a.antes}`, cuando, titulo: e.titulo, texto: a.texto ? llenar(a.texto, e, enCuanto(Math.max(1, a.antes), e.inicio)) : `${dice}${e.lugar ? ` · ${e.lugar}` : ''}`, tipo: 'calendario' });
+    }
+  }
+  return salida.sort((x, y) => x.cuando - y.cuando);
+}
+
 // Manda lo que está en cola (WhatsApp y mail). Si no se puede ahora (WhatsApp todavía conectando, sin internet), se reintenta en la próxima vuelta hasta una hora después del evento.
 const enCurso = new Set();
 const falloAnotado = new Set();
@@ -481,4 +506,4 @@ async function cambiar(id, cambios) {
   await actualizar().catch(() => {});
   return true;
 }
-module.exports = { conocidos, procesar, normalizarAvisos, colorDeCalendario, rango, guardarLocal, borrarLocal, cambiar, lista, proximos, calendariosDeGoogle, enlacesDe, enlaceDeEvento, crearEvento, configurar, iniciar, detener, recargar, actualizar, probar, agenda, revisar, estado, leerEventos, _poner: (x) => { eventos = x; datosFrescos = true; }, _pruebas: { titulos: () => eventos.map((e) => e.titulo) } };
+module.exports = { proximosAvisos, conocidos, procesar, normalizarAvisos, colorDeCalendario, rango, guardarLocal, borrarLocal, cambiar, lista, proximos, calendariosDeGoogle, enlacesDe, enlaceDeEvento, crearEvento, configurar, iniciar, detener, recargar, actualizar, probar, agenda, revisar, estado, leerEventos, _poner: (x) => { eventos = x; datosFrescos = true; }, _pruebas: { titulos: () => eventos.map((e) => e.titulo) } };

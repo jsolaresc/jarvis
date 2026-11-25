@@ -205,6 +205,12 @@ prueba('los comandos de todos los días se entienden sin ningún modelo', () => 
   for (const t of ['Mandame una foto', 'sacá una foto', 'Sacame una foto de la cámara y mandamela', 'enviale una foto a mí']) assert.deepStrictEqual(r(t).pasos, [{ tipo: 'foto_whatsapp', contacto: 'yo' }], t);
   for (const t of ['Mandale foto Eva', 'mandale una foto Eva', 'Mandale foto a Eva', 'mandale foto para Eva']) assert.deepStrictEqual(r(t).pasos, [{ tipo: 'foto_whatsapp', contacto: 'Eva' }], t);
   for (const t of ['Mandale una foto a Eva', 'sacá una foto y mandásela a Eva', 'mandá una foto de la webcam a Eva por WhatsApp']) assert.deepStrictEqual(r(t).pasos, [{ tipo: 'foto_whatsapp', contacto: 'Eva' }], t);
+  // Foto con texto (el texto va como epígrafe), en la PC y desde el celular.
+  assert.deepStrictEqual(r('Mandale una foto a Eva diciendo que estoy ocupado').pasos, [{ tipo: 'foto_whatsapp', contacto: 'Eva', epigrafe: 'Estoy ocupado' }]);
+  assert.deepStrictEqual(r('mandale una foto a Eva diciéndole que ya llego').pasos, [{ tipo: 'foto_whatsapp', contacto: 'Eva', epigrafe: 'Ya llego' }]);
+  assert.deepStrictEqual(r('mandá una foto a Eva con el mensaje mirá esto').pasos, [{ tipo: 'foto_whatsapp', contacto: 'Eva', epigrafe: 'Mirá esto' }]);
+  assert.deepStrictEqual(r('Mandame una foto diciendo que llegué').pasos, [{ tipo: 'foto_whatsapp', contacto: 'yo', epigrafe: 'Llegué' }]);
+  assert.match(r('Mandale una foto a Eva diciendo que estoy ocupado').respuesta, /la foto con el mensaje a Eva/);
   for (const t of ['mandale una foto a Pedro', '¿qué ves en la cámara?']) assert.strictEqual(r(t), null, t);
   assert.strictEqual(whatsapp.jidPropio('5491123456789:12@s.whatsapp.net'), '5491123456789@s.whatsapp.net');
   assert.deepStrictEqual(['yo', 'a mí', 'mi WhatsApp', 'Eva'].map(whatsapp.esParaMi), [true, true, true, false]);

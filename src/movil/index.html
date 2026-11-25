@@ -50,7 +50,7 @@
 
   <!-- App -->
   <main id="app" hidden>
-    <section id="s-charla" class="hoja" aria-label="Charla">
+    <section id="s-charla" class="hoja" aria-label="Charla" hidden>
       <ol id="mensajes" aria-live="polite"></ol>
       <div id="respuestas-rapidas" hidden></div>
       <form id="form-texto">
@@ -59,17 +59,15 @@
       </form>
     </section>
 
-    <section id="s-rutinas" class="hoja" aria-label="Rutinas" hidden>
-      <h2>Rutinas</h2>
-      <div id="lista-rutinas" class="botonera"></div>
-      <h2>Modo</h2>
-      <div id="lista-modos" class="fichas" role="radiogroup" aria-label="Modo de Jarvis"></div>
-      <h2>Música en la PC</h2>
-      <p id="musica-ahora" class="tenue"></p>
-      <div class="controles">
-        <button type="button" class="icono" data-musica="anterior" aria-label="Anterior"></button>
-        <button type="button" class="icono grande" data-musica="alternar" aria-label="Pausa o play"></button>
-        <button type="button" class="icono" data-musica="siguiente" aria-label="Siguiente"></button>
+    <section id="s-inicio" class="hoja" aria-label="Inicio">
+      <div class="fila-titulo inicio-arriba">
+        <h2 id="saludo">Inicio</h2>
+        <button type="button" id="editar-inicio" class="texto">Editar</button>
+      </div>
+      <div id="widgets" class="widgets"></div>
+      <div id="editando" class="editar-pie" hidden>
+        <button type="button" id="sumar-widget" class="principal">Agregar un widget</button>
+        <button type="button" id="restaurar-inicio" class="texto">Volver al inicio de siempre</button>
       </div>
     </section>
 
@@ -137,15 +135,15 @@
         <label for="wa-texto">Mensaje</label>
         <textarea id="wa-texto" rows="4" maxlength="4000" placeholder="Lo que le querés decir"></textarea>
         <button type="submit" class="principal">Mandar mensaje</button>
-        <button type="button" id="wa-foto">Mandar foto de la webcam</button>
+        <button type="button" id="wa-foto">Mandar foto de la webcam (con el mensaje, si escribiste uno)</button>
       </form>
       <p class="tenue" id="wa-estado"></p>
     </section>
   </main>
 
   <nav id="abajo" hidden>
-    <button type="button" data-hoja="charla" aria-current="page"><span class="i" data-i="charla"></span>Charla</button>
-    <button type="button" data-hoja="rutinas"><span class="i" data-i="rayo"></span>Rutinas</button>
+    <button type="button" data-hoja="inicio" aria-current="page"><span class="i" data-i="casa"></span>Inicio</button>
+    <button type="button" data-hoja="charla"><span class="i" data-i="charla"></span>Charla</button>
     <button type="button" data-hoja="descargar"><span class="i" data-i="bajar"></span>Descargar</button>
     <button type="button" data-hoja="archivos"><span class="i" data-i="carpeta"></span>Archivos</button>
     <button type="button" data-hoja="mensaje"><span class="i" data-i="whatsapp"></span>Mensaje</button>
@@ -153,9 +151,19 @@
 
   <div id="menu" role="menu" hidden>
     <p id="menu-yo" class="tenue"></p>
+    <button type="button" role="menuitem" id="m-avisos" hidden>Avisos en este celular: sí</button>
     <button type="button" role="menuitem" id="m-borrar">Borrar la charla</button>
     <button type="button" role="menuitem" id="m-desvincular" class="peligro">Desvincular este celular</button>
   </div>
+
+  <!-- Agregar un widget a Inicio -->
+  <dialog id="hoja-widgets" aria-labelledby="hw-titulo">
+    <div class="ha-cuerpo">
+      <h2 id="hw-titulo">Agregar un widget</h2>
+      <div id="catalogo" class="catalogo"></div>
+      <button type="button" id="hw-cerrar" class="texto">Cerrar</button>
+    </div>
+  </dialog>
 
   <!-- Un archivo: verlo o escucharlo y qué hacer con él -->
   <dialog id="hoja-archivo" aria-labelledby="ha-nombre">

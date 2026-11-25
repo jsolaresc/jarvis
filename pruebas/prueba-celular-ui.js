@@ -97,7 +97,12 @@ async function hasta(fn, ms = 20000, que = '') {
     await p.getByRole('button', { name: 'Vincular' }).click();
     await hasta(() => p.locator('#app:not([hidden])').count(), 8000, 'app después de vincular');
     await hasta(async () => (await p.textContent('#estado-pc')).startsWith('Modo'), 8000, 'estado de la PC');
-    await p.screenshot({ path: path.join(SALIDA, '4-celular-charla-vacia.png') });
+    // Arranca en Inicio, con los widgets de siempre.
+    await hasta(() => p.locator('#s-inicio:not([hidden]) .widget').count(), 5000, 'Inicio con widgets');
+    assert.ok(await p.locator('.w-reloj').count(), 'reloj');
+    await hasta(() => p.locator('.w-clima, .w-clima-error, .w-info').count(), 8000, 'clima');
+    await p.screenshot({ path: path.join(SALIDA, '4-celular-inicio.png'), fullPage: true });
+    await p.click('#abajo button[data-hoja="charla"]');
     // Ajustes se enteró solo: el aparato aparece en la lista y el código ya no está.
     await hasta(() => ajustes.locator('.cel-disp input').count(), 8000, 'aparato en la lista de Ajustes');
     assert.strictEqual(await ajustes.locator('.cel-numero').count(), 0);
@@ -115,12 +120,25 @@ async function hasta(fn, ms = 20000, que = '') {
     const enPC = await notch.evaluate(() => window.jarvis.pedir('cfg:leer'));
     assert.strictEqual(enPC.dato.modo, 'silencio', 'el modo cambió en la PC');
 
-    // Rutinas y modos.
-    await p.click('#abajo button[data-hoja="rutinas"]');
-    await hasta(() => p.locator('#lista-rutinas .rutina').count(), 5000, 'rutinas');
-    await p.click('#lista-modos button:has-text("Normal")');
-    await hasta(async () => (await p.locator('#lista-modos button.on').textContent()) === 'Normal', 8000, 'modo normal');
-    await p.screenshot({ path: path.join(SALIDA, '6-celular-rutinas.png'), fullPage: true });
+    // Inicio: rutinas y modos son widgets.
+    await p.click('#abajo button[data-hoja="inicio"]');
+    await hasta(() => p.locator('.w-rutinas .rutina').count(), 5000, 'rutinas');
+    await p.click('.wt-modos .fichas button:has-text("Normal")');
+    await hasta(async () => (await p.locator('.widget .fichas button.on').textContent()) === 'Normal', 8000, 'modo normal');
+    // Editar Inicio: sumar un atajo de voz, achicar y quitar un widget; queda guardado.
+    const antes = await p.locator('#widgets .widget').count();
+    await p.click('#editar-inicio');
+    await p.click('#sumar-widget');
+    p.once('dialog', (d) => d.accept('qué hora es'));
+    await p.click('#catalogo button:has-text("Atajo de voz")').catch(() => {});
+    await esperar(300);
+    // (la segunda pregunta, el nombre del botón)
+    await hasta(() => p.locator('#widgets .widget').count().then((n) => n === antes + 1), 5000, 'atajo sumado');
+    await p.locator('#widgets .widget').first().locator('button[aria-label^="Quitar"]').click();
+    await p.click('#editar-inicio');
+    assert.strictEqual(await p.locator('#widgets .widget').count(), antes, 'uno más y uno menos');
+    assert.strictEqual(JSON.parse(await p.evaluate(() => localStorage.getItem('jarvis.inicio'))).length, antes);
+    await p.screenshot({ path: path.join(SALIDA, '6-celular-inicio-editado.png'), fullPage: true });
 
     // Descargar: una para este celular (la PC la baja y el celular se la lleva) y un audio para la PC.
     await p.click('#abajo button[data-hoja="descargar"]');
@@ -225,11 +243,12 @@ async function hasta(fn, ms = 20000, que = '') {
     const ctxA = await navegador.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, locale: 'es-AR',
       userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 8 Build/AP2A; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/131.0 Mobile Safari/537.36' });
     await ctxA.route('http://localhost/**', (r) => { const f = path.join(WWW, decodeURIComponent(new URL(r.request().url()).pathname).replace(/^\/$/, '/index.html')); return fs.existsSync(f) ? r.fulfill({ path: f }) : r.fulfill({ status: 404, body: '' }); });
+    await ctxA.route('http://localhost/pc/api/**', async (r) => { const u = new URL(r.request().url()); return r.fulfill(await reenviar(r.request(), new URL(`http://${IP_PC}:47821${u.pathname.slice(3)}${u.search}`))); }); // lo que hace JarvisWebViewClient (va después: la última ruta manda)
     await ctxA.route(/^http:\/\/192\.168\.77\.\d+:47821\//, async (r) => { const u = new URL(r.request().url()); if (u.hostname !== IP_PC) return r.abort('connectionrefused'); return r.fulfill(await reenviar(r.request(), u)); });
     await ctxA.route('https://api.github.com/**', (r) => r.fulfill({ json: { tag_name: 'v9.9.9', assets: [{ name: 'Jarvis-9.9.9.apk', browser_download_url: 'https://github.com/jsolaresc/jarvis/releases/download/v9.9.9/Jarvis-9.9.9.apk' }] } }));
     await ctxA.addInitScript(() => {
       const oyentes = {};
-      window.androidFalso = { archivos: [], abiertos: {}, abierto: '' };
+      window.androidFalso = { archivos: [], abiertos: {}, abierto: '', avisos: null, pc: null, salio: 0 };
       const A = window.androidFalso;
       const plugin = {
         red: async () => ({ ip: '192.168.77.5', prefijo: 24 }),
@@ -241,7 +260,12 @@ async function hasta(fn, ms = 20000, que = '') {
         archivoEscribir: async ({ id, datos }) => { A.abiertos[id].bytes += atob(datos).length; },
         archivoCerrar: async ({ id }) => { A.archivos.push(A.abiertos[id]); return { donde: 'Descargas/Jarvis' }; },
         archivoCancelar: async () => {},
+        configurarPC: async (o) => { A.pc = o; },
+        programarAvisos: async (o) => { A.avisos = o.avisos; return { programados: o.avisos.length }; },
+        pedirPermisoAvisos: async () => {},
+        salir: async () => { A.salio++; },
       };
+      window.atrasFalso = () => oyentes.atras && oyentes.atras();
       window.compartirDesdeOtraApp = (t) => oyentes.compartido && oyentes.compartido({ texto: t });
       window.Capacitor = { isNativePlatform: () => true, registerPlugin: () => plugin };
     });
@@ -266,11 +290,33 @@ async function hasta(fn, ms = 20000, que = '') {
     await hasta(() => pA.locator('#app:not([hidden])').count(), 8000, 'android: app después de vincular');
     await hasta(async () => (await pA.textContent('#estado-pc')).startsWith('Modo'), 8000, 'android: estado de la PC');
     assert.strictEqual(JSON.parse(await pA.evaluate(() => localStorage.getItem('jarvis.pc'))).base, `http://${IP_PC}:47821`);
+    // Avisos: la PC le pasa los recordatorios y el celular los programa.
+    await hasta(() => pA.evaluate(() => window.androidFalso.pc && window.androidFalso.pc.base), 8000, 'android: PC configurada para avisos');
+    await pA.click('#abajo button[data-hoja="charla"]');
+    await pA.fill('#texto', 'recordame comprar pan en 30 minutos');
+    await pA.click('#enviar');
+    await hasta(() => pA.evaluate(() => (window.androidFalso.avisos || []).some((a) => /comprar pan/i.test(a.texto))), 15000, 'android: recordatorio programado en el celular');
+    const avisoPan = (await pA.evaluate(() => window.androidFalso.avisos)).find((a) => /comprar pan/i.test(a.texto));
+    assert.ok(Math.abs(avisoPan.cuando - (Date.now() + 30 * 60000)) < 3 * 60000, 'a su hora');
+    // Si en la PC se elige "no avisar en el celular", el celular ya no lo programa.
+    const cfgPC = (await notch.evaluate(() => window.jarvis.pedir('cfg:leer'))).dato;
+    await notch.evaluate((c) => window.jarvis.pedir('cfg:guardar', c), { ...cfgPC, avisos: { ...cfgPC.avisos, recordatorios: { pc: true, celular: false } } });
+    const sinAvisos = await pA.evaluate(async () => { const t = localStorage.getItem('jarvis.token'); const pc = JSON.parse(localStorage.getItem('jarvis.pc')); return (await (await fetch(pc.base + '/api/avisos', { headers: { Authorization: `Bearer ${t}` } })).json()).avisos; });
+    assert.ok(!sinAvisos.some((a) => /comprar pan/i.test(a.texto)), 'apagado en el celular');
+    await notch.evaluate((c) => window.jarvis.pedir('cfg:guardar', c), cfgPC);
+    // "Atrás": desde otra hoja vuelve a Inicio; en Inicio, sale.
+    await pA.evaluate(() => window.atrasFalso());
+    await hasta(() => pA.locator('#s-inicio:not([hidden])').count(), 3000, 'android: atrás vuelve a Inicio');
+    await pA.evaluate(() => window.atrasFalso());
+    assert.strictEqual(await pA.evaluate(() => window.androidFalso.salio), 1, 'en Inicio, atrás sale');
     // Archivos de la PC, pasar uno al celular y guardarlo en Descargas con Android.
     await pA.click('#abajo button[data-hoja="archivos"]');
     await pA.click('[data-donde="pc"]');
     await hasta(() => pA.locator('#lista-archivos li:has-text("Jefe final")').count(), 8000, 'android: archivos de la PC');
+    // Miniaturas y video pasan por la app (/pc/…): se ven.
+    await hasta(() => pA.evaluate(() => [...document.querySelectorAll('#lista-archivos img')].some((i) => i.complete && i.naturalWidth > 0 && i.src.includes('/pc/api/'))), 8000, 'android: miniatura');
     await pA.locator('#lista-archivos li:has-text("Jefe final") button').first().click();
+    await hasta(() => pA.evaluate(() => { const v = document.querySelector('#ha-medio video'); return v && v.src.includes('/pc/api/archivo/') && v.readyState >= 1; }), 8000, 'android: el video carga');
     await pA.getByRole('button', { name: 'Pasar al celular' }).click();
     await hasta(() => pA.locator('#aviso:has-text("quedó en este celular")').count(), 15000, 'android: pasado al celular');
     await pA.keyboard.press('Escape');

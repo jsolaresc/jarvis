@@ -470,14 +470,21 @@ function resolver(dicho, { programas = [] } = {}) {
   // Fotos de la webcam por WhatsApp: sacar y mandar una foto no necesita "ver" nada, así que no usa ningún modelo.
   const FOTO = '(?: una| la| otra| unas)? (?:foto|fotito|fotos|selfie|selfi)(?: (?:de|con|desde) (?:la|mi) (?:camara|webcam|cam|camara web|compu))?';
   const MANDAR = '(?:le )?(?:mandes|envies|pases|saques|tomes|manda|mandale|mandarle|mandar|envia|enviale|enviarle|enviar|pasa|pasale|pasarle|pasar|compartile|compartir|comparti|saca|sacale|sacarle|sacar|toma|tomale|tomar|saca y manda|sacale y manda|tomale y manda)';
-  if (new RegExp(`^(?:mandame|mandarme|enviame|enviarme|pasame|pasarme|sacame|sacarme|saca|sacar|sacate|toma|tomame|quiero|quiero una|necesito)${FOTO}(?: y (?:mandamela|enviamela|pasamela|me la mandas|me la envias))?(?: (?:por|al|a mi) whatsapp)?$`).test(t)) {
-    return { pasos: [{ tipo: 'foto_whatsapp', contacto: 'yo' }], respuesta: 'Listo, te mandé la foto a tu WhatsApp.' };
+  // Con texto: "mandale una foto a Ana diciendo que estoy ocupado" → la foto lleva ese texto como epígrafe.
+  const CON_TEXTO = '(?:,? (?:diciendo(?:le)?|diciendole|que diga|con (?:el|un) (?:texto|mensaje)(?: que diga)?|y (?:decile|dile|ponele|escribile|agregale))(?: que)? (.+))?';
+  const epigrafeDe = (crudo) => { if (!crudo) return ''; const e = comoSeDijo(dicho, crudo).trim(); return e ? e[0].toUpperCase() + e.slice(1) : ''; };
+  m = new RegExp(`^(?:mandame|mandarme|enviame|enviarme|pasame|pasarme|sacame|sacarme|saca|sacar|sacate|toma|tomame|quiero|quiero una|necesito)${FOTO}(?: y (?:mandamela|enviamela|pasamela|me la mandas|me la envias))?(?: (?:por|al|a mi) whatsapp)?${CON_TEXTO}$`).exec(t);
+  if (m) {
+    const epigrafe = epigrafeDe(m[1]);
+    return { pasos: [{ tipo: 'foto_whatsapp', contacto: 'yo', ...(epigrafe ? { epigrafe } : {}) }], respuesta: `Listo, te mandé la foto${epigrafe ? ' con el mensaje' : ''} a tu WhatsApp.` };
   }
-  m = new RegExp(`^${MANDAR}${FOTO}(?: y (?:mandasela|enviasela|pasasela|mandala|enviala|pasala|compartisela))?(?: por (?:whatsapp|wasap|wsp))? (?:(?:a|al|a la|para|para el|para la) )?(.+?)(?: por (?:whatsapp|wasap|wsp))?$`).exec(t);
+  m = new RegExp(`^${MANDAR}${FOTO}(?: y (?:mandasela|enviasela|pasasela|mandala|enviala|pasala|compartisela))?(?: por (?:whatsapp|wasap|wsp))? (?:(?:a|al|a la|para|para el|para la) )?(.+?)(?: por (?:whatsapp|wasap|wsp))?${CON_TEXTO}$`).exec(t);
   if (m) {
     const pedido = m[1].replace(/^(el grupo|grupo|los del grupo|la gente de|los de) /, '');
     const contacto = /^(mi|mi mismo|mi whatsapp|mi celular)$/.test(m[1]) ? { nombre: 'yo' } : whatsapp.buscarDestino(pedido);
-    if (contacto) return { pasos: [{ tipo: 'foto_whatsapp', contacto: contacto.nombre }], respuesta: contacto.nombre === 'yo' ? 'Listo, te mandé la foto a tu WhatsApp.' : contacto.grupo ? `Listo, mandé la foto al grupo ${contacto.nombre}.` : `Listo, le mandé la foto a ${contacto.nombre}.` };
+    const epigrafe = epigrafeDe(m[2]);
+    const que = epigrafe ? 'la foto con el mensaje' : 'la foto';
+    if (contacto) return { pasos: [{ tipo: 'foto_whatsapp', contacto: contacto.nombre, ...(epigrafe ? { epigrafe } : {}) }], respuesta: contacto.nombre === 'yo' ? `Listo, te mandé ${que} a tu WhatsApp.` : contacto.grupo ? `Listo, mandé ${que} al grupo ${contacto.nombre}.` : `Listo, le mandé ${que} a ${contacto.nombre}.` };
   }
 
   // Novedades (mensajes de WhatsApp y mails que llegaron): contarlas, leerlas o borrarlas.

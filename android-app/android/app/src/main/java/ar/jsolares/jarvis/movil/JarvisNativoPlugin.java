@@ -5,13 +5,17 @@ import android.content.ContentResolver;
 import android.content.ContentValues;
 import android.content.Intent;
 import android.content.pm.PackageInfo;
+import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
 import android.provider.MediaStore;
 import android.util.Base64;
 
+import androidx.core.app.ActivityCompat;
 import androidx.core.content.FileProvider;
+
+import org.json.JSONArray;
 
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
@@ -80,6 +84,52 @@ public class JarvisNativoPlugin extends Plugin {
         } else {
             compartidoPendiente = todo;
         }
+    }
+
+    /** "Atrás" de Android: si la app lo escucha, decide ella (true); si no, se sale. */
+    public boolean avisarAtras() {
+        if (!hasListeners("atras")) return false;
+        notifyListeners("atras", new JSObject());
+        return true;
+    }
+
+    @PluginMethod
+    public void salir(PluginCall call) {
+        if (getActivity() != null) getActivity().moveTaskToBack(true);
+        call.resolve();
+    }
+
+    /** La PC elegida y el token (para los videos y para preguntar los avisos en segundo plano). */
+    @PluginMethod
+    public void configurarPC(PluginCall call) {
+        boolean activos = call.getBoolean("avisos", true);
+        String token = call.getString("token", "");
+        Avisos.prefs(getContext()).edit()
+            .putString("base", call.getString("base", ""))
+            .putString("token", token)
+            .putBoolean("activos", activos)
+            .apply();
+        Avisos.crearCanal(getContext());
+        Avisos.seguir(getContext(), activos && !token.isEmpty());
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void programarAvisos(PluginCall call) {
+        JSONArray lista = call.getArray("avisos");
+        Avisos.programar(getContext(), lista != null ? lista : new JSONArray());
+        JSObject r = new JSObject();
+        r.put("programados", lista != null ? lista.length() : 0);
+        call.resolve(r);
+    }
+
+    @PluginMethod
+    public void pedirPermisoAvisos(PluginCall call) {
+        if (Build.VERSION.SDK_INT >= 33 && getActivity() != null
+            && getContext().checkSelfPermission("android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(getActivity(), new String[]{"android.permission.POST_NOTIFICATIONS"}, 4701);
+        }
+        call.resolve();
     }
 
     @PluginMethod

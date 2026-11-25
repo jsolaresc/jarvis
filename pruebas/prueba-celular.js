@@ -200,6 +200,11 @@ prueba('modo casa (app de Android): solo /api, solo IPs privadas, con permisos p
   const est = await casa('/api/estado', { tok: token });
   assert.strictEqual(est.status, 200);
   assert.strictEqual(est.cab['access-control-allow-origin'], 'https://localhost');
+  // Inicio y avisos: solo con token.
+  assert.strictEqual((await casa('/api/avisos')).status, 401);
+  const av = await casa('/api/avisos', { tok: token });
+  assert.deepStrictEqual([av.status, Array.isArray(av.dato.avisos)], [200, true]);
+  assert.strictEqual((await casa('/api/inicio', { tok: token })).status, 200);
   // Vincular desde la app en la red de casa.
   const { codigo } = celular.nuevoCodigo();
   const v = await casa('/api/vincular', { metodo: 'POST', cuerpo: { codigo, nombre: 'App Android' } });
