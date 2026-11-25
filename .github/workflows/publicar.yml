@@ -7,7 +7,7 @@ name: Publicar versión
 on:
   push:
     branches: [main]
-    paths: ['package.json', '.github/workflows/publicar.yml', 'build/**']
+    paths: ['package.json', '.github/workflows/publicar.yml', '.github/workflows/android.yml', 'build/**']
     tags: ['v*']
   workflow_dispatch:
 
@@ -55,13 +55,39 @@ jobs:
         run: |
           V=$(node -p "require('./package.json').version")
           T="v$V"
-          NOTAS=$'**Para instalar:** bajá `Jarvis-Setup-'"$V"$'.exe` (no el .blockmap ni el .yml), abrilo y seguí los pasos.\n\nSi Windows muestra "Windows protegió su PC", tocá **Más información → Ejecutar de todas formas** (el instalador no está firmado).\n\nLa primera vez que abre, baja solo los componentes elegidos (la voz son ~530 MB). Después se actualiza solo.'
+          NOTAS=$'**Para instalar:** bajá `Jarvis-Setup-'"$V"$'.exe` (no el .blockmap ni el .yml), abrilo y seguí los pasos.\n\nSi Windows muestra "Windows protegió su PC", tocá **Más información → Ejecutar de todas formas** (el instalador no está firmado).\n\nLa primera vez que abre, baja solo los componentes elegidos (la voz son ~530 MB). Después se actualiza solo.\n\n**App de Android:** bajá `Jarvis-'"$V"$'.apk` desde el celular e instalala (Android pide permiso para instalar apps de otros orígenes). En la PC: Ajustes → Dispositivos → Celular → Vincular un celular.'
           gh release view "$T" > /dev/null 2>&1 || gh release create "$T" --title "Jarvis $V" --notes "$NOTAS" --target "$GITHUB_SHA"
           gh release edit "$T" --notes "$NOTAS" --draft=false
           ARCHIVOS=("dist/Jarvis-Setup-$V.exe" "dist/Jarvis-Setup-$V.exe.blockmap" "dist/latest.yml")
           [ -f "dist/Jarvis-Portable-$V.exe" ] && ARCHIVOS+=("dist/Jarvis-Portable-$V.exe")
           for i in 1 2 3; do
             gh release upload "$T" "${ARCHIVOS[@]}" --clobber && exit 0
+            echo "Falló la subida (intento $i), reintento en 20 s"; sleep 20
+          done
+          exit 1
+
+  # La app de Android sale de la misma versión y se suma a la misma Release.
+  android:
+    uses: ./.github/workflows/android.yml
+    secrets: inherit
+
+  subir-apk:
+    needs: [windows, android]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: apk
+          path: salida
+      - name: Sumar el .apk a la Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          V=$(node -p "require('./package.json').version")
+          ls -la salida
+          for i in 1 2 3; do
+            gh release upload "v$V" salida/*.apk --clobber && exit 0
             echo "Falló la subida (intento $i), reintento en 20 s"; sleep 20
           done
           exit 1
