@@ -13,6 +13,8 @@ process.env.JARVIS_MODELOS_URL = 'http://127.0.0.1:47960';
 // Los servicios de internet (clima, búsqueda) también se reemplazan por uno de mentira.
 process.env.JARVIS_URL_GEO = 'http://127.0.0.1:47963/geo';
 process.env.JARVIS_URL_CLIMA = 'http://127.0.0.1:47963/clima';
+process.env.JARVIS_URL_CLIMA_RESPALDO = 'http://127.0.0.1:47963/met';
+process.env.JARVIS_DEMORA_REINTENTO = '10';
 process.env.JARVIS_URL_TAVILY = 'http://127.0.0.1:47963/tavily';
 process.env.JARVIS_URL_WIKIPEDIA = 'http://127.0.0.1:47963/wikipedia';
 process.env.JARVIS_URL_TMDB = 'http://127.0.0.1:47964/tmdb';
@@ -540,6 +542,35 @@ prueba('el clima sale de un servicio gratuito sin clave, y se dice en castellano
     usarIA({});
     config.guardarConfig({ ...config.leerConfig(), ciudad: 'Buenos Aires' });
     assert.match((await cerebro.decidir('¿Va a llover mañana?', { historial: [] })).texto, /^Mañana en Buenos Aires: con lluvia/);
+  } finally { await s.cerrar(); }
+});
+
+prueba('si Open-Meteo falla, el clima reintenta una vez y después usa MET Norway; el motivo queda en el Historial', async () => {
+  let modo = 'respaldo';
+  const hora = (h, temp, simbolo) => ({ time: `2026-11-25T${String(h).padStart(2, '0')}:00:00Z`, data: { instant: { details: { air_temperature: temp } }, next_1_hours: { summary: { symbol_code: simbolo } } } });
+  const s = await servidorFalso(47963, (p) => {
+    if (p.ruta.startsWith('/geo')) return { cuerpo: { results: [{ name: 'Buenos Aires', latitude: -34.6, longitude: -58.4, timezone: 'America/Argentina/Buenos_Aires' }] } };
+    if (p.ruta.startsWith('/clima')) return { estado: 503, cuerpo: { error: true, reason: 'Servicio saturado' } };
+    if (p.ruta.startsWith('/met') && modo === 'respaldo') return { cuerpo: { properties: { timeseries: [hora(15, 28.4, 'partlycloudy_day'), hora(18, 30.2, 'rainshowers_day'), hora(21, 25, 'cloudy'), hora(23, 22.6, 'fair_night')] } } };
+    return { estado: 500, cuerpo: {} };
+  });
+  try {
+    const entrada = historial.empezar('¿Cómo está el clima?', 'prueba');
+    assert.strictEqual(await internet.clima('Buenos Aires'), 'En Buenos Aires hace 28 grados, algo nublado. Hoy: con chaparrones, máxima de 30 grados y mínima de 23 grados.');
+    assert.strictEqual(s.pedidos.filter((p) => p.ruta.startsWith('/clima')).length, 2, 'reintenta una sola vez');
+    assert.match(s.pedidos.find((p) => p.ruta.startsWith('/met')).ruta, /lat=-34\.6000&lon=-58\.4000/);
+    const pasos = JSON.stringify(entrada);
+    assert.match(pasos, /Open-Meteo respondió 503 \(Servicio saturado\)/);
+    assert.match(pasos, /respaldo \(MET Norway\)/);
+    // El widget también usa el respaldo.
+    const w = await internet.climaDatos('Buenos Aires');
+    assert.deepStrictEqual([w.temp, w.codigo, w.dia, w.lluvia], [28, 2, true, null]);
+    // Si los dos fallan: el mensaje de siempre, con el detalle de cada uno.
+    modo = 'nada';
+    const e = await internet.clima('Rosario').catch((x) => x);
+    assert.strictEqual(e.message, 'El servicio del clima no respondió bien.');
+    assert.match(e.detalle, /Open-Meteo respondió 503.*MET Norway: respondió 500/);
+    historial.terminar(entrada, { ok: false });
   } finally { await s.cerrar(); }
 });
 

@@ -1,5 +1,6 @@
 // Lo que Jarvis consulta en internet, siempre con servicios gratuitos:
-//   - clima: Open-Meteo (sin clave ni registro).
+//   - clima: Open-Meteo (sin clave ni registro); si no responde, se reintenta una vez y después se usa
+//     MET Norway (el servicio meteorológico noruego, también gratis y sin clave) como respaldo.
 //   - buscar: se prueban en cadena, igual que los modelos — la búsqueda web de Groq (con la misma
 //     clave gratuita de Inteligencia), Tavily (clave gratuita opcional, 1.000 búsquedas por mes) y,
 //     si no hay ninguna clave, Wikipedia (que no sabe de noticias pero sí de casi todo lo demás).
@@ -10,17 +11,30 @@ const { leerConfig } = require('./config');
 const DONDE = {
   geocodificar: process.env.JARVIS_URL_GEO || 'https://geocoding-api.open-meteo.com/v1/search',
   pronostico: process.env.JARVIS_URL_CLIMA || 'https://api.open-meteo.com/v1/forecast',
+  respaldo: process.env.JARVIS_URL_CLIMA_RESPALDO || 'https://api.met.no/weatherapi/locationforecast/2.0/compact',
   tavily: process.env.JARVIS_URL_TAVILY || 'https://api.tavily.com/search',
   wikipedia: process.env.JARVIS_URL_WIKIPEDIA || 'https://es.wikipedia.org/w/api.php',
 };
 
-async function pedir(url, { cuerpo, clave, espera = 15000 } = {}) {
+// MET Norway pide que cada app se identifique con nombre y una dirección de contacto.
+const AGENTE = `Jarvis/${(() => { try { return require('../../package.json').version; } catch { return '1'; } })()} github.com/jsolaresc/jarvis`;
+
+// Si la conexión se corta de entrada (por ejemplo, una conexión vieja que la PC dejó abierta al suspenderse),
+// se prueba una vez más antes de decir que no hay internet.
+async function pedir(url, opciones = {}) {
+  try { return await pedirUnaVez(url, opciones); } catch (e) {
+    if (e.message === 'tardó demasiado en responder') throw e;
+    return pedirUnaVez(url, opciones);
+  }
+}
+
+async function pedirUnaVez(url, { cuerpo, clave, espera = 15000 } = {}) {
   const control = new AbortController();
   const reloj = setTimeout(() => control.abort(), espera);
   try {
     const r = await fetch(url, {
       method: cuerpo ? 'POST' : 'GET', signal: control.signal,
-      headers: { 'User-Agent': 'Jarvis/0.1 (asistente personal de escritorio)', ...(cuerpo ? { 'Content-Type': 'application/json' } : {}), ...(clave ? { Authorization: `Bearer ${clave}` } : {}) },
+      headers: { 'User-Agent': AGENTE, ...(cuerpo ? { 'Content-Type': 'application/json' } : {}), ...(clave ? { Authorization: `Bearer ${clave}` } : {}) },
       body: cuerpo ? JSON.stringify(cuerpo) : undefined,
     });
     let json = null;
@@ -45,28 +59,106 @@ const CIELO = {
 const cielo = (codigo) => CIELO[codigo] || 'variable';
 const grados = (n) => `${Math.round(n)} grados`;
 
+// MET Norway no usa los códigos de la OMM sino nombres ("lightrainshowers_day"): se pasan al código más parecido.
+function codigoMet(simbolo) {
+  const s = String(simbolo || '').replace(/_(day|night|polartwilight)$/, '');
+  const fuerte = /^heavy/.test(s); const leve = /^light/.test(s); const chaparron = /showers/.test(s);
+  if (/thunder/.test(s)) return 95;
+  if (/sleet/.test(s)) return 67;
+  if (/snow/.test(s)) return chaparron ? (fuerte ? 86 : 85) : fuerte ? 75 : leve ? 71 : 73;
+  if (/rain/.test(s)) return chaparron ? (fuerte ? 82 : leve ? 80 : 81) : fuerte ? 65 : leve ? 61 : 63;
+  return { fog: 45, cloudy: 3, partlycloudy: 2, fair: 1, clearsky: 0 }[s] ?? 3;
+}
+
+// El día (AAAA-MM-DD) de una hora UTC en la zona horaria de la ciudad.
+function diaLocal(fecha, zona) {
+  try { return new Intl.DateTimeFormat('en-CA', { timeZone: zona || undefined, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(fecha)); } catch { return String(fecha).slice(0, 10); }
+}
+
+// Respaldo: MET Norway. Da la temperatura hora por hora; los máximos y mínimos del día se calculan acá.
+// No trae sensación térmica ni probabilidad de lluvia (quedan sin decir).
+async function pronosticoMet(sitio, nDias) {
+  const p = await pedir(`${DONDE.respaldo}?lat=${Number(sitio.latitude).toFixed(4)}&lon=${Number(sitio.longitude).toFixed(4)}`);
+  const serie = p.json && p.json.properties && p.json.properties.timeseries;
+  if (p.estado !== 200 || !Array.isArray(serie) || !serie.length) throw new Error(`respondió ${p.estado}`);
+  const simbolo = (d) => { const x = d.next_1_hours || d.next_6_hours || d.next_12_hours; return x && x.summary && x.summary.symbol_code; };
+  const primero = serie[0].data; const temp = primero.instant.details.air_temperature;
+  const s0 = simbolo(primero);
+  const dias = []; const porDia = new Map();
+  for (const t of serie) {
+    const dia = diaLocal(t.time, sitio.timezone);
+    if (!porDia.has(dia)) { if (porDia.size >= nDias) break; porDia.set(dia, { max: -Infinity, min: Infinity, codigo: 0 }); }
+    const d = porDia.get(dia); const v = t.data.instant.details.air_temperature;
+    if (Number.isFinite(v)) { d.max = Math.max(d.max, v); d.min = Math.min(d.min, v); }
+    const s = simbolo(t.data); if (s) d.codigo = Math.max(d.codigo, codigoMet(s));
+  }
+  for (const d of porDia.values()) dias.push({ max: d.max, min: d.min, lluvia: null, codigo: d.codigo });
+  if (!dias.length) throw new Error('el pronóstico vino vacío');
+  return { ahora: { temp, sensacion: temp, codigo: codigoMet(s0), dia: !/_night$/.test(s0 || '') }, dias, fuente: 'MET Norway' };
+}
+
+const DEMORA_REINTENTO = Number(process.env.JARVIS_DEMORA_REINTENTO || 1500);
+const motivo = (p) => `${p.estado}${p.json && p.json.reason ? ` (${p.json.reason})` : ''}`;
+
+// El pronóstico de un lugar ya ubicado: Open-Meteo, un reintento si falla y, si sigue sin responder, MET Norway.
+// Cada falla queda anotada en el Historial con el motivo real, para saber qué pasó.
+async function pronostico(sitio, nDias) {
+  const url = `${DONDE.pronostico}?latitude=${sitio.latitude}&longitude=${sitio.longitude}`
+    + '&current=temperature_2m,apparent_temperature,weather_code,is_day'
+    + `&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weather_code&timezone=auto&forecast_days=${nDias}`;
+  const fallas = [];
+  for (let intento = 0; intento < 2; intento++) {
+    if (intento) await new Promise((r) => setTimeout(r, DEMORA_REINTENTO));
+    try {
+      const p = await pedir(url);
+      const a = p.json && p.json.current; const d = p.json && p.json.daily;
+      if (p.estado === 200 && a && d && Array.isArray(d.time)) {
+        const lluvia = d.precipitation_probability_max || [];
+        return {
+          ahora: { temp: a.temperature_2m, sensacion: a.apparent_temperature, codigo: a.weather_code, dia: a.is_day !== 0 },
+          dias: d.time.map((_, i) => ({ max: d.temperature_2m_max[i], min: d.temperature_2m_min[i], lluvia: lluvia[i], codigo: (d.weather_code || [])[i] })),
+          fuente: 'Open-Meteo',
+        };
+      }
+      fallas.push(`Open-Meteo respondió ${motivo(p)}`);
+    } catch (e) { fallas.push(`Open-Meteo: ${e.message}`); }
+    historial.anotar(`Clima: ${fallas[fallas.length - 1]}${intento ? '' : '; reintento'}`, { error: true });
+  }
+  try {
+    const r = await pronosticoMet(sitio, nDias);
+    historial.anotar('Clima: se usó el respaldo (MET Norway)');
+    return r;
+  } catch (e) {
+    fallas.push(`MET Norway: ${e.message}`);
+    historial.anotar(`Clima: MET Norway ${e.message}`, { error: true });
+  }
+  const error = new Error('El servicio del clima no respondió bien.');
+  error.detalle = fallas.join(' · ');
+  throw error;
+}
+
+async function ubicar(ciudad) {
+  const g = await pedir(`${DONDE.geocodificar}?name=${encodeURIComponent(ciudad)}&count=1&language=es&format=json`);
+  return g.json && g.json.results && g.json.results[0];
+}
+
 // lugar: ciudad (si no se dice, la cargada en Ajustes). cuando: 'ahora' | 'hoy' | 'manana' | 'pasado'.
 async function clima(lugar, cuando = 'ahora') {
   const ciudad = String(lugar || leerConfig().ciudad || '').trim();
   if (!ciudad) throw new Error('No sé de qué ciudad. Decime "el clima en tal lugar", o cargá tu ciudad en Ajustes, en General.');
-  const g = await pedir(`${DONDE.geocodificar}?name=${encodeURIComponent(ciudad)}&count=1&language=es&format=json`);
-  const sitio = g.json && g.json.results && g.json.results[0];
+  const sitio = await ubicar(ciudad);
   if (!sitio) throw new Error(`No encontré ninguna ciudad llamada "${ciudad}".`);
-  const p = await pedir(`${DONDE.pronostico}?latitude=${sitio.latitude}&longitude=${sitio.longitude}`
-    + '&current=temperature_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m'
-    + '&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weather_code&timezone=auto&forecast_days=3');
-  const ahora = p.json && p.json.current;
-  const dias = p.json && p.json.daily;
-  if (p.estado !== 200 || !ahora || !dias || !Array.isArray(dias.time)) throw new Error('El servicio del clima no respondió bien.');
+  const { ahora, dias } = await pronostico(sitio, 3);
   const dia = (i) => {
-    const lluvia = dias.precipitation_probability_max && dias.precipitation_probability_max[i];
-    return `${cielo(dias.weather_code[i])}, máxima de ${grados(dias.temperature_2m_max[i])} y mínima de ${grados(dias.temperature_2m_min[i])}`
-      + (Number.isFinite(lluvia) ? `, con ${Math.round(lluvia)} por ciento de probabilidad de lluvia` : '');
+    const x = dias[i];
+    if (!x) throw new Error('El servicio del clima no trajo el pronóstico de ese día.');
+    return `${cielo(x.codigo)}, máxima de ${grados(x.max)} y mínima de ${grados(x.min)}`
+      + (Number.isFinite(x.lluvia) ? `, con ${Math.round(x.lluvia)} por ciento de probabilidad de lluvia` : '');
   };
   if (cuando === 'manana') return `Mañana en ${sitio.name}: ${dia(1)}.`;
   if (cuando === 'pasado') return `Pasado mañana en ${sitio.name}: ${dia(2)}.`;
-  const sensacion = Math.abs(ahora.apparent_temperature - ahora.temperature_2m) >= 2 ? `, con sensación de ${Math.round(ahora.apparent_temperature)}` : '';
-  return `En ${sitio.name} hace ${grados(ahora.temperature_2m)}${sensacion}, ${cielo(ahora.weather_code)}. Hoy: ${dia(0)}.`;
+  const sensacion = Math.abs(ahora.sensacion - ahora.temp) >= 2 ? `, con sensación de ${Math.round(ahora.sensacion)}` : '';
+  return `En ${sitio.name} hace ${grados(ahora.temp)}${sensacion}, ${cielo(ahora.codigo)}. Hoy: ${dia(0)}.`;
 }
 
 // Para el widget del clima: los números (no una frase), con 15 minutos de memoria para no consultar de más.
@@ -75,17 +167,15 @@ async function climaDatos(lugar) {
   const ciudad = String(lugar || leerConfig().ciudad || '').trim();
   if (!ciudad) return { sinCiudad: true };
   if (climaGuardado.clave === ciudad.toLowerCase() && Date.now() - climaGuardado.cuando < 15 * 60 * 1000) return climaGuardado.dato;
-  const g = await pedir(`${DONDE.geocodificar}?name=${encodeURIComponent(ciudad)}&count=1&language=es&format=json`);
-  const sitio = g.json && g.json.results && g.json.results[0];
+  const sitio = await ubicar(ciudad);
   if (!sitio) return { error: `No encontré "${ciudad}"` };
-  const p = await pedir(`${DONDE.pronostico}?latitude=${sitio.latitude}&longitude=${sitio.longitude}`
-    + '&current=temperature_2m,apparent_temperature,weather_code,is_day&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=1');
-  const a = p.json && p.json.current; const d = p.json && p.json.daily;
-  if (p.estado !== 200 || !a) return { error: 'El clima no respondió' };
+  let r;
+  try { r = await pronostico(sitio, 1); } catch { return { error: 'El clima no respondió' }; }
+  const { ahora: a, dias: [d] } = r;
   const dato = {
-    ciudad: sitio.name, temp: Math.round(a.temperature_2m), sensacion: Math.round(a.apparent_temperature), codigo: a.weather_code, dia: a.is_day !== 0,
-    cielo: cielo(a.weather_code), max: d ? Math.round(d.temperature_2m_max[0]) : null, min: d ? Math.round(d.temperature_2m_min[0]) : null,
-    lluvia: d && d.precipitation_probability_max ? d.precipitation_probability_max[0] : null,
+    ciudad: sitio.name, temp: Math.round(a.temp), sensacion: Math.round(a.sensacion), codigo: a.codigo, dia: a.dia,
+    cielo: cielo(a.codigo), max: d ? Math.round(d.max) : null, min: d ? Math.round(d.min) : null,
+    lluvia: d && Number.isFinite(d.lluvia) ? d.lluvia : null,
   };
   climaGuardado = { clave: ciudad.toLowerCase(), cuando: Date.now(), dato };
   return dato;
