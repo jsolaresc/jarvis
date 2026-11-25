@@ -60,6 +60,15 @@ main { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 #vincular p { color: var(--tenue); }
 #codigo { font-size: 34px; letter-spacing: .14em; font-variant-numeric: tabular-nums; text-align: center; font-weight: 700; padding: 12px; }
 .error { color: var(--mal); min-height: 1.4em; margin-top: 12px; font-size: var(--t-s); }
+/* App de Android: elegir la PC en la Wi-Fi */
+#elegir-pc .etiqueta { display: block; font-size: var(--t-s); color: var(--tenue); margin: 14px 0 6px; }
+#lista-pcs { display: grid; gap: 8px; }
+#lista-pcs button { display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: 52px; padding: 0 16px; border-radius: 12px; border: 1px solid var(--linea); background: var(--superficie); text-align: left; }
+#lista-pcs button.on { border-color: var(--ojo); box-shadow: inset 0 0 0 1px var(--ojo); }
+#lista-pcs button span { color: var(--tenue); font-size: var(--t-s); font-variant-numeric: tabular-nums; }
+#buscar-pcs { min-height: 44px; margin-top: 8px; border-radius: 12px; border: 1px solid var(--linea); background: transparent; padding: 0 16px; }
+#elegir-pc details { margin-top: 12px; }
+#elegir-pc summary { color: var(--tenue); font-size: var(--t-s); cursor: pointer; min-height: 44px; display: flex; align-items: center; }
 
 input, textarea {
   width: 100%; background: var(--superficie); border: 1px solid var(--linea); border-radius: 12px; padding: 12px 14px; outline: none; resize: none;

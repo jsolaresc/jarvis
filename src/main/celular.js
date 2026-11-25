@@ -3,12 +3,17 @@
 // - Escucha SOLO en 127.0.0.1 (puerto 47820 por defecto). Desde el celular se llega por Tailscale:
 //   "tailscale serve" pone el HTTPS (*.ts.net, certificado renovado solo) y le pasa los pedidos a este puerto.
 //   Nada queda abierto a la red de casa ni a internet.
+// - Modo casa (opcional, para la app de Android): un segundo servidor en la red local (puerto 47821) que atiende
+//   SOLO /api, solo a direcciones privadas de la casa (192.168.x, 10.x, 172.16-31.x) y solo si el pedido apunta a
+//   la IP de la PC (corta el "DNS rebinding"). Con CORS para la app (https://localhost). El token viaja por la Wi-Fi
+//   de la casa sin HTTPS: lo protege la clave de la Wi-Fi.
 // - Vincular: Ajustes muestra un código de 6 cifras (dura 5 minutos, 5 intentos). El celular lo manda una sola vez
 //   y recibe un token propio; en la PC se guarda solo su hash (datos/celular.json). Se revoca desde Ajustes.
 // - La página (src/movil) se sirve sin token: es solo la cáscara. Todo lo que hace algo pasa por /api con
 //   "Authorization: Bearer <token>" (sin cookies, así no hay pedidos cruzados desde otras páginas).
 // - Solo existe mientras está prendido en Ajustes → Celular; en reposo no gasta nada (un socket esperando).
 const http = require('http');
+const os = require('os');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -19,6 +24,7 @@ const CARPETA_APP = path.join(RAIZ, 'src', 'movil');
 const ICONO = path.join(RAIZ, 'src', 'ui', 'icono.png');
 const ARCHIVO = () => path.join(DATOS, 'celular.json');
 const PUERTO = 47820;
+const PUERTO_CASA = 47821;
 const MAX_CUERPO = 64 * 1024;
 const VIDA_CODIGO = 5 * 60000;
 const MAX_SUBIDA = 2 * 1024 * 1024 * 1024; // lo que acepta WhatsApp como documento
@@ -28,6 +34,7 @@ const TEMP_DESCARGAS = () => path.join(DATOS, 'celular-temporal');
 const TEMP_SUBIDAS = () => path.join(DATOS, 'celular-subidas');
 const VIDA_TEMPORAL = 24 * 3600000;
 const INTENTOS = 5;
+const VERSION = (() => { try { return require('../../package.json').version; } catch { return ''; } })();
 
 // Lo que hace de verdad cada pedido lo pone main.js (así este módulo se prueba solo, con funciones de mentira).
 const puente = {
@@ -50,7 +57,27 @@ function configurar(funciones) { Object.assign(puente, funciones); }
 // ---------- Aparatos vinculados ----------
 const hashDe = (token) => crypto.createHash('sha256').update(String(token)).digest('hex');
 function leer() {
-  try { const d = JSON.parse(fs.readFileSync(ARCHIVO(), 'utf8')); return { dispositivos: Array.isArray(d.dispositivos) ? d.dispositivos : [] }; } catch { return { dispositivos: [] }; }
+  try { const d = JSON.parse(fs.readFileSync(ARCHIVO(), 'utf8')); return { ...(d.pc ? { pc: d.pc } : {}), dispositivos: Array.isArray(d.dispositivos) ? d.dispositivos : [] }; } catch { return { dispositivos: [] }; }
+}
+// Identidad de esta PC para la app de Android: así la reconoce aunque el router le cambie la IP.
+function idPC() {
+  const d = leer();
+  if (!d.pc) { d.pc = crypto.randomBytes(8).toString('hex'); guardar(d); }
+  return d.pc;
+}
+// Las IP de esta PC en la red de casa (sin Tailscale, sin adaptadores internos).
+function ipsCasa() {
+  const ips = [];
+  for (const [nombre, lista] of Object.entries(os.networkInterfaces() || {})) {
+    if (/tailscale|vethernet|virtualbox|vmware|loopback|wsl|docker/i.test(nombre)) continue;
+    for (const x of lista || []) if ((x.family === 'IPv4' || x.family === 4) && !x.internal && esPrivada(x.address)) ips.push(x.address);
+  }
+  return [...new Set(ips)];
+}
+// Direcciones de una red de casa (no internet, no Tailscale).
+function esPrivada(ip) {
+  const v = String(ip || '').replace(/^::ffff:/, '');
+  return /^10\.\d+\.\d+\.\d+$/.test(v) || /^192\.168\.\d+\.\d+$/.test(v) || /^172\.(1[6-9]|2\d|3[01])\.\d+\.\d+$/.test(v);
 }
 function guardar(d) {
   fs.mkdirSync(DATOS, { recursive: true });
@@ -202,6 +229,19 @@ function anfitrionValido(host) {
   return h === '127.0.0.1' || h === 'localhost' || h === '::1' || h.endsWith('.ts.net') || /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d+\.\d+$/.test(h) || /^fd7a:115c:a1e0:/.test(h);
 }
 
+const deCasa = (ip) => esPrivada(ip) || /^(::ffff:)?127\./.test(String(ip)) || ip === '::1';
+// Modo casa: el pedido tiene que apuntar a una IP privada (nunca a un nombre: eso corta el "DNS rebinding")
+// y venir de un aparato de la red de casa.
+function anfitrionCasa(host) { return esPrivada(String(host || '').replace(/:\d+$/, '')); }
+const ORIGENES_APP = new Set(['https://localhost', 'http://localhost', 'capacitor://localhost']);
+function cors(req) {
+  const o = req.headers.origin;
+  return ORIGENES_APP.has(o) ? {
+    'Access-Control-Allow-Origin': o, Vary: 'Origin', 'Access-Control-Allow-Headers': 'Authorization, Content-Type, Range',
+    'Access-Control-Allow-Methods': 'GET, POST, HEAD, OPTIONS', 'Access-Control-Expose-Headers': 'Content-Length, Content-Type, Content-Range', 'Access-Control-Max-Age': '600',
+  } : {};
+}
+
 // Ataques de fuerza bruta: tope de pedidos sin token válido por minuto (en total: todo llega desde 127.0.0.1).
 let fallidos = { desde: 0, n: 0 };
 function frenar() {
@@ -256,13 +296,25 @@ const LISTA_ARCHIVOS = (yo) => (puente.archivos() || []).slice(0, 120).map((c) =
   return { id: k, nombre: c.nombre, tipo: c.tipo || 'clip', carpeta: c.carpeta || c.juego || '', juego: c.juego || c.carpeta || '', bytes: c.bytes, fecha: c.fecha, ver: `/api/archivo/${k}/${encodeURIComponent(c.nombre)}`, miniatura: c.tipo === 'audio' ? '' : `/api/miniatura/${k}` };
 });
 
-async function atender(req, res) {
-  if (!anfitrionValido(req.headers.host)) { res.writeHead(421, SEGURIDAD); res.end(); return; }
+async function atender(req, res, { casa = false } = {}) {
+  if (casa) {
+    if (!anfitrionCasa(req.headers.host) || !deCasa(req.socket.remoteAddress)) { res.writeHead(421, SEGURIDAD); res.end(); return; }
+    const extra = cors(req);
+    // Todas las respuestas de este servidor llevan los permisos para la app.
+    const original = res.writeHead.bind(res);
+    res.writeHead = (status, a, b) => {
+      const cab = typeof a === 'object' && a ? a : (b || {});
+      const unidas = { ...extra, ...cab };
+      return typeof a === 'string' ? original(status, a, unidas) : original(status, unidas);
+    };
+    if (req.method === 'OPTIONS') { res.writeHead(204, SEGURIDAD); res.end(); return; }
+  } else if (!anfitrionValido(req.headers.host)) { res.writeHead(421, SEGURIDAD); res.end(); return; }
   let url;
   try { url = new URL(req.url, 'http://x'); } catch { res.writeHead(400, SEGURIDAD); res.end(); return; }
   const ruta = url.pathname;
 
   if (!ruta.startsWith('/api/')) {
+    if (casa) { res.writeHead(404, SEGURIDAD); res.end(); return; } // la app de Android trae su propia cáscara
     if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405, SEGURIDAD); res.end(); return; }
     if (ruta === '/icono.png') { servirArchivo(req, res, ICONO, { 'Cache-Control': 'max-age=86400' }); return; }
     let rel;
@@ -278,7 +330,7 @@ async function atender(req, res) {
   try {
     if (ruta === '/api/hola' && metodo === 'GET') {
       const yo = quien(tokenDe(req));
-      json(res, 200, { jarvis: true, vinculado: !!yo, nombre: yo ? yo.nombre : undefined });
+      json(res, 200, { jarvis: true, vinculado: !!yo, nombre: yo ? yo.nombre : undefined, pc: { id: idPC(), nombre: os.hostname() }, version: VERSION });
       return;
     }
     if (ruta === '/api/vincular' && metodo === 'POST') {
@@ -425,11 +477,33 @@ async function iniciar(puerto = PUERTO) {
   limpiarTemporales();
   return puertoReal;
 }
+// Modo casa: el mismo servidor, en la red local. Se prende y apaga aparte (Ajustes → Celular → En casa).
+let servidorCasa = null;
+let puertoCasaReal = 0;
+async function iniciarCasa(puerto = PUERTO_CASA, anfitrion = '0.0.0.0') {
+  if (servidorCasa) return puertoCasaReal;
+  const s = http.createServer((req, res) => { atender(req, res, { casa: true }).catch(() => { try { res.destroy(); } catch {} }); });
+  s.keepAliveTimeout = 30000;
+  s.requestTimeout = 0;
+  await new Promise((ok, mal) => { s.once('error', mal); s.listen(puerto, anfitrion, () => { s.removeListener('error', mal); ok(); }); });
+  servidorCasa = s;
+  puertoCasaReal = s.address().port;
+  idPC();
+  return puertoCasaReal;
+}
+async function detenerCasa() {
+  if (!servidorCasa) return;
+  const s = servidorCasa; servidorCasa = null; puertoCasaReal = 0;
+  await new Promise((ok) => { s.close(() => ok()); if (s.closeAllConnections) s.closeAllConnections(); });
+}
+const puertoCasa = () => puertoCasaReal;
+
 async function detener() {
   if (!servidor) return;
   const s = servidor; servidor = null; puertoReal = 0;
   for (const listo of [...esperando]) listo();
   await new Promise((ok) => { s.close(() => ok()); if (s.closeAllConnections) s.closeAllConnections(); });
+  await detenerCasa();
 }
 const puerto = () => puertoReal;
 
@@ -501,8 +575,8 @@ async function despublicarDeTailscale(httpsPuerto = 443) {
 }
 
 module.exports = {
-  configurar, iniciar, detener, puerto, publicar,
+  configurar, iniciar, detener, puerto, publicar, iniciarCasa, detenerCasa, puertoCasa, ipsCasa, idPC, PUERTO_CASA,
   nuevoCodigo, cancelarCodigo, codigoVigente, vincular, revocar, renombrar, dispositivos: publicos,
   estadoTailscale, publicarEnTailscale, despublicarDeTailscale, comandoServe,
-  limpiarTemporales, TEMP_DESCARGAS, TEMP_SUBIDAS, _nombreSubido: nombreSubido, _anfitrionValido: anfitrionValido, _hashDe: hashDe, PUERTO,
+  limpiarTemporales, TEMP_DESCARGAS, TEMP_SUBIDAS, _nombreSubido: nombreSubido, _anfitrionValido: anfitrionValido, _anfitrionCasa: anfitrionCasa, _esPrivada: esPrivada, _hashDe: hashDe, PUERTO,
 };

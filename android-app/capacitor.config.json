@@ -1,0 +1,12 @@
+{
+  "appId": "ar.jsolares.jarvis.movil",
+  "appName": "Jarvis",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https",
+    "cleartext": true
+  },
+  "android": {
+    "allowMixedContent": true
+  }
+}

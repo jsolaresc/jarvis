@@ -26,8 +26,19 @@
   <!-- Vincular -->
   <main id="vincular" hidden>
     <h1>Vinculá este celular con tu PC</h1>
-    <p>En la PC, abrí Jarvis → Ajustes → Dispositivos → Celular y tocá <b>Vincular un celular</b>. Escribí acá el código que aparece.</p>
+    <p id="vincular-texto">En la PC, abrí Jarvis → Ajustes → Dispositivos → Celular y tocá <b>Vincular un celular</b>. Escribí acá el código que aparece.</p>
     <form id="form-vincular" autocomplete="off">
+      <div id="elegir-pc" hidden>
+        <span class="etiqueta">Tu PC</span>
+        <div id="lista-pcs" role="radiogroup" aria-label="PC con Jarvis en esta Wi-Fi"></div>
+        <p id="buscando-pcs" class="tenue" aria-live="polite"></p>
+        <button type="button" id="buscar-pcs">Buscar de nuevo</button>
+        <details>
+          <summary>Escribir la dirección a mano</summary>
+          <label for="ip-pc">Dirección de la PC (está en Ajustes → Celular)</label>
+          <input id="ip-pc" inputmode="decimal" maxlength="21" placeholder="192.168.0.10">
+        </details>
+      </div>
       <label for="codigo">Código de 6 cifras</label>
       <input id="codigo" inputmode="numeric" pattern="[0-9 ]*" maxlength="7" placeholder="000 000" required>
       <label for="nombre-cel">Nombre de este celular</label>

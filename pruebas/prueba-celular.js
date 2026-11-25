@@ -163,6 +163,53 @@ prueba('con token: estado, escribirle a Jarvis y acciones permitidas', async () 
   assert.ok(hecho.some((x) => x[0] === 'texto' && x[1] === 'poné música'));
 });
 
+prueba('modo casa (app de Android): solo /api, solo IPs privadas, con permisos para la app y el mismo token', async () => {
+  const pc = await celular.iniciarCasa(0, '127.0.0.1');
+  assert.strictEqual(celular.puertoCasa(), pc);
+  const casa = (ruta, { metodo = 'GET', host = `192.168.0.10:${pc}`, origen = 'https://localhost', tok, cuerpo } = {}) => new Promise((ok, mal) => {
+    const datos = cuerpo ? JSON.stringify(cuerpo) : '';
+    const q = require('http').request({ hostname: '127.0.0.1', port: pc, path: ruta, method: metodo, headers: { Host: host, ...(origen ? { Origin: origen } : {}), ...(tok ? { Authorization: `Bearer ${tok}` } : {}), ...(cuerpo ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(datos) } : {}) } }, (r) => {
+      let t = ''; r.on('data', (c) => { t += c; }); r.on('end', () => { let dato = {}; try { dato = JSON.parse(t); } catch {} ok({ status: r.statusCode, cab: r.headers, dato }); });
+    });
+    q.on('error', mal); q.end(datos);
+  });
+  // Quién es esta PC (para que la app la reconozca aunque cambie la IP).
+  const hola = await casa('/api/hola');
+  assert.strictEqual(hola.status, 200);
+  assert.strictEqual(hola.cab['access-control-allow-origin'], 'https://localhost');
+  assert.match(hola.dato.pc.id, /^[a-f0-9]{16}$/);
+  assert.strictEqual(hola.dato.pc.id, celular.idPC(), 'el id no cambia');
+  assert.ok(hola.dato.version);
+  // Antes de un pedido con token, el navegador pregunta (OPTIONS).
+  const pre = await casa('/api/estado', { metodo: 'OPTIONS' });
+  assert.strictEqual(pre.status, 204);
+  assert.match(pre.cab['access-control-allow-headers'], /Authorization/);
+  // Otra página no recibe permisos.
+  assert.strictEqual((await casa('/api/hola', { origen: 'https://malo.com' })).cab['access-control-allow-origin'], undefined);
+  // Nombres (DNS rebinding) y direcciones que no son de una casa: afuera.
+  assert.strictEqual((await casa('/api/hola', { host: `malo.com:${pc}` })).status, 421);
+  assert.strictEqual((await casa('/api/hola', { host: `pc-casa.tail1234.ts.net` })).status, 421);
+  assert.strictEqual((await casa('/api/hola', { host: `8.8.8.8:${pc}` })).status, 421);
+  for (const ip of ['10.0.0.5', '172.16.3.4', '172.31.255.1', '192.168.1.200']) assert.strictEqual(celular._anfitrionCasa(`${ip}:${pc}`), true, ip);
+  for (const ip of ['172.32.0.1', '100.101.102.103', '127.0.0.1', 'localhost']) assert.strictEqual(celular._anfitrionCasa(ip), false, ip);
+  // La cáscara no se sirve en la red: la app trae la suya.
+  assert.strictEqual((await casa('/')).status, 404);
+  assert.strictEqual((await casa('/app.js')).status, 404);
+  // Sin token, nada; con el token de siempre, todo igual que por Tailscale.
+  assert.strictEqual((await casa('/api/estado')).status, 401);
+  const est = await casa('/api/estado', { tok: token });
+  assert.strictEqual(est.status, 200);
+  assert.strictEqual(est.cab['access-control-allow-origin'], 'https://localhost');
+  // Vincular desde la app en la red de casa.
+  const { codigo } = celular.nuevoCodigo();
+  const v = await casa('/api/vincular', { metodo: 'POST', cuerpo: { codigo, nombre: 'App Android' } });
+  assert.strictEqual(v.status, 200);
+  assert.strictEqual((await casa('/api/estado', { tok: v.dato.token })).status, 200);
+  celular.revocar(v.dato.id);
+  await celular.detenerCasa();
+  assert.strictEqual(celular.puertoCasa(), 0);
+});
+
 prueba('clips: lista con enlaces propios, video por partes y miniatura', async () => {
   const { dato } = await jsonDe(await pedir('/api/clips', { token }));
   const c = dato.clips[0];

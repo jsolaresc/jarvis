@@ -5,3 +5,6 @@ dist/
 *.log
 # Palabras propias que nunca deben subirse (las revisa "npm run revisar-privacidad"). No se sube.
 .privado.txt
+
+# App de Android: lo generado (www se arma desde src/movil con android-app/preparar.js)
+android-app/www/

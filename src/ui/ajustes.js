@@ -2644,17 +2644,31 @@ const secciones = {
   },
 
   celular() {
-    const c = cfg.celular = cfg.celular || { activo: false, puerto: 47820, https: 443, hablarEnPC: false };
+    const c = cfg.celular = cfg.celular || { activo: false, puerto: 47820, https: 443, hablarEnPC: false, casa: true, puertoCasa: 47821 };
     const e = cel.estado;
     const ts = e && e.tailscale;
     const fecha = (t) => (t ? new Date(t).toLocaleString('es-AR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—');
     const hace = (t) => { if (!t) return 'nunca'; const m = Math.round((Date.now() - t) / 60000); return m < 2 ? 'recién' : m < 60 ? `hace ${m} min` : m < 1440 ? `hace ${Math.round(m / 60)} h` : `hace ${Math.round(m / 1440)} días`; };
     const copiar = (t) => { navigator.clipboard.writeText(t).then(() => avisarGuardado('Copiado.')).catch(() => {}); };
-    const pasoTs = () => {
+    const pasoCasa = () => {
       if (!c.activo) return h('p', { class: 'ayuda' }, 'Prendé "Usar Jarvis desde el celular" para configurar el acceso.');
+      const ca = e && e.casa;
+      return [
+        campo('Modo casa (app de Android)', casilla(c, 'casa', () => { guardar(); setTimeout(() => cargarCelular(false), 700); }, true),
+          'Con la app de Jarvis para Android, el celular encuentra esta PC solo cuando están en la misma Wi-Fi. No hace falta instalar nada más. La primera vez, Windows puede preguntar si deja entrar a Jarvis en redes privadas: tocá "Permitir".'),
+        c.casa !== false ? h('div', { class: `cel-ts ${ca && ca.activo ? 'ok' : ''}` },
+          h('span', { html: icono(ca && ca.activo ? 'tilde' : 'wifi', 20) }),
+          h('div', {},
+            h('b', {}, ca && ca.activo ? 'Esperando a la app en tu Wi-Fi' : 'Prendiendo…'),
+            h('p', {}, ca && ca.activo && ca.ips && ca.ips.length ? `Esta PC en tu red: ${ca.ips.map((ip) => `${ip}:${ca.puerto}`).join(' · ')} (por si la app no la encuentra sola).` : 'No encuentro una red de casa en esta PC (¿está conectada por Wi-Fi o cable?).'),
+            h('p', {}, 'La app se baja de ', enlace('la página de descargas de Jarvis', 'https://github.com/jsolaresc/jarvis/releases/latest'), ' (el archivo que termina en .apk). Android va a pedir permiso para instalar apps de otros orígenes.'))) : null,
+      ];
+    };
+    const pasoTs = () => {
+      if (!c.activo) return null;
       if (!e || cel.cargando) return h('p', { class: 'ayuda' }, 'Revisando Tailscale…');
       if (!ts || !ts.instalado) return h('div', { class: 'cel-paso' },
-        h('p', {}, 'Tailscale no está instalado en esta PC. Es gratis: arma una red privada entre tu PC y tu celular, cifrada de punta a punta, sin abrir nada a internet.'),
+        h('p', {}, 'Opcional. Para usar Jarvis fuera de casa, o desde el navegador del celular sin la app de Android, hace falta Tailscale: gratis, arma una red privada entre tu PC y tu celular, cifrada de punta a punta, sin abrir nada a internet.'),
         h('ol', {}, h('li', {}, 'Instalalo en la PC y en el celular (Play Store: "Tailscale").'), h('li', {}, 'Iniciá sesión con la misma cuenta en los dos.'), h('li', {}, 'Volvé acá y tocá "Revisar".')),
         h('div', { class: 'fila' }, boton('Bajar Tailscale', () => pedir('abrir:enlace', 'https://tailscale.com/download/windows'), 'principal'), boton('Revisar', () => cargarCelular(true))));
       if (!ts.conectado) return h('div', { class: 'cel-paso' }, h('p', {}, ts.texto || 'Tailscale no está conectado.'), h('p', { class: 'ayuda' }, 'Abrí Tailscale desde el ícono de la bandeja e iniciá sesión.'), boton('Revisar', () => cargarCelular(true)));
@@ -2679,10 +2693,10 @@ const secciones = {
         return h('div', { class: 'cel-codigo' },
           k.qr ? h('img', { class: 'cel-qr', src: k.qr, alt: 'Código QR para vincular el celular' }) : null,
           h('div', {},
-            h('p', {}, k.qr ? 'Escaneá el QR con la cámara del celular (con Tailscale prendido), o abrí la dirección y escribí el código:' : 'En el celular, abrí la dirección de Jarvis y escribí este código:'),
+            h('p', {}, k.qr ? 'En la app de Android, elegí esta PC y escribí el código. Desde el navegador (con Tailscale), escaneá el QR o abrí la dirección y escribí el código:' : 'En la app de Android, elegí esta PC y escribí este código:'),
             h('div', { class: 'cel-numero', 'aria-label': `Código ${k.codigo.split('').join(' ')}` }, `${k.codigo.slice(0, 3)} ${k.codigo.slice(3)}`),
             h('p', { class: 'ayuda', id: 'cel-quedan' }, `Vence en ${Math.floor(quedan / 60)}:${String(quedan % 60).padStart(2, '0')}. Sirve una sola vez.`),
-            !k.base ? h('p', { class: 'ayuda' }, 'Todavía no publicaste Jarvis en Tailscale (paso 1): sin eso el celular no llega.') : null,
+            !k.base && !(e && e.casa && e.casa.activo) ? h('p', { class: 'ayuda' }, 'Prendé el modo casa o publicá Jarvis en Tailscale (paso 1): sin eso el celular no llega.') : null,
             boton('Cancelar', async () => { await pedir('celular:cancelarCodigo').catch(() => {}); cel.codigo = null; pintar(); }, 'chico')));
       }
       return h('div', { class: 'fila' }, boton('Vincular un celular', async () => {
@@ -2702,12 +2716,14 @@ const secciones = {
       : h('p', { class: 'ayuda' }, 'Ningún celular vinculado todavía.');
     return [
       h('h1', {}, 'Celular'),
-      h('p', { class: 'bajada' }, 'Usá Jarvis desde el celular, también fuera de casa: escribile, corré rutinas, guardá o mandá clips y mandá WhatsApp desde la PC. Es una app web que se instala en el celular (Chrome → "Agregar a la pantalla principal"). La conexión va por Tailscale, una red privada y gratuita entre tus aparatos: nada queda abierto a internet y solo entran los celulares que vincules acá.'),
+      h('p', { class: 'bajada' }, 'Usá Jarvis desde el celular: escribile, corré rutinas, descargá, guardá o mandá clips y mandá WhatsApp desde la PC. En casa alcanza con la app de Jarvis para Android, en la misma Wi-Fi. Para usarlo desde afuera, sumá Tailscale (gratis). Solo entran los celulares que vincules acá.'),
       campo('Usar Jarvis desde el celular', casilla(c, 'activo', () => { guardar(); setTimeout(() => cargarCelular(true), 700); }),
         'Mientras está apagado no hay nada escuchando. Prendido, espera pedidos sin gastar recursos.'),
-      h('h2', {}, '1. Acceso desde el celular (Tailscale)'),
+      h('h2', {}, '1. En casa'),
+      pasoCasa(),
+      c.activo ? h('h2', {}, '2. Desde afuera (Tailscale, opcional)') : null,
       pasoTs(),
-      h('h2', {}, '2. Vincular'),
+      h('h2', {}, '3. Vincular'),
       c.activo ? h('p', { class: 'ayuda' }, 'Cada celular se vincula una sola vez con un código de 6 cifras. Después queda reconocido hasta que lo desvincules acá.') : null,
       pasoVincular(),
       h('h2', {}, 'Celulares vinculados'),
@@ -2717,6 +2733,7 @@ const secciones = {
         'Apagado (recomendado): la respuesta solo aparece en el celular; en la PC queda escrita en el notch y en el Historial ("desde el celular").'),
       avanzado('Avanzado',
         campo('Puerto interno', numero(c, 'puerto', guardar, { min: 1024, max: 65535 }), 'Solo se escucha en esta PC (127.0.0.1). Tailscale le pasa los pedidos. Si lo cambiás, volvé a publicar en Tailscale.'),
+        campo('Puerto del modo casa', numero(c, 'puertoCasa', guardar, { min: 1024, max: 65535 }), 'El que usa la app de Android en tu Wi-Fi. Si lo cambiás, la app lo busca en 47821: escribí la dirección a mano en la app.'),
         campo('Puerto HTTPS en Tailscale', numero(c, 'https', guardar, { min: 1, max: 65535 }), '443 = la dirección queda sin número al final. Cambialo solo si ya usás ese puerto para otra cosa.'),
         e && e.local ? h('p', { class: 'ayuda' }, 'Para probar la app en esta misma PC: ', enlace(e.local, e.local)) : null),
     ];

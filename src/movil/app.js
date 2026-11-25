@@ -39,6 +39,16 @@ const h = (tag, props = {}, ...hijos) => {
   return el;
 };
 
+// ---------- App de Android ----------
+// Este mismo código corre adentro de la app nativa (android-app/): ahí no hay service worker, la PC se busca
+// en la Wi-Fi de casa (modo casa) y los archivos se guardan o comparten con Android.
+const CAP = window.Capacitor;
+const NATIVO = !!(CAP && CAP.isNativePlatform && CAP.isNativePlatform());
+const nativo = NATIVO ? (CAP.registerPlugin ? CAP.registerPlugin('JarvisNativo') : CAP.Plugins.JarvisNativo) : null;
+const PUERTO_CASA = 47821;
+const SIN_PC = NATIVO ? 'Tu PC no responde. Revisá que esté prendida, con Jarvis abierto, y que el celular esté en la misma Wi-Fi.'
+  : 'Tu PC no responde. Puede estar apagada, o Tailscale apagado en la PC o en este celular.';
+
 // ---------- Guardado local ----------
 const guardado = {
   get token() { try { return localStorage.getItem('jarvis.token') || ''; } catch { return ''; } },
@@ -48,25 +58,72 @@ const guardado = {
 };
 
 // ---------- Pedidos a la PC ----------
+// En la app de Android, la PC elegida: { base: 'http://192.168.0.10:47821', id, nombre }. En el navegador, la misma página.
+const pcElegida = () => (NATIVO ? guardado.leer('pc', null) : null);
+const u = (ruta) => { const pc = pcElegida(); return pc && typeof ruta === 'string' && ruta.startsWith('/api/') ? pc.base + ruta : ruta; };
 class SinPC extends Error {}
 class NoVinculado extends Error {}
-async function api(ruta, { metodo = 'GET', cuerpo, espera = 20000 } = {}) {
+async function api(ruta, { metodo = 'GET', cuerpo, espera = 20000, base, reintento = false } = {}) {
   const ctrl = new AbortController();
   const reloj = setTimeout(() => ctrl.abort(), espera);
   let r;
   try {
-    r = await fetch(ruta, {
+    r = await fetch(base ? base + ruta : u(ruta), {
       method: metodo, signal: ctrl.signal, cache: 'no-store',
-      headers: { ...(guardado.token ? { Authorization: `Bearer ${guardado.token}` } : {}), ...(cuerpo ? { 'Content-Type': 'application/json' } : {}) },
+      headers: { ...(guardado.token && !base ? { Authorization: `Bearer ${guardado.token}` } : {}), ...(cuerpo ? { 'Content-Type': 'application/json' } : {}) },
       body: cuerpo ? JSON.stringify(cuerpo) : undefined,
     });
-  } catch { throw new SinPC('Tu PC no responde.'); } finally { clearTimeout(reloj); }
+  } catch {
+    clearTimeout(reloj);
+    // En la app de Android: quizás el router le cambió la IP a la PC. Se la busca y se prueba de nuevo.
+    if (NATIVO && !base && !reintento && pcElegida() && await reencontrar()) return api(ruta, { metodo, cuerpo, espera, reintento: true });
+    throw new SinPC('Tu PC no responde.');
+  } finally { clearTimeout(reloj); }
   let dato = {};
   try { dato = await r.json(); } catch {}
   if (r.status === 401 && ruta !== '/api/vincular') { guardado.token = ''; mostrarVincular('Este celular ya no está vinculado. Pedí un código nuevo en la PC.'); throw new NoVinculado(dato.error || 'No vinculado.'); }
   if (r.status === 502 || r.status === 503 || r.status === 504) throw new SinPC('Tu PC no responde.');
   if (!r.ok) throw new Error(dato.error || `Error ${r.status}`);
   return dato;
+}
+
+// ---------- Buscar la PC en la Wi-Fi (app de Android) ----------
+// Pregunta /api/hola a cada dirección de la red del celular (las 254 de un /24), de a muchas por vez.
+async function buscarPCs({ alEncontrar = () => {}, primero } = {}) {
+  const { ip } = await nativo.red().catch(() => ({ ip: '' }));
+  if (!ip) return [];
+  const red = ip.split('.').slice(0, 3).join('.');
+  const candidatas = [];
+  if (primero) candidatas.push(primero);
+  for (let i = 1; i < 255; i++) { const x = `${red}.${i}`; if (x !== ip && x !== primero) candidatas.push(x); }
+  const halladas = [];
+  const probar = async (host) => {
+    const base = `http://${host}:${PUERTO_CASA}`;
+    const ctrl = new AbortController(); const reloj = setTimeout(() => ctrl.abort(), 1500);
+    try {
+      const r = await fetch(`${base}/api/hola`, { signal: ctrl.signal, cache: 'no-store' });
+      const d = await r.json();
+      if (d && d.jarvis && d.pc && d.pc.id) { const pc = { base, id: d.pc.id, nombre: d.pc.nombre || host, ip: host }; halladas.push(pc); alEncontrar(pc); }
+    } catch {} finally { clearTimeout(reloj); }
+  };
+  const cola = [...candidatas];
+  await Promise.all(Array.from({ length: 48 }, async () => { while (cola.length) await probar(cola.shift()); }));
+  return halladas;
+}
+let reencontrando = null; let ultimoReencuentro = 0;
+function reencontrar() {
+  const pc = pcElegida();
+  if (!pc) return Promise.resolve(false);
+  if (reencontrando) return reencontrando;
+  if (Date.now() - ultimoReencuentro < 30000) return Promise.resolve(false);
+  ultimoReencuentro = Date.now();
+  reencontrando = (async () => {
+    let hallada = null;
+    await buscarPCs({ alEncontrar: (x) => { if (x.id === pc.id) hallada = x; } });
+    if (hallada && hallada.base !== pc.base) { guardado.escribir('pc', { ...pc, base: hallada.base, ip: hallada.ip }); return true; }
+    return false;
+  })().finally(() => { reencontrando = null; });
+  return reencontrando;
 }
 
 // ---------- Ojos ----------
@@ -103,7 +160,7 @@ async function refrescar({ silencioso = false } = {}) {
       $('#estado-pc').textContent = 'Tu PC no responde';
       $('#arriba').classList.add('sin-pc');
       fase('dormido');
-      if (!silencioso) aviso('Tu PC no responde. Puede estar apagada, o Tailscale apagado en la PC o en este celular.', { tipo: 'mal', ms: 0, accion: { texto: 'Reintentar', hacer: () => refrescar() } });
+      if (!silencioso) aviso(SIN_PC, { tipo: 'mal', ms: 0, accion: { texto: 'Reintentar', hacer: () => refrescar() } });
     }
   }
 }
@@ -207,7 +264,7 @@ const local = {
   escribir(l) { guardado.escribir('archivos', l); },
   clave: (id) => `/local/${id}`,
   async guardarDesde(url, meta, alAvanzar = () => {}) {
-    const r = await fetch(url, { headers: { Authorization: `Bearer ${guardado.token}` }, cache: 'no-store' });
+    const r = await fetch(u(url), { headers: { Authorization: `Bearer ${guardado.token}` }, cache: 'no-store' });
     if (!r.ok || !r.body) throw new Error(r.status === 404 ? 'El archivo ya no está en la PC.' : `La PC contestó ${r.status}.`);
     const total = Number(r.headers.get('content-length')) || meta.bytes || 0;
     let n = 0;
@@ -359,7 +416,7 @@ async function pintarArchivos() {
       : 'Todavía no guardaste nada en este celular. Descargá algo eligiendo "En este celular", o abrí un archivo de la PC y tocá "Pasar al celular".';
   ul.replaceChildren(...(lista.length ? lista.map((a) => h('li', {},
     h('button', { type: 'button', class: 'abrir', 'aria-label': `Abrir ${sinExt(a.nombre)}`, onclick: () => abrirArchivo(a) },
-      a.miniatura ? h('span', { class: 'mini' }, h('img', { src: a.miniatura, alt: '', loading: 'lazy', onerror: (e) => e.target.replaceWith(h('span', { html: svg(a.tipo === 'audio' ? 'musica' : 'clip', 26) })) }))
+      a.miniatura ? h('span', { class: 'mini' }, h('img', { src: u(a.miniatura), alt: '', loading: 'lazy', onerror: (e) => e.target.replaceWith(h('span', { html: svg(a.tipo === 'audio' ? 'musica' : 'clip', 26) })) }))
         : h('span', { class: 'mini', html: svg(a.tipo === 'audio' ? 'musica' : 'clip', 26) }),
       h('span', { class: 'datos' }, h('b', {}, sinExt(a.nombre)), h('span', {}, [TIPO[a.tipo] || '', a.tipo === 'clip' ? a.carpeta : '', cuando(a.fecha), tam(a.bytes)].filter(Boolean).join(', ')))))) : [h('li', { class: 'tenue vacio' }, vacio)]));
   if (donde === 'celular' && navigator.storage && navigator.storage.estimate) {
@@ -373,7 +430,7 @@ const hoja = $('#hoja-archivo');
 let abierto = null; // { a, donde, url }
 async function abrirArchivo(a) {
   const enCel = donde === 'celular';
-  let src = a.ver;
+  let src = u(a.ver);
   if (enCel) { try { src = URL.createObjectURL(await local.blob(a.id)); } catch (e) { aviso(e.message, { tipo: 'mal' }); return; } }
   abierto = { a, enCel, url: enCel ? src : '' };
   const medio = a.tipo === 'audio' ? h('audio', { controls: '', src, preload: 'metadata' }) : h('video', { controls: '', playsinline: '', src, preload: 'metadata' });
@@ -423,7 +480,7 @@ $('#ha-mandar').addEventListener('click', (ev) => {
 function subir(a, { destino, contacto = '' }) {
   return local.blob(a.id).then((blob) => new Promise((ok, mal) => {
     const x = new XMLHttpRequest();
-    x.open('POST', `/api/subir?destino=${destino}&nombre=${encodeURIComponent(a.nombre)}&contacto=${encodeURIComponent(contacto)}`);
+    x.open('POST', u(`/api/subir?destino=${destino}&nombre=${encodeURIComponent(a.nombre)}&contacto=${encodeURIComponent(contacto)}`));
     x.setRequestHeader('Authorization', `Bearer ${guardado.token}`);
     x.upload.onprogress = (e) => { if (e.lengthComputable) progreso(e.loaded / e.total); };
     x.onload = () => { let d = {}; try { d = JSON.parse(x.responseText); } catch {} if (x.status >= 200 && x.status < 300) ok(d); else mal(new Error(d.error || `Error ${x.status}`)); };
@@ -447,17 +504,37 @@ async function compartir() {
     let blob;
     if (enCel) blob = await local.blob(a.id);
     else {
-      const r = await fetch(a.ver); if (!r.ok) throw new Error('No pude traerlo de la PC.');
+      const r = await fetch(u(a.ver)); if (!r.ok) throw new Error('No pude traerlo de la PC.');
       blob = await r.blob();
     }
+    if (NATIVO) { await aAndroid(blob, a.nombre, 'compartir'); return; }
     const archivo = new File([blob], a.nombre, { type: blob.type || 'application/octet-stream' });
     if (!navigator.canShare || !navigator.canShare({ files: [archivo] })) throw new Error('Este navegador no deja compartir archivos. Guardalo en Descargas y compartilo desde la galería.');
     try { await navigator.share({ files: [archivo], title: sinExt(a.nombre) }); }
     catch (e) { if (e.name !== 'AbortError') throw e; }
   });
 }
+// Pasarle un archivo a Android (Descargas o el menú Compartir), de a 2 MB para no llenar la memoria.
+async function aAndroid(blob, nombre, destino) {
+  const { id } = await nativo.archivoAbrir({ nombre, mime: blob.type || 'application/octet-stream', destino });
+  const PARTE = 2 * 1024 * 1024;
+  try {
+    for (let i = 0; i < blob.size; i += PARTE) {
+      const datos = await new Promise((ok, mal) => { const fr = new FileReader(); fr.onload = () => ok(String(fr.result).split(',')[1] || ''); fr.onerror = () => mal(fr.error); fr.readAsDataURL(blob.slice(i, i + PARTE)); });
+      await nativo.archivoEscribir({ id, datos });
+      if (blob.size > PARTE * 2) progreso(Math.min(1, (i + PARTE) / blob.size));
+    }
+    const r = await nativo.archivoCerrar({ id });
+    progreso(null);
+    return r;
+  } catch (e) { await nativo.archivoCancelar({ id }).catch(() => {}); progreso(null); throw e; }
+}
 async function exportar() {
   const blob = await local.blob(abierto.a.id);
+  if (NATIVO) {
+    await trabajando(null, async () => { await aAndroid(blob, abierto.a.nombre, 'descargas'); aviso('Listo: quedó en Descargas → Jarvis, en el celular.', { tipo: 'bien', ms: 5000 }); });
+    return;
+  }
   const u = URL.createObjectURL(blob);
   const link = h('a', { href: u, download: abierto.a.nombre });
   document.body.append(link); link.click(); link.remove();
@@ -523,6 +600,7 @@ $('#m-desvincular').addEventListener('click', async () => {
   if (!confirm('¿Desvincular este celular? Para volver a usar Jarvis vas a necesitar un código nuevo de la PC.')) return;
   try { await api('/api/desvincular', { metodo: 'POST' }); } catch {}
   guardado.token = ''; charla = []; guardado.escribir('charla', []);
+  if (NATIVO) guardado.escribir('pc', null);
   mostrarVincular('Listo, este celular quedó desvinculado.');
 });
 
@@ -537,6 +615,7 @@ function mostrarVincular(mensaje = '') {
   aviso('');
   clearInterval(relojEstado);
   fase('reposo');
+  if (NATIVO) { $('#elegir-pc').hidden = false; $('#vincular-texto').textContent = 'Con el celular en la misma Wi-Fi que la PC: en Jarvis, abrí Ajustes → Dispositivos → Celular y tocá Vincular un celular. Escribí acá el código que aparece.'; buscarParaVincular(); }
 }
 function mostrarApp() {
   $('#vincular').hidden = true;
@@ -546,15 +625,48 @@ function mostrarApp() {
 }
 const campoCodigo = $('#codigo');
 campoCodigo.addEventListener('input', () => { const d = campoCodigo.value.replace(/\D/g, '').slice(0, 6); campoCodigo.value = d.length > 3 ? `${d.slice(0, 3)} ${d.slice(3)}` : d; });
+// En la app de Android: elegir la PC (se busca sola en la Wi-Fi, o se escribe su dirección).
+let pcsHalladas = [];
+let pcVincular = null;
+function pintarPCs() {
+  const lista = $('#lista-pcs');
+  lista.replaceChildren(...pcsHalladas.map((pc) => h('button', { type: 'button', role: 'radio', 'aria-checked': String(!!pcVincular && pcVincular.base === pc.base), class: pcVincular && pcVincular.base === pc.base ? 'on' : '',
+    onclick: () => { pcVincular = pc; $('#ip-pc').value = ''; pintarPCs(); campoCodigo.focus(); } }, h('b', {}, pc.nombre), h('span', {}, pc.ip))));
+}
+async function buscarParaVincular() {
+  if (!NATIVO) return;
+  const b = $('#buscar-pcs'); b.disabled = true;
+  $('#buscando-pcs').textContent = 'Buscando tu PC en la Wi-Fi…';
+  pcsHalladas = []; pintarPCs();
+  const halladas = await buscarPCs({ alEncontrar: (pc) => { pcsHalladas.push(pc); if (!pcVincular && pcsHalladas.length === 1) pcVincular = pc; pintarPCs(); } });
+  $('#buscando-pcs').textContent = halladas.length ? (halladas.length === 1 ? '' : 'Elegí tu PC.')
+    : 'No encontré ninguna PC con Jarvis en esta Wi-Fi. Revisá que Jarvis esté abierto, con el modo casa prendido (Ajustes → Celular), y que el celular esté en la misma Wi-Fi. La primera vez, Windows puede preguntar si deja entrar a Jarvis: tocá "Permitir".';
+  b.disabled = false;
+}
+async function pcParaVincular() {
+  const escrita = $('#ip-pc').value.trim();
+  if (escrita) {
+    const m = /^(\d{1,3}(?:\.\d{1,3}){3})(?::(\d{2,5}))?$/.exec(escrita);
+    if (!m) throw new Error('Escribí la dirección como aparece en la PC, por ejemplo 192.168.0.10.');
+    const base = `http://${m[1]}:${m[2] || PUERTO_CASA}`;
+    const d = await api('/api/hola', { base, espera: 4000 });
+    if (!d.jarvis || !d.pc) throw new SinPC('No es Jarvis.');
+    return { base, id: d.pc.id, nombre: d.pc.nombre || m[1], ip: m[1] };
+  }
+  if (!pcVincular) throw new Error(pcsHalladas.length ? 'Elegí tu PC.' : 'Todavía no encontré tu PC. Tocá "Buscar de nuevo" o escribí su dirección.');
+  return pcVincular;
+}
 $('#form-vincular').addEventListener('submit', async (e) => {
   e.preventDefault();
   const codigo = campoCodigo.value.replace(/\D/g, '');
   if (codigo.length !== 6) { $('#error-vincular').textContent = 'El código tiene 6 cifras.'; return; }
   const b = e.submitter || $('#form-vincular button'); b.disabled = true; fase('pensando');
   try {
-    const r = await api('/api/vincular', { metodo: 'POST', cuerpo: { codigo, nombre: $('#nombre-cel').value.trim() || nombrePorDefecto() } });
+    const pc = NATIVO ? await pcParaVincular() : null;
+    const r = await api('/api/vincular', { metodo: 'POST', base: pc ? pc.base : undefined, cuerpo: { codigo, nombre: $('#nombre-cel').value.trim() || nombrePorDefecto() } });
+    if (pc) guardado.escribir('pc', pc);
     guardado.token = r.token;
-    history.replaceState(null, '', '/');
+    if (!NATIVO) history.replaceState(null, '', '/');
     fase('ok', 1400);
     mostrarApp();
     aviso(`Listo, "${r.nombre}" quedó vinculado.`, { tipo: 'bien' });
@@ -562,12 +674,42 @@ $('#form-vincular').addEventListener('submit', async (e) => {
     seguir();
   } catch (x) {
     fase('error', 1800);
-    $('#error-vincular').textContent = x instanceof SinPC ? 'No llego a tu PC. Revisá que Jarvis esté abierto y Tailscale prendido en los dos aparatos.' : x.message;
+    $('#error-vincular').textContent = x instanceof SinPC ? (NATIVO ? 'No llego a tu PC. Revisá que Jarvis esté abierto, con el modo casa prendido, y que el celular esté en la misma Wi-Fi.' : 'No llego a tu PC. Revisá que Jarvis esté abierto y Tailscale prendido en los dos aparatos.') : x.message;
   } finally { b.disabled = false; }
 });
 function nombrePorDefecto() {
   const m = /Android[^;]*;\s*([^;)]+?)(?:\s+Build|\))/.exec(navigator.userAgent);
   return m && !/^K$/.test(m[1].trim()) ? m[1].trim().slice(0, 40) : 'Mi celular';
+}
+
+// ---------- Lo propio de la app de Android ----------
+function recibirCompartido(texto) {
+  const link = linkDe(texto || '');
+  if (!link || !guardado.token) return;
+  irA('descargar'); $('#d-url').value = link;
+}
+async function revisarVersion() {
+  // Una vez por día: si en GitHub hay una versión más nueva de la app, se avisa (Android pide confirmar al instalarla).
+  if (Date.now() - guardado.leer('revisado', 0) < 20 * 3600000) return;
+  guardado.escribir('revisado', Date.now());
+  try {
+    const { version } = await nativo.info();
+    const r = await fetch('https://api.github.com/repos/jsolaresc/jarvis/releases/latest', { cache: 'no-store' });
+    const d = await r.json();
+    const nueva = String(d.tag_name || '').replace(/^v/, '');
+    const n = (v) => v.split('.').map((x) => parseInt(x, 10) || 0);
+    const comparar = (x, y) => { for (let i = 0; i < 3; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) - (y[i] || 0); return 0; };
+    const mayor = comparar(n(nueva), n(version || '0')) > 0;
+    const apk = (d.assets || []).find((x) => /\.apk$/i.test(x.name));
+    if (nueva && mayor && apk) aviso(`Hay una versión nueva de la app (${nueva}).`, { ms: 0, accion: { texto: 'Bajar', hacer: () => { aviso(''); nativo.abrir({ url: apk.browser_download_url }); } } });
+  } catch {}
+}
+function prepararNativo() {
+  document.documentElement.classList.add('nativo');
+  nativo.addListener('compartido', (d) => recibirCompartido(d && d.texto));
+  nativo.compartidoPendiente().then((d) => recibirCompartido(d && d.texto)).catch(() => {});
+  $('#buscar-pcs').addEventListener('click', () => buscarParaVincular());
+  revisarVersion();
 }
 
 // ---------- Arranque ----------
@@ -581,7 +723,8 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden && gu
 
 (function iniciar() {
   const desdeQR = /#v=(\d{6})/.exec(location.hash);
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+  if (!NATIVO && 'serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+  if (NATIVO) prepararNativo();
   if (desdeQR && !guardado.token) {
     mostrarVincular();
     campoCodigo.value = `${desdeQR[1].slice(0, 3)} ${desdeQR[1].slice(3)}`;

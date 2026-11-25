@@ -1198,6 +1198,12 @@ function sincronizarCelular() {
     if (c.activo && celular.puerto() && celular.puerto() !== (Number(c.puerto) || celular.PUERTO)) await celular.detener();
     if (c.activo && !celular.puerto()) { try { await celular.iniciar(Number(c.puerto) || celular.PUERTO); } catch (e) { anotarError('celular', e); historial.anotar(`Celular: no pude abrir el puerto ${c.puerto}: ${e.message}`, { error: true }); } }
     if (!c.activo && celular.puerto()) await celular.detener();
+    // Modo casa (app de Android en la misma Wi-Fi).
+    const casa = c.activo && c.casa !== false;
+    const pc = Number(c.puertoCasa) || celular.PUERTO_CASA;
+    if (casa && celular.puertoCasa() && celular.puertoCasa() !== pc) await celular.detenerCasa();
+    if (casa && !celular.puertoCasa()) { try { await celular.iniciarCasa(pc); } catch (e) { anotarError('celular', e); historial.anotar(`Celular: no pude abrir el modo casa en el puerto ${pc}: ${e.message}`, { error: true }); } }
+    if (!casa && celular.puertoCasa()) await celular.detenerCasa();
   }).catch(() => {});
   return celularPrendiendo;
 }
@@ -1205,7 +1211,7 @@ async function estadoCelularParaAjustes(conTailscale = true) {
   await celularPrendiendo;
   const c = leerConfig().celular || {};
   const ts = conTailscale ? await celular.estadoTailscale(Number(c.https) || 443) : null;
-  return { activo: !!c.activo, puerto: celular.puerto(), local: celular.puerto() ? `http://127.0.0.1:${celular.puerto()}` : '', dispositivos: celular.dispositivos(), codigo: celular.codigoVigente(), tailscale: ts, comando: celular.comandoServe(Number(c.https) || 443) };
+  return { activo: !!c.activo, casa: { activo: !!celular.puertoCasa(), puerto: celular.puertoCasa(), ips: celular.ipsCasa() }, puerto: celular.puerto(), local: celular.puerto() ? `http://127.0.0.1:${celular.puerto()}` : '', dispositivos: celular.dispositivos(), codigo: celular.codigoVigente(), tailscale: ts, comando: celular.comandoServe(Number(c.https) || 443) };
 }
 manejar('celular:estado', (conTailscale) => estadoCelularParaAjustes(conTailscale !== false));
 manejar('celular:codigo', async () => {

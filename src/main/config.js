@@ -50,7 +50,8 @@ const CONFIG_DEFECTO = {
   },
   // Jarvis en el celular (Ajustes → Celular): servidor solo en 127.0.0.1, que se publica por Tailscale ("tailscale serve").
   // hablarEnPC: si lo que le escribís desde el celular Jarvis también lo dice en voz alta en la PC.
-  celular: { activo: false, puerto: 47820, https: 443, hablarEnPC: false },
+  // casa: modo casa para la app de Android (misma Wi-Fi, sin Tailscale), en el puerto puertoCasa de la red local.
+  celular: { activo: false, puerto: 47820, https: 443, hablarEnPC: false, casa: true, puertoCasa: 47821 },
   volumen: 1, // cuánto se escucha la voz de Jarvis (1 = normal; no afecta al resto de la PC)
   modos: [
     { id: 'normal', nombre: 'Normal', habla: true, visible: true },

@@ -1,0 +1,72 @@
+# Arma la app de Android (android-app/) a partir de la app del celular de siempre (src/movil).
+# - La usa "Publicar versión" para sumar el .apk a cada Release.
+# - Sola, se dispara en las ramas android/** (para probar que compila) o a mano desde Actions.
+# Firma: con el certificado de los secretos ANDROID_KEYSTORE_B64 y ANDROID_KEYSTORE_PASS. Si todavía no están,
+# se arma igual con un certificado de prueba (y el archivo se llama "-prueba.apk": no se puede actualizar
+# encima de una instalada con el certificado de verdad).
+name: App de Android
+
+on:
+  workflow_call:
+    secrets:
+      ANDROID_KEYSTORE_B64:
+        required: false
+      ANDROID_KEYSTORE_PASS:
+        required: false
+  push:
+    branches: ['android/**']
+  workflow_dispatch:
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Preparar la app (www desde src/movil) y sincronizar Capacitor
+        working-directory: android-app
+        run: |
+          npm ci
+          npm run sincronizar
+
+      - name: Certificado para firmar
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASS }}
+        run: |
+          V=$(node -p "require('./package.json').version")
+          if [ -n "$KS_B64" ] && [ -n "$KS_PASS" ]; then
+            echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/jarvis.jks"
+            echo "JARVIS_KEYSTORE_PASS=$KS_PASS" >> "$GITHUB_ENV"
+            echo "APK_NOMBRE=Jarvis-$V.apk" >> "$GITHUB_ENV"
+          else
+            echo "::warning::Faltan los secretos ANDROID_KEYSTORE_B64 / ANDROID_KEYSTORE_PASS: se firma con un certificado de prueba."
+            keytool -genkeypair -keystore "$RUNNER_TEMP/jarvis.jks" -storepass prueba123 -keypass prueba123 -alias jarvis -keyalg RSA -keysize 2048 -validity 3650 -dname "CN=Jarvis prueba"
+            echo "JARVIS_KEYSTORE_PASS=prueba123" >> "$GITHUB_ENV"
+            echo "APK_NOMBRE=Jarvis-$V-prueba.apk" >> "$GITHUB_ENV"
+          fi
+          echo "JARVIS_KEYSTORE=$RUNNER_TEMP/jarvis.jks" >> "$GITHUB_ENV"
+
+      - name: Compilar
+        working-directory: android-app/android
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleRelease
+          mkdir -p "$GITHUB_WORKSPACE/salida"
+          cp app/build/outputs/apk/release/app-release.apk "$GITHUB_WORKSPACE/salida/$APK_NOMBRE"
+          ls -la "$GITHUB_WORKSPACE/salida"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apk
+          path: salida/*.apk
+          retention-days: 14

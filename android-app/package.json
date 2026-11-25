@@ -1,0 +1,16 @@
+{
+  "name": "jarvis-android",
+  "private": true,
+  "description": "Jarvis para Android: la misma app del celular (src/movil) dentro de una app nativa que encuentra la PC en la Wi-Fi.",
+  "scripts": {
+    "preparar": "node preparar.js",
+    "sincronizar": "node preparar.js && cap sync android"
+  },
+  "dependencies": {
+    "@capacitor/android": "8.6.3",
+    "@capacitor/core": "8.6.3"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.6.3"
+  }
+}

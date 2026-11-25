@@ -12,7 +12,7 @@ const { chromium } = require('playwright');
 const SALIDA = process.argv[2] || '/tmp/capturas-celular';
 fs.mkdirSync(SALIDA, { recursive: true });
 const DATOS = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-celui-'));
-const PUERTO = 47821;
+const PUERTO = 47830;
 const CLIPS = path.join(DATOS, 'Videos');
 fs.mkdirSync(path.join(CLIPS, 'Valheim'), { recursive: true });
 // Un clip de verdad (2 s) para que haya miniatura y se pueda reproducir.
@@ -206,6 +206,98 @@ async function hasta(fn, ms = 20000, que = '') {
     // Historial de la PC: quedó "desde el celular".
     const hist = await notch.evaluate(() => window.jarvis.pedir('historial:leer'));
     assert.ok(hist.dato.some((x) => x.origen === 'celular' && x.dicho === 'modo silencio'), 'historial con origen celular');
+
+    // ----- La app de Android: la misma app con un Capacitor de mentira. Busca la PC en la Wi-Fi (modo casa) y se vincula -----
+    // La red de casa se simula: lo que va a 192.168.77.x:47821 lo atiende el modo casa de Jarvis (que escucha en 0.0.0.0:47821),
+    // con el Host de la red; solo 192.168.77.10 contesta. La app se sirve como en el celular (desde "localhost").
+    await hasta(async () => (await ajustes.locator('text=Esperando a la app en tu Wi-Fi').count()) > 0, 10000, 'modo casa en Ajustes');
+    await ajustes.screenshot({ path: path.join(SALIDA, '12-ajustes-modo-casa.png') });
+    require('child_process').execFileSync(process.execPath, [path.join(raiz, 'android-app', 'preparar.js')]);
+    const WWW = path.join(raiz, 'android-app', 'www');
+    const IP_PC = '192.168.77.10';
+    const reenviar = (q, u) => new Promise((ok, mal) => {
+      const cuerpo = q.postDataBuffer();
+      const r = require('http').request({ hostname: '127.0.0.1', port: 47821, path: u.pathname + u.search, method: q.method(), headers: { ...q.headers(), host: `${IP_PC}:47821` } }, (res) => {
+        const partes = []; res.on('data', (c) => partes.push(c)); res.on('end', () => ok({ status: res.statusCode, headers: res.headers, body: Buffer.concat(partes) }));
+      });
+      r.on('error', mal); r.end(cuerpo || undefined);
+    });
+    const ctxA = await navegador.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, locale: 'es-AR',
+      userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 8 Build/AP2A; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/131.0 Mobile Safari/537.36' });
+    await ctxA.route('http://localhost/**', (r) => { const f = path.join(WWW, decodeURIComponent(new URL(r.request().url()).pathname).replace(/^\/$/, '/index.html')); return fs.existsSync(f) ? r.fulfill({ path: f }) : r.fulfill({ status: 404, body: '' }); });
+    await ctxA.route(/^http:\/\/192\.168\.77\.\d+:47821\//, async (r) => { const u = new URL(r.request().url()); if (u.hostname !== IP_PC) return r.abort('connectionrefused'); return r.fulfill(await reenviar(r.request(), u)); });
+    await ctxA.route('https://api.github.com/**', (r) => r.fulfill({ json: { tag_name: 'v9.9.9', assets: [{ name: 'Jarvis-9.9.9.apk', browser_download_url: 'https://github.com/jsolaresc/jarvis/releases/download/v9.9.9/Jarvis-9.9.9.apk' }] } }));
+    await ctxA.addInitScript(() => {
+      const oyentes = {};
+      window.androidFalso = { archivos: [], abiertos: {}, abierto: '' };
+      const A = window.androidFalso;
+      const plugin = {
+        red: async () => ({ ip: '192.168.77.5', prefijo: 24 }),
+        info: async () => ({ version: '1.0.0' }),
+        abrir: async (o) => { A.abierto = o.url; },
+        compartidoPendiente: async () => ({ texto: '' }),
+        addListener: (n, f) => { oyentes[n] = f; return { remove() {} }; },
+        archivoAbrir: async (o) => { const id = String(Math.random()); A.abiertos[id] = { ...o, bytes: 0 }; return { id }; },
+        archivoEscribir: async ({ id, datos }) => { A.abiertos[id].bytes += atob(datos).length; },
+        archivoCerrar: async ({ id }) => { A.archivos.push(A.abiertos[id]); return { donde: 'Descargas/Jarvis' }; },
+        archivoCancelar: async () => {},
+      };
+      window.compartirDesdeOtraApp = (t) => oyentes.compartido && oyentes.compartido({ texto: t });
+      window.Capacitor = { isNativePlatform: () => true, registerPlugin: () => plugin };
+    });
+    const pA = await ctxA.newPage();
+    pA.on('console', (m) => { if (m.type() === 'error' && !/ERR_CONNECTION_REFUSED|ERR_FAILED/.test(m.text())) errores.push(`android: ${m.text()}`); });
+    pA.on('pageerror', (e) => errores.push(`android: ${e.message}`));
+    await pA.goto('http://localhost/index.html');
+    await hasta(() => pA.locator('#vincular:not([hidden])').count(), 5000, 'android: pantalla de vincular');
+    await hasta(() => pA.locator(`#lista-pcs button:has-text("${IP_PC}")`).count(), 20000, 'android: encuentra la PC en la Wi-Fi');
+    assert.strictEqual(await pA.locator('#lista-pcs button').count(), 1, 'una sola PC');
+    assert.strictEqual(await pA.getAttribute('#lista-pcs button', 'aria-checked'), 'true', 'la elige sola');
+    // Aviso de versión nueva de la app.
+    await hasta(() => pA.locator('#aviso:has-text("versión nueva")').count(), 8000, 'android: aviso de versión nueva');
+    await pA.click('#aviso button');
+    assert.match(await pA.evaluate(() => window.androidFalso.abierto), /Jarvis-9\.9\.9\.apk$/);
+    await pA.screenshot({ path: path.join(SALIDA, '13-android-vincular.png') });
+    await ajustes.getByRole('button', { name: 'Vincular un celular' }).click();
+    const codigoA = (await hasta(() => ajustes.locator('.cel-numero').textContent(), 10000, 'código para android')).replace(/\D/g, '');
+    await pA.fill('#codigo', codigoA);
+    await pA.fill('#nombre-cel', 'App de prueba');
+    await pA.getByRole('button', { name: 'Vincular', exact: true }).click();
+    await hasta(() => pA.locator('#app:not([hidden])').count(), 8000, 'android: app después de vincular');
+    await hasta(async () => (await pA.textContent('#estado-pc')).startsWith('Modo'), 8000, 'android: estado de la PC');
+    assert.strictEqual(JSON.parse(await pA.evaluate(() => localStorage.getItem('jarvis.pc'))).base, `http://${IP_PC}:47821`);
+    // Archivos de la PC, pasar uno al celular y guardarlo en Descargas con Android.
+    await pA.click('#abajo button[data-hoja="archivos"]');
+    await pA.click('[data-donde="pc"]');
+    await hasta(() => pA.locator('#lista-archivos li:has-text("Jefe final")').count(), 8000, 'android: archivos de la PC');
+    await pA.locator('#lista-archivos li:has-text("Jefe final") button').first().click();
+    await pA.getByRole('button', { name: 'Pasar al celular' }).click();
+    await hasta(() => pA.locator('#aviso:has-text("quedó en este celular")').count(), 15000, 'android: pasado al celular');
+    await pA.keyboard.press('Escape');
+    await pA.click('[data-donde="celular"]');
+    await pA.locator('#lista-archivos li:has-text("Jefe final") button').first().click();
+    await pA.getByRole('button', { name: 'Guardar en Descargas del celular' }).click();
+    await hasta(() => pA.locator('#aviso:has-text("Descargas")').count(), 8000, 'android: guardado en Descargas');
+    const guardadosA = await pA.evaluate(() => window.androidFalso.archivos);
+    assert.strictEqual(guardadosA.length, 1);
+    assert.deepStrictEqual([guardadosA[0].nombre, guardadosA[0].destino, guardadosA[0].bytes > 10000], ['Jefe final.mp4', 'descargas', true]);
+    await pA.keyboard.press('Escape');
+    await pA.screenshot({ path: path.join(SALIDA, '14-android-archivos.png') });
+    // "Compartir" desde YouTube con la app abierta.
+    await pA.evaluate(() => window.compartirDesdeOtraApp('Mirá esto https://youtu.be/abc123'));
+    await hasta(() => pA.locator('#s-descargar:not([hidden])').count(), 5000, 'android: abre Descargar');
+    assert.strictEqual(await pA.inputValue('#d-url'), 'https://youtu.be/abc123');
+    // El router le cambió la IP a la PC: la app la vuelve a encontrar sola (por su identificador).
+    await pA.evaluate(() => { const pc = JSON.parse(localStorage.getItem('jarvis.pc')); pc.base = 'http://192.168.77.99:47821'; localStorage.setItem('jarvis.pc', JSON.stringify(pc)); });
+    await pA.reload();
+    await hasta(async () => (await pA.textContent('#estado-pc')).startsWith('Modo'), 30000, 'android: reencuentra la PC');
+    assert.strictEqual(JSON.parse(await pA.evaluate(() => localStorage.getItem('jarvis.pc'))).base, `http://${IP_PC}:47821`, 'guarda la IP nueva');
+    await pA.screenshot({ path: path.join(SALIDA, '15-android-charla.png') });
+    // Se lo desvincula desde la PC (así queda un solo celular para lo que sigue).
+    const estCel = await notch.evaluate(() => window.jarvis.pedir('celular:estado', false));
+    const idA = estCel.dato.dispositivos.find((d) => d.nombre === 'App de prueba').id;
+    await notch.evaluate((id) => window.jarvis.pedir('celular:revocar', id), idA);
+    await ctxA.close();
 
     // La PC lo desvincula: el celular vuelve a pedir código.
     await ajustes.screenshot({ path: path.join(SALIDA, '9-ajustes-vinculado.png') });
