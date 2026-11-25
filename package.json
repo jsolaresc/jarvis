@@ -102,8 +102,7 @@
       "installerLanguages": [
         "es_ES"
       ],
-      "language": "3082",
-      "multiLanguageInstaller": false,
+      "multiLanguageInstaller": true,
       "unicode": true,
       "artifactName": "Jarvis-Setup-${version}.${ext}",
       "uninstallDisplayName": "Jarvis"
