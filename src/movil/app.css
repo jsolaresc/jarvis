@@ -181,41 +181,73 @@ button.texto { border: 0; background: none; color: var(--ojo); font-weight: 600;
 #filtros button { flex: none; }
 #actualizar-archivos { flex: none; width: 40px; height: 40px; }
 
-/* ---------- Inicio: widgets en 2 columnas ---------- */
+/* ---------- Inicio: widgets en 2 columnas, con el mismo aspecto que el panel del notch de la PC ---------- */
 .inicio-arriba { display: flex; align-items: center; justify-content: space-between; }
 .inicio-arriba h2 { margin: 6px 0 12px; font-size: var(--t-l); }
 .inicio-arriba button.texto { border: 0; background: none; color: var(--ojo); font-weight: 600; min-height: 44px; padding: 0 4px; }
-.widgets { display: grid; grid-template-columns: 1fr 1fr; grid-auto-rows: minmax(84px, auto); gap: 10px; }
-.widget { --c: var(--ojo); position: relative; background: var(--superficie); border: 1px solid var(--linea); border-radius: 16px; padding: 12px; display: flex; flex-direction: column; justify-content: center; min-width: 0; }
+.widgets { --tarjeta: rgba(255, 255, 255, .07); --tarjeta-encima: rgba(255, 255, 255, .13); display: grid; grid-template-columns: 1fr 1fr; grid-auto-rows: minmax(64px, auto); gap: 10px; }
+.widget { --c: var(--ojo); position: relative; background: var(--tarjeta); border: 0; border-radius: 16px; padding: 0; display: flex; flex-direction: column; justify-content: center; min-width: 0; overflow: hidden; }
+.widget[style*="--c"] { background: color-mix(in srgb, var(--c) 12%, var(--tarjeta)); }
 .widget.tam-2 { grid-column: span 2; }
 .widget.alto-2 { grid-row: span 2; }
 .widget .w-ic { color: var(--c); display: inline-flex; flex: none; }
 .widget button { font: inherit; color: inherit; }
-.w-boton { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 8px; width: 100%; height: 100%; min-height: 60px; border: 0; background: none; text-align: left; font-weight: 600; padding: 0; }
-.tam-2 > .w-boton { flex-direction: row; align-items: center; }
-.alto-2 > .w-boton { flex-direction: column; justify-content: center; align-items: center; text-align: center; }
-.w-boton.activo { color: var(--c); }
-.w-reloj b { display: block; font-size: 34px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; color: var(--c); }
+.widget button:active { scale: .97; }
+/* Botones: ícono y nombre, como las acciones rápidas del notch */
+.w-boton { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; height: 100%; min-height: 64px; border: 0; background: none; text-align: center; font-weight: 600; font-size: var(--t-m); padding: 8px 12px; }
+.tam-1 > .w-boton { flex-direction: column; gap: 6px; }
+.alto-2 > .w-boton { flex-direction: column; gap: 10px; }
+.w-boton.activo { background: color-mix(in srgb, var(--c) 26%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 55%, transparent); }
+/* Info: reloj y clima */
+.w-reloj { padding: 12px 14px; }
+.w-reloj b { display: block; font-size: 30px; font-weight: 650; font-variant-numeric: tabular-nums; line-height: 1.1; }
 .w-reloj span { display: block; font-size: var(--t-s); color: var(--tenue); }
 .w-reloj span::first-letter { text-transform: uppercase; }
-.w-clima { display: flex; align-items: center; gap: 12px; width: 100%; height: 100%; border: 0; background: none; text-align: left; padding: 0; }
-.w-clima b { display: block; font-size: 28px; font-weight: 700; line-height: 1.1; }
+.w-clima { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; height: 100%; border: 0; background: none; text-align: left; padding: 10px 12px; }
+.tam-1 > .w-clima, .alto-2 > .w-clima { flex-direction: column; text-align: center; gap: 4px; }
+.w-clima b { display: block; font-size: 24px; font-weight: 650; line-height: 1.1; }
 .w-clima small { display: block; font-size: var(--t-s); color: var(--tenue); }
-.w-lista { display: grid; gap: 10px; width: 100%; border: 0; background: none; padding: 0; text-align: left; }
-.w-fila { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
+.w-info { font-size: var(--t-s); padding: 12px 14px; }
+/* Listas: eventos y notas */
+.w-lista { display: grid; gap: 10px; width: 100%; border: 0; background: none; padding: 12px 14px; text-align: left; }
+.w-fila { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .w-fila > span:last-child { min-width: 0; }
+.wt-agenda .w-ic { color: #F4B400; }
+.wt-agenda[style*="--c"] .w-ic { color: var(--c); }
 .w-fila b { display: block; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .w-fila small { display: block; font-size: var(--t-s); color: var(--tenue); }
-.w-info { font-size: var(--t-s); }
-.w-nota { display: flex; gap: 8px; align-items: center; }
-.w-nota button.principal { width: 48px; height: 48px; border-radius: 12px; flex: none; }
-.w-rutinas { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.w-rutinas .rutina { border: 1px solid var(--linea); background: transparent; border-radius: 12px; padding: 0 12px; font-weight: 600; min-height: 52px !important; }
+/* Nota rápida: campo redondo y botón redondo */
+.w-nota { display: flex; gap: 8px; align-items: center; padding: 8px; }
+.w-nota input { border-radius: 999px; background: var(--tarjeta); border: 1px solid transparent; padding: 10px 16px; }
+.w-nota button.principal { width: 44px; height: 44px; border-radius: 50%; flex: none; border: 0; background: var(--tarjeta-encima); color: var(--c); }
+/* Rutinas: tarjetas de a dos */
+.wt-rutinas { background: none !important; }
+.w-rutinas { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.w-rutinas .rutina { display: flex; align-items: center; justify-content: center; gap: 10px; border: 0; background: var(--tarjeta); border-radius: 16px; padding: 0 12px; font-weight: 600; min-height: 64px !important; text-align: center; }
 .w-rutinas .rutina span:first-child { color: var(--c); }
-.widget .fichas button.on { background: var(--c); border-color: var(--c); }
-.w-musica .tenue { margin: 0 0 6px; }
-.w-volumen { display: flex; align-items: center; gap: 12px; }
+/* Modos: botones dentro de una barra */
+.wt-modos .fichas { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); padding: 8px; gap: 6px; }
+.wt-modos .fichas button { flex: 1 1 auto; border: 0; background: transparent; border-radius: 12px; padding: 10px 12px; color: var(--tenue); font-weight: 600; }
+.wt-modos .fichas button.on { background: color-mix(in srgb, var(--c) 22%, transparent); color: var(--texto); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 55%, transparent); }
+/* Música: tapa, título y botones, como el reproductor del notch */
+.w-musica { padding: 12px; display: grid; gap: 10px; }
+.m-fila { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.m-disco { position: relative; width: 52px; height: 52px; border-radius: 12px; overflow: hidden; display: grid; place-items: center; color: var(--tenue); background: var(--tarjeta-encima); flex: none; }
+.m-disco img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.m-titulo { min-width: 0; display: grid; gap: 2px; }
+.m-titulo b { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.m-titulo.vacio b { color: var(--tenue); font-weight: 500; }
+.m-titulo small { font-size: var(--t-s); color: var(--tenue); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.m-botones { display: flex; align-items: center; justify-content: center; gap: 14px; }
+.m-botones .icono { color: var(--tenue); width: 44px; height: 44px; }
+.m-botones .icono.grande { width: 52px; height: 52px; background: var(--tarjeta-encima); color: var(--texto); }
+.m-botones .icono.activo { color: var(--c); }
+/* Volumen */
+.w-volumen { display: flex; align-items: center; gap: 12px; padding: 8px 14px; }
 .w-volumen input[type=range] { flex: 1; accent-color: var(--c); padding: 0; border: 0; background: none; }
+.w-volumen .icono { color: var(--c); }
+.w-opcion.on { border-color: var(--ojo); }
+.w-opcion .w-marca { margin-left: auto; color: var(--ojo); display: inline-flex; }
 /* Editando: cada widget con su barra de botones encima */
 .widgets.editando .widget { border-style: dashed; justify-content: flex-start; padding: 8px; }
 .widgets.editando .widget > :not(.w-editar) { pointer-events: none; opacity: .5; }

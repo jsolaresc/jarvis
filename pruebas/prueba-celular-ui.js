@@ -272,12 +272,13 @@ async function hasta(fn, ms = 20000, que = '') {
         info: async () => ({ version: '1.0.0' }),
         abrir: async (o) => { A.abierto = o.url; },
         compartidoPendiente: async () => ({ texto: '' }),
-        addListener: (n, f) => { oyentes[n] = f; return { remove() {} }; },
+        addListener: (n, f) => { oyentes[n] = f; return Object.assign(Promise.resolve({ remove() {} }), { remove() {} }); },
         archivoAbrir: async (o) => { const id = String(Math.random()); A.abiertos[id] = { ...o, bytes: 0 }; return { id }; },
         archivoEscribir: async ({ id, datos }) => { A.abiertos[id].bytes += atob(datos).length; },
         archivoCerrar: async ({ id }) => { A.archivos.push(A.abiertos[id]); return { donde: 'Descargas/Jarvis' }; },
         archivoCancelar: async () => {},
         configurarPC: async (o) => { A.pc = o; },
+        actualizar: async (o) => { A.actualizado = o.url; (oyentes.actualizacion || (() => {}))({ pct: 50 }); return { permiso: true }; },
         programarAvisos: async (o) => { A.avisos = o.avisos; return { programados: o.avisos.length }; },
         pedirPermisoAvisos: async () => {},
         salir: async () => { A.salio++; },
@@ -302,8 +303,10 @@ async function hasta(fn, ms = 20000, que = '') {
     assert.strictEqual(await pA.getAttribute('#lista-pcs button', 'aria-checked'), 'true', 'la elige sola');
     // Aviso de versión nueva de la app.
     await hasta(() => pA.locator('#aviso:has-text("versión nueva")').count(), 8000, 'android: aviso de versión nueva');
-    await pA.click('#aviso button');
-    assert.match(await pA.evaluate(() => window.androidFalso.abierto), /Jarvis-9\.9\.9\.apk$/);
+    // "Actualizar": la baja la app y abre el instalador de Android (sin pasar por el navegador).
+    await pA.click('#aviso button:has-text("Actualizar")');
+    await hasta(() => pA.locator('#aviso:has-text("Instalar")').count(), 5000, 'android: actualización bajada');
+    assert.match(await pA.evaluate(() => window.androidFalso.actualizado), /Jarvis-9\.9\.9\.apk$/);
     await pA.screenshot({ path: path.join(SALIDA, '13-android-vincular.png') });
     await ajustes.getByRole('button', { name: 'Vincular un celular' }).click();
     const codigoA = (await hasta(() => ajustes.locator('.cel-numero').textContent(), 10000, 'código para android')).replace(/\D/g, '');

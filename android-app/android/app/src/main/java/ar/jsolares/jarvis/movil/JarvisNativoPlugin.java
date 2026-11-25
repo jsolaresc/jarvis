@@ -114,34 +114,47 @@ public class JarvisNativoPlugin extends Plugin {
         return lista.toString();
     }
 
+    // Lo que pasó al iniciar (se arranca en segundo plano: la app pregunta el estado con afueraEstado).
+    private static volatile String errorAfuera = null;
+    private static volatile boolean iniciando = false;
+
     @PluginMethod
     public void afueraIniciar(PluginCall call) {
-        new Thread(() -> {
-            try {
-                Movil.fijarInterfaces(interfacesJSON());
-                String nombre = ("jarvis-" + Build.MODEL).toLowerCase().replaceAll("[^a-z0-9-]+", "-");
-                File dir = new File(getContext().getFilesDir(), "tailscale");
-                dir.mkdirs();
-                Movil.iniciar(dir.getAbsolutePath(), nombre.length() > 40 ? nombre.substring(0, 40) : nombre);
-                call.resolve();
-            } catch (Exception e) {
-                call.reject(e.getMessage() != null ? e.getMessage() : "No pude iniciar Tailscale.");
-            }
-        }).start();
+        if (!iniciando) {
+            iniciando = true;
+            errorAfuera = null;
+            new Thread(() -> {
+                try {
+                    Movil.fijarInterfaces(interfacesJSON());
+                    String nombre = ("jarvis-" + Build.MODEL).toLowerCase().replaceAll("[^a-z0-9-]+", "-");
+                    File dir = new File(getContext().getFilesDir(), "tailscale");
+                    dir.mkdirs();
+                    Movil.iniciar(dir.getAbsolutePath(), nombre.length() > 40 ? nombre.substring(0, 40) : nombre);
+                } catch (Throwable t) { // también errores de la librería (UnsatisfiedLinkError, etc.)
+                    errorAfuera = t.getClass().getSimpleName() + ": " + t.getMessage();
+                } finally {
+                    iniciando = false;
+                }
+            }).start();
+        }
+        call.resolve();
     }
 
     @PluginMethod
     public void afueraEstado(PluginCall call) {
         new Thread(() -> {
+            JSObject r;
             try {
+                if (errorAfuera != null) throw new Exception(errorAfuera);
                 Movil.fijarInterfaces(interfacesJSON()); // por si cambió la red (Wi-Fi ↔ datos)
-                call.resolve(new JSObject(Movil.estado()));
-            } catch (Exception e) {
-                JSObject r = new JSObject();
+                r = new JSObject(Movil.estado());
+                if (iniciando && "apagado".equals(r.getString("estado"))) r.put("estado", "Starting");
+            } catch (Throwable t) {
+                r = new JSObject();
                 r.put("estado", "error");
-                r.put("texto", e.getMessage());
-                call.resolve(r);
+                r.put("texto", t.getMessage() != null ? t.getMessage() : t.getClass().getSimpleName());
             }
+            call.resolve(r);
         }).start();
     }
 
@@ -153,7 +166,7 @@ public class JarvisNativoPlugin extends Plugin {
                 JSObject r = new JSObject();
                 r.put("puerto", Movil.proxy(destino));
                 call.resolve(r);
-            } catch (Exception e) {
+            } catch (Throwable e) {
                 call.reject(e.getMessage() != null ? e.getMessage() : "No pude llegar a la PC por Tailscale.");
             }
         }).start();
@@ -162,8 +175,59 @@ public class JarvisNativoPlugin extends Plugin {
     @PluginMethod
     public void afueraSalir(PluginCall call) {
         new Thread(() -> {
-            try { Movil.salir(); } catch (Exception ignored) {}
+            try { Movil.salir(); } catch (Throwable ignored) {}
             call.resolve();
+        }).start();
+    }
+
+    // ---------- Actualizar la app desde la app ----------
+    /** Baja el .apk de la Release (con progreso: evento "actualizacion") y abre el instalador de Android. */
+    @PluginMethod
+    public void actualizar(PluginCall call) {
+        String url = call.getString("url", "");
+        if (!url.startsWith("https://github.com/jsolaresc/jarvis/releases/")) { call.reject("Esa dirección no es de las versiones de Jarvis."); return; }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !getContext().getPackageManager().canRequestPackageInstalls()) {
+            // La primera vez Android pide permitir que Jarvis instale apps: se abre esa pantalla y se vuelve a tocar Actualizar.
+            Intent permiso = new Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + getContext().getPackageName()));
+            permiso.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            getContext().startActivity(permiso);
+            JSObject r = new JSObject();
+            r.put("permiso", false);
+            call.resolve(r);
+            return;
+        }
+        new Thread(() -> {
+            try {
+                File carpeta = new File(getContext().getCacheDir(), "actualizacion");
+                carpeta.mkdirs();
+                File apk = new File(carpeta, "Jarvis.apk");
+                java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+                c.setInstanceFollowRedirects(true);
+                c.setConnectTimeout(15000);
+                c.setReadTimeout(30000);
+                if (c.getResponseCode() != 200) throw new Exception("GitHub respondió " + c.getResponseCode());
+                long total = c.getContentLengthLong();
+                try (java.io.InputStream in = c.getInputStream(); FileOutputStream out = new FileOutputStream(apk)) {
+                    byte[] buf = new byte[64 * 1024];
+                    long n = 0; int ultimo = -1;
+                    for (int k; (k = in.read(buf)) > 0; ) {
+                        out.write(buf, 0, k);
+                        n += k;
+                        int pct = total > 0 ? (int) (n * 100 / total) : -1;
+                        if (pct != ultimo && pct % 5 == 0) { ultimo = pct; JSObject p = new JSObject(); p.put("pct", pct); notifyListeners("actualizacion", p); }
+                    }
+                }
+                Uri uri = FileProvider.getUriForFile(getContext(), getContext().getPackageName() + ".fileprovider", apk);
+                Intent instalar = new Intent(Intent.ACTION_VIEW);
+                instalar.setDataAndType(uri, "application/vnd.android.package-archive");
+                instalar.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+                getContext().startActivity(instalar);
+                JSObject r = new JSObject();
+                r.put("permiso", true);
+                call.resolve(r);
+            } catch (Throwable t) {
+                call.reject("No pude bajar la versión nueva: " + t.getMessage());
+            }
         }).start();
     }
 

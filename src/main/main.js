@@ -1108,6 +1108,11 @@ async function accionDelCelular(b, quien) {
     case 'musica': {
       if (b.accion === 'poner') return conHistorial(`Música: ${b.busqueda || 'la de siempre'}`, () => acciones.ejecutarPaso({ tipo: 'musica', busqueda: String(b.busqueda || '').slice(0, 200) }, { porVoz: false }));
       if (b.accion === 'aLaPC') { musica.soltarDestino(); publicarEstado(); return 'La música vuelve a la PC.'; }
+      if (b.accion === 'enviar') {
+        const aparato = String(b.dispositivo || '').trim().slice(0, 80);
+        if (!aparato) throw Object.assign(new Error('Elegí a qué aparato mandarla.'), { status: 400 });
+        return conHistorial(`Música a ${aparato}`, async () => { const r = await musica.enviarActualA(aparato); publicarEstado(); return r; });
+      }
       if (!MUSICA_CEL.has(b.accion)) throw Object.assign(new Error('Acción de música desconocida.'), { status: 400 });
       return conHistorial(`Música: ${b.accion}`, () => acciones.ejecutarPaso({ tipo: 'musica_control', accion: b.accion }, { porVoz: false }));
     }
@@ -1155,7 +1160,9 @@ function estadoParaCelular() {
     rutinas, contactos, enviarA: c.clips.enviarA || '',
     clips: { activo: !!ce.activo, permitido: !!ce.permitido, corriendo: !!ce.corriendo, grabando: !!ce.grabando, pausado: !!ce.pausado, segundos: ce.segundos, ultimo: ce.ultimo, error: ce.error || '' },
     whatsapp: whatsapp.leerEstado().fase,
-    musica: { sonando: !!mu.sonando, cancion: mu.cancion || '', artista: mu.artista || '', destino: mu.destino ? (mu.destino.nombre || String(mu.destino)) : '' },
+    musica: { sonando: !!mu.sonando, cancion: mu.cancion || '', artista: mu.artista || '', tapa: /^https:\/\//.test(mu.tapa || '') ? mu.tapa : '', destino: mu.destino ? (mu.destino.nombre || String(mu.destino)) : '' },
+    // A dónde se puede mandar la música (los nombres de Ajustes → Dispositivos → Teles y parlantes).
+    aparatos: [...new Set((c.teles || []).map((t) => nombrePrincipal(t.nombre)).filter(Boolean))],
     conexion: { sin: !!conexion.estado().sin },
     // Para que la app de Android sepa cómo llegar a esta PC desde afuera (por la red de Tailscale).
     afuera: red.ip() ? { ip: red.ip(), puerto: Number(c.celular.puerto) || celular.PUERTO } : null,

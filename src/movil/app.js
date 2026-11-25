@@ -40,6 +40,9 @@ const ICONOS = {
   ancho: '<path d="M4 12h16M8 8l-4 4 4 4M16 8l4 4-4 4"/>',
   alto: '<path d="M12 4v16M8 8l4-4 4 4M8 16l4 4 4-4"/>',
   pintar: '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="3.5" fill="currentColor"/>',
+  cast: '<path d="M3 17a4 4 0 0 1 4 4M3 13a8 8 0 0 1 8 8M3 9a12 12 0 0 1 12 12"/><path d="M7 5h12a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-3"/>',
+  pc: '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>',
+  tilde: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
   mudo: '<path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M17 9l4 6M21 9l-4 6"/>',
   trabajo: '<rect x="3" y="7" width="18" height="13" rx="2"/><path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M3 13h18"/>',
 };
@@ -852,10 +855,15 @@ function contenidoW(w) {
     }
     case 'musica': {
       const mu = e.musica || {};
-      const ctrl = (a, ic, etiqueta, grande) => h('button', { type: 'button', class: `icono${grande ? ' grande' : ''}`, 'aria-label': etiqueta, html: svg(ic, grande ? 28 : 22), onclick: (ev) => accion({ tipo: 'musica', accion: a }, ev.currentTarget) });
+      const ctrl = (acc, ic, etiqueta, clase = '') => h('button', { type: 'button', class: `icono ${clase}`, 'aria-label': etiqueta, html: svg(ic, clase ? 24 : 20), onclick: (ev) => accion({ tipo: 'musica', accion: acc }, ev.currentTarget) });
+      const disco = h('span', { class: 'm-disco', html: svg('musica', 22) });
+      if (mu.tapa) disco.append(h('img', { src: mu.tapa, alt: '', onerror: (ev) => ev.target.remove() }));
       return h('div', { class: 'w-musica' },
-        h('p', { class: 'tenue' }, mu.cancion ? `${mu.sonando ? 'Sonando' : 'En pausa'}: ${mu.cancion}${mu.artista ? `, ${mu.artista}` : ''}${mu.destino ? ` (en ${mu.destino})` : ''}` : 'Nada sonando. Play arranca la música de siempre.'),
-        h('div', { class: 'controles' }, ctrl('anterior', 'anterior', 'Anterior'), ctrl('alternar', mu.sonando ? 'pausa' : 'play', 'Pausa o play', true), ctrl('siguiente', 'siguiente', 'Siguiente')));
+        h('div', { class: 'm-fila' }, disco,
+          h('span', { class: `m-titulo${mu.cancion ? '' : ' vacio'}` }, h('b', {}, mu.cancion || 'Nada sonando'), h('small', {}, mu.cancion ? [mu.artista, mu.destino ? `en ${mu.destino}` : ''].filter(Boolean).join(' · ') : 'Play arranca la música de siempre'))),
+        h('div', { class: 'm-botones' },
+          ctrl('anterior', 'anterior', 'Anterior'), ctrl('alternar', mu.sonando ? 'pausa' : 'play', 'Pausa o play', 'grande'), ctrl('siguiente', 'siguiente', 'Siguiente'),
+          h('button', { type: 'button', class: `icono${mu.destino ? ' activo' : ''}`, 'aria-label': 'Escuchar en otro aparato', html: svg('cast', 20), onclick: () => elegirAparato() })));
     }
     case 'volumen': {
       const barra = h('input', { type: 'range', min: '0', max: '100', step: '5', value: String(volumenLocal), 'aria-label': 'Volumen de la PC' });
@@ -900,6 +908,23 @@ function terminarEdicion() { editando = false; $('#editando').hidden = true; $('
 $('#editar-inicio').addEventListener('click', () => { if (editando) { terminarEdicion(); return; } editando = true; $('#editando').hidden = false; $('#editar-inicio').textContent = 'Listo'; pintarInicio(); });
 $('#restaurar-inicio').addEventListener('click', () => { if (!confirm('¿Volver al inicio de siempre? Se pierden los cambios.')) return; widgets = INICIO_DE_SIEMPRE.map(normalizarW); guardarWidgets(); pintarInicio(); });
 const hojaW = $('#hoja-widgets');
+// Una lista de opciones en la hoja de abajo (aparatos para la música, etc.).
+function abrirLista(titulo, opciones) {
+  $('#hw-titulo').textContent = titulo;
+  $('#catalogo').replaceChildren(...opciones.map((o) => h('button', { type: 'button', class: `w-opcion${o.marcado ? ' on' : ''}`, 'aria-pressed': o.marcado ? 'true' : null, onclick: () => { hojaW.close(); o.fn(); } },
+    h('span', { class: 'w-ic', html: svg(o.icono, 20) }), h('span', {}, o.nombre), o.marcado ? h('span', { class: 'w-marca', html: svg('tilde', 18) }) : null)));
+  hojaW.showModal();
+}
+function elegirAparato() {
+  const e = estado || {};
+  const destino = (e.musica || {}).destino || '';
+  const aparatos = e.aparatos || [];
+  if (!aparatos.length) { aviso('No hay aparatos cargados. En la PC: Ajustes → Dispositivos → Teles y parlantes.', { tipo: 'mal', ms: 6000 }); return; }
+  abrirLista('Escuchar en', [
+    { icono: 'pc', nombre: 'Esta PC', marcado: !destino, fn: () => accion({ tipo: 'musica', accion: 'aLaPC' }) },
+    ...aparatos.map((n) => ({ icono: 'cast', nombre: n, marcado: destino && destino.toLowerCase() === n.toLowerCase(), fn: () => accion({ tipo: 'musica', accion: 'enviar', dispositivo: n }) })),
+  ]);
+}
 $('#hw-cerrar').addEventListener('click', () => hojaW.close());
 function sumarWidget(w) { widgets.push(normalizarW(w)); guardarWidgets(); hojaW.close(); pintarInicio(); cargarInicio(true); setTimeout(() => { const ult = $('#widgets').lastElementChild; if (ult) ult.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 50); }
 function catalogo() {
@@ -954,29 +979,46 @@ $('#m-avisos').addEventListener('click', async () => {
 
 // ---------- Desde afuera: Tailscale integrado (app de Android) ----------
 const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
-function pintarMenuAfuera() { const b = $('#m-afuera'); b.hidden = !NATIVO; b.textContent = `Usar desde afuera: ${afueraActivo() ? 'sí' : 'no'}`; }
+let estadoAfuera = null;
+function pintarMenuAfuera(st) {
+  if (st) estadoAfuera = st;
+  const b = $('#m-afuera'); b.hidden = !NATIVO;
+  const detalle = afueraActivo() && estadoAfuera ? ` (${TEXTO_AFUERA[estadoAfuera.estado] || estadoAfuera.estado})` : '';
+  b.textContent = `Usar desde afuera: ${afueraActivo() ? 'sí' : 'no'}${detalle}`;
+}
+const TEXTO_AFUERA = { Running: 'conectado', NeedsLogin: 'falta iniciar sesión', Starting: 'conectando…', NoState: 'conectando…', Stopped: 'detenido', error: 'error' };
 async function activarAfuera() {
   guardado.escribir('afuera', true); pintarMenuAfuera();
-  try { await nativo.afueraIniciar(); } catch (e) { aviso(`No pude iniciar Tailscale: ${e.message}`, { tipo: 'mal', ms: 8000 }); return; }
+  aviso('Iniciando Tailscale en el celular…', { ms: 0 });
+  try { await nativo.afueraIniciar(); } catch (e) { aviso(`No pude iniciar Tailscale: ${e.message}`, { tipo: 'mal', ms: 0 }); return; }
   let abrio = false;
-  aviso('Conectando con Tailscale…', { ms: 0 });
   for (const fin = Date.now() + 5 * 60000; Date.now() < fin && afueraActivo();) {
-    const st = await nativo.afueraEstado().catch(() => ({}));
+    const st = await nativo.afueraEstado().catch((e) => ({ estado: 'error', texto: e.message }));
+    pintarMenuAfuera(st);
+    if (st.estado === 'error') { aviso(`Tailscale no pudo arrancar: ${st.texto || 'sin detalle'}. Mandale una captura de esto a quien te ayuda con Jarvis.`, { tipo: 'mal', ms: 0 }); return; }
     if (st.estado === 'Running') {
       const pc = pcElegida();
-      aviso(pc && pc.tsip ? 'Listo: ya podés usar Jarvis desde afuera (con la PC prendida).' : 'Listo en el celular. Falta prender "Usar Jarvis desde afuera" en la PC (Ajustes → Celular), con la misma cuenta de Tailscale.', { tipo: 'bien', ms: 9000 });
+      aviso(pc && pc.tsip ? 'Listo: ya podés usar Jarvis desde afuera (con la PC prendida).' : 'Listo en el celular. Falta prender "Usar Jarvis desde afuera" en la PC (Ajustes → Celular), con la misma cuenta de Tailscale, y abrir esta app una vez en casa.', { tipo: 'bien', ms: 0 });
       return;
     }
-    if (st.url && !abrio) { abrio = true; aviso('Iniciá sesión en Tailscale con la misma cuenta que en la PC y volvé a Jarvis.', { ms: 0 }); nativo.abrir({ url: st.url }).catch(() => {}); }
+    if (st.url && !abrio) {
+      abrio = true;
+      aviso('Iniciá sesión en Tailscale con la misma cuenta que en la PC y volvé a Jarvis.', { ms: 0, accion: { texto: 'Abrir', hacer: () => nativo.abrir({ url: st.url }).catch(() => {}) } });
+      nativo.abrir({ url: st.url }).catch(() => {});
+    } else if (!abrio) aviso(`Tailscale: ${TEXTO_AFUERA[st.estado] || st.estado || 'conectando…'}`, { ms: 0 });
     await dormir(2000);
   }
   if (afueraActivo()) aviso('Tailscale no terminó de conectar. Probá de nuevo desde el menú.', { tipo: 'mal', ms: 8000 });
 }
 $('#m-afuera').addEventListener('click', () => {
   menu.hidden = true;
-  if (afueraActivo()) { guardado.escribir('afuera', false); pintarMenuAfuera(); modoAfuera = false; aviso('Listo: la app se conecta solo en casa.', { tipo: 'bien' }); return; }
+  // Prendido pero sin terminar (falta sesión o hubo un error): tocarlo de nuevo reintenta en vez de apagar.
+  if (afueraActivo() && estadoAfuera && estadoAfuera.estado !== 'Running') { activarAfuera(); return; }
+  if (afueraActivo()) { guardado.escribir('afuera', false); estadoAfuera = null; pintarMenuAfuera(); modoAfuera = false; aviso('Listo: la app se conecta solo en casa.', { tipo: 'bien' }); return; }
   activarAfuera();
 });
+// Al abrir el menú, el estado de Tailscale al día.
+$('#boton-menu').addEventListener('click', () => { if (NATIVO && afueraActivo()) nativo.afueraEstado().then((st) => pintarMenuAfuera(st)).catch(() => {}); });
 // Al volver a la app: si estaba afuera, ¿ya estoy en casa? (por la Wi-Fi es más rápido)
 document.addEventListener('visibilitychange', () => { if (!document.hidden && modoAfuera) elegirCamino().then(() => refrescar({ silencioso: true })); });
 
@@ -997,22 +1039,48 @@ function recibirCompartido(texto) {
   if (!link || !guardado.token) return;
   irA('descargar'); $('#d-url').value = link;
 }
-async function revisarVersion() {
-  // Una vez por día: si en GitHub hay una versión más nueva de la app, se avisa (Android pide confirmar al instalarla).
-  if (Date.now() - guardado.leer('revisado', 0) < 20 * 3600000) return;
-  guardado.escribir('revisado', Date.now());
-  try {
-    const { version } = await nativo.info();
-    const r = await fetch('https://api.github.com/repos/jsolaresc/jarvis/releases/latest', { cache: 'no-store' });
-    const d = await r.json();
-    const nueva = String(d.tag_name || '').replace(/^v/, '');
-    const n = (v) => v.split('.').map((x) => parseInt(x, 10) || 0);
-    const comparar = (x, y) => { for (let i = 0; i < 3; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) - (y[i] || 0); return 0; };
-    const mayor = comparar(n(nueva), n(version || '0')) > 0;
-    const apk = (d.assets || []).find((x) => /\.apk$/i.test(x.name));
-    if (nueva && mayor && apk) aviso(`Hay una versión nueva de la app (${nueva}).`, { ms: 0, accion: { texto: 'Bajar', hacer: () => { aviso(''); nativo.abrir({ url: apk.browser_download_url }); } } });
-  } catch {}
+// Versiones: la app busca la última Release en GitHub y, si hay una más nueva, la baja y abre el instalador de Android.
+const compararVersiones = (x, y) => { const n = (v) => String(v || '0').split('.').map((k) => parseInt(k, 10) || 0); const [a, b] = [n(x), n(y)]; for (let i = 0; i < 3; i++) if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) - (b[i] || 0); return 0; };
+let versionApp = '';
+async function ultimaVersion() {
+  const r = await fetch('https://api.github.com/repos/jsolaresc/jarvis/releases/latest', { cache: 'no-store' });
+  if (!r.ok) throw new Error(`GitHub respondió ${r.status}`);
+  const d = await r.json();
+  const apk = (d.assets || []).find((x) => /\.apk$/i.test(x.name) && !/prueba/i.test(x.name));
+  return { version: String(d.tag_name || '').replace(/^v/, ''), url: apk ? apk.browser_download_url : '' };
 }
+let actualizando = false;
+async function actualizarApp(url, version) {
+  if (actualizando) return;
+  actualizando = true;
+  const oyente = await nativo.addListener('actualizacion', (p) => { if (p && p.pct >= 0) aviso(`Bajando la versión ${version}: ${p.pct} %`, { ms: 0 }); });
+  try {
+    aviso(`Bajando la versión ${version}…`, { ms: 0 });
+    const r = await nativo.actualizar({ url });
+    if (r && r.permiso === false) aviso('Android pide permiso para que Jarvis instale su versión nueva: activalo y volvé a tocar "Actualizar".', { ms: 0, accion: { texto: 'Actualizar', hacer: () => actualizarApp(url, version) } });
+    else aviso('Listo: tocá "Instalar" (o "Actualizar") en la pantalla de Android.', { tipo: 'bien', ms: 8000 });
+  } catch (e) { aviso(e.message, { tipo: 'mal', ms: 8000 }); } finally { actualizando = false; try { oyente.remove(); } catch {} }
+}
+async function buscarActualizacion({ avisarSiNoHay = false } = {}) {
+  try {
+    if (!versionApp) versionApp = (await nativo.info()).version || '';
+    const u = await ultimaVersion();
+    pintarMenuVersion(u.version);
+    if (u.url && compararVersiones(u.version, versionApp) > 0) aviso(`Hay una versión nueva de la app (${u.version}).`, { ms: 0, accion: { texto: 'Actualizar', hacer: () => actualizarApp(u.url, u.version) } });
+    else if (avisarSiNoHay) aviso(`Tenés la última versión (${versionApp}).`, { tipo: 'bien' });
+  } catch (e) { if (avisarSiNoHay) aviso(`No pude revisar: ${e.message}`, { tipo: 'mal' }); }
+}
+function pintarMenuVersion(ultima) {
+  const b = $('#m-actualizar'); b.hidden = !NATIVO;
+  b.textContent = ultima && versionApp && compararVersiones(ultima, versionApp) > 0 ? `Actualizar a la ${ultima}` : `Versión ${versionApp || '…'} · Buscar actualizaciones`;
+}
+async function revisarVersion() {
+  // Una vez por día, sola: si hay una versión nueva, se avisa (y se actualiza desde el aviso).
+  if (Date.now() - guardado.leer('revisado', 0) < 20 * 3600000) { nativo.info().then((i) => { versionApp = i.version || ''; pintarMenuVersion(); }).catch(() => {}); return; }
+  guardado.escribir('revisado', Date.now());
+  buscarActualizacion();
+}
+$('#m-actualizar').addEventListener('click', () => { menu.hidden = true; buscarActualizacion({ avisarSiNoHay: true }); });
 function prepararNativo() {
   document.documentElement.classList.add('nativo');
   nativo.addListener('compartido', (d) => recibirCompartido(d && d.texto));

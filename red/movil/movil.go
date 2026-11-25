@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -77,6 +78,10 @@ func Iniciar(dir, nombre string) error {
 	defer mu.Unlock()
 	if srv != nil {
 		return nil
+	}
+	// En Android no hay $HOME: algunas partes de Tailscale lo buscan para sus archivos.
+	if os.Getenv("HOME") == "" {
+		_ = os.Setenv("HOME", dir)
 	}
 	s := &tsnet.Server{Dir: dir, Hostname: nombre, Logf: func(string, ...any) {}}
 	if err := s.Start(); err != nil {
