@@ -1595,7 +1595,7 @@ const secciones = {
       h('h1', {}, 'Dispositivos'),
       h('p', { class: 'bajada' }, 'Las teles y parlantes con Chromecast se controlan directo desde la PC. Luces, enchufes y el apagado real de las teles pasan por Home Assistant, que es opcional.'),
       h('h2', {}, 'Teles y parlantes'),
-      h('p', { class: 'bajada' }, 'Poneles el nombre con el que las vas a pedir ("tele comedor") y elegí a qué dispositivo corresponde.'),
+      h('p', { class: 'bajada' }, 'Poneles el nombre con el que las vas a pedir ("tele comedor") y elegí a qué dispositivo corresponde. Para que entienda otras formas, separalas con coma: "Tele Comedor, la tele grande". No hace falta poner "Telecomedor": las palabras pegadas las entiende solo.'),
       tabla(cfg.teles, [
         { titulo: 'Cómo la llamás', control: (t) => texto(t, 'nombre', guardar, { placeholder: 'tele comedor, living', title: 'Podés poner varios nombres separados por coma: Jarvis entiende cualquiera y dice el primero.' }) },
         { titulo: 'Dispositivo en la red', control: (t) => selector(t, 'cast', listas.cast.map((d) => ({ valor: d.nombre, nombre: d.modelo ? `${d.nombre} · ${d.modelo}` : d.nombre })), guardar) },

@@ -1382,14 +1382,14 @@ prueba('"cancelar" y el ruido cierran la conversación sin contestar, aunque el 
   assert.strictEqual(comandos.esRuido('hola me escuchas'), false);
 });
 
-prueba('música a un Nest/Home Mini: la canción y el aparato se separan; el Supermix viaja por Cast como lista (y en parlantes sin pantalla, solo audio)', async () => {
+prueba('música a un Nest/Home Mini: la canción y el aparato se separan; por Cast va siempre un video para empezar (con su lista) y audioOnly en false', async () => {
   const r = comandos.resolver('poné la canción Bohemian Rhapsody en el Nest Hub');
   assert.deepStrictEqual(r.pasos[0], { tipo: 'musica', busqueda: 'Bohemian Rhapsody', dispositivo: 'nest hub' });
   const r2 = comandos.resolver('poné música en el home mini');
   assert.deepStrictEqual(r2.pasos[0], { tipo: 'musica', busqueda: '', dispositivo: 'home mini' });
   const musica = require('../src/main/musica');
   await assert.rejects(() => musica.reproducir('', 'home mini'), /No encuentro "home mini"/, 'primero se busca el aparato; ya no se rechaza el Supermix');
-  // El pedido a YouTube lleva la lista y, en un parlante sin pantalla, audioOnly.
+  // El pedido a YouTube lleva el video con el que empieza y la lista; audioOnly en false (en true los aparatos no arrancan).
   const cast = require('../src/main/cast');
   const cuerpos = [];
   const fetchViejo = global.fetch;
@@ -1399,12 +1399,23 @@ prueba('música a un Nest/Home Mini: la canción y el aparato se separan; el Sup
     return { ok: true, status: 200, text: async () => texto };
   };
   try {
-    await cast.mandarAYoutube('pantalla1', '', { lista: 'RDTMAK5uy_kset8DisdE7LSD4TNjEVvrKRTmG7a56sY', audioOnly: true });
+    await cast.mandarAYoutube('pantalla1', 'dQw4w9WgXcQ', { lista: 'RDTMAK5uy_kset8DisdE7LSD4TNjEVvrKRTmG7a56sY' });
     const ultimo = cuerpos[cuerpos.length - 1];
     assert.match(ultimo, /req0_listId=RDTMAK5uy_kset8DisdE7LSD4TNjEVvrKRTmG7a56sY/);
-    assert.match(ultimo, /req0_audioOnly=true/);
+    assert.match(ultimo, /req0_videoId=dQw4w9WgXcQ/);
+    assert.match(ultimo, /req0_audioOnly=false/);
     assert.match(ultimo, /req0__sc=setPlaylist/);
   } finally { global.fetch = fetchViejo; }
+  // Sin video no se manda nada (la app de YouTube del aparato no arrancaría).
+  await assert.rejects(() => cast.youtube('Comedor', '', { lista: 'RDTMAK5uy_x' }), /Falta el video/);
+  // Los nombres que el oído junta: "telecomedor" es "Tele Comedor", aunque "Comedor" también exista.
+  const { buscarPorNombre } = require('../src/main/config');
+  const teles = [{ nombre: 'Tele Comedor' }, { nombre: 'Comedor' }, { nombre: 'Cuarto' }, { nombre: 'Tele cuarto' }];
+  assert.strictEqual(buscarPorNombre(teles, 'telecomedor').nombre, 'Tele Comedor');
+  assert.strictEqual(buscarPorNombre(teles, 'tele comedor').nombre, 'Tele Comedor');
+  assert.strictEqual(buscarPorNombre(teles, 'comedor').nombre, 'Comedor');
+  assert.strictEqual(buscarPorNombre(teles, 'telecuarto').nombre, 'Tele cuarto');
+  assert.strictEqual(buscarPorNombre([{ nombre: 'Tele Comedor, la grande' }], 'la grande').nombre, 'Tele Comedor', 'sinónimos separados por coma');
   const tv = require('../src/main/androidtv');
   assert.strictEqual(tv.esSoloCast('Google Nest Hub'), true);
   assert.strictEqual(tv.esSoloCast('Google Home Mini'), true);

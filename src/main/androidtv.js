@@ -102,11 +102,16 @@ async function abrir(nombre, enlace) {
   remoto.on('error', (e) => { fallo = e; });
   const desvinculada = new Promise((r) => remoto.once('unpaired', () => r('unpaired')));
   const lista = new Promise((r) => remoto.once('ready', () => r('ready')));
+  let prendida = null;
+  remoto.on('powered', (p) => { prendida = !!p; });
   remoto.start().catch(() => {});
   try {
     const estado = await Promise.race([lista, desvinculada, esperar(12000).then(() => 'tarde')]);
     if (estado === 'unpaired') throw new Error(`${d.nombre} ya no reconoce a Jarvis: volvé a vincular el control en Ajustes → Dispositivos.`);
     if (estado === 'tarde') throw new Error(`No pude conectarme al control de ${d.nombre}. ¿Está prendida?`);
+    // Con la tele apagada (en espera) el link no abre nada: primero se la prende.
+    await esperar(700);
+    if (prendida === false) { remoto.sendPower(); await esperar(4000); }
     remoto.sendAppLink(enlace);
     await esperar(1500);
     if (fallo) throw new Error(`${d.nombre} no pudo abrir eso (${(fallo.error && fallo.error.message) || 'sin detalle'}).`);

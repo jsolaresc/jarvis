@@ -320,23 +320,35 @@ function fijarDestino(nombre, datos) {
 }
 // Vuelve la tarjeta al reproductor de la PC.
 function soltarDestino() { if (!destino) return; destino = null; try { avisar(estado()); } catch {} }
-async function reproducirEnCast(pedido, dispositivo) {
+// El video (y la lista) que está sonando en la PC, de la dirección de YouTube Music.
+function videoEnPC() {
+  if (!ventana || ventana.isDestroyed()) return null;
+  const url = String(ventana.webContents.getURL() || '');
+  const v = /[?&]v=([\w-]{11})/.exec(url);
+  return v ? { id: v[1], lista: idDeLista(url) || '' } : null;
+}
+async function reproducirEnCast(pedido, dispositivo, { delPC = null } = {}) {
   const cast = require('./cast');
   const d = await cast.resolver(dispositivo);
-  if (!pedido || /^(mi |el |tu )?super\s*mix$/i.test(pedido)) {
-    // El Supermix es una lista automática: cada cuenta ve la suya. Se le manda el identificador de la lista al aparato y la arma él
-    // (si el aparato tiene tu cuenta de YouTube, como pasa en un Nest vinculado, es la tuya).
+  if (!delPC && (!pedido || /^(mi |el |tu )?super\s*mix$/i.test(pedido))) {
+    // El Supermix es una lista automática (cada cuenta tiene la suya) y la app de YouTube del aparato no arranca una lista sin un
+    // video: se la pone un instante en la PC (con tu sesión de YouTube Music) para saber con qué canción empieza, y se manda eso.
+    if (!(await conSesion())) throw new Error('Para mandar tu Supermix a otro aparato primero iniciá sesión en YouTube Music en la PC: Ajustes → Multimedia → Música → "Iniciar sesión".');
+    const v = asegurarVentana();
     const elegida = idDeLista((leerConfig().musica || {}).porDefecto);
-    let lista = elegida;
-    if (!lista && (await conSesion())) lista = await buscarSupermix(asegurarVentana()).catch(() => null);
-    lista = lista || SUPERMIX_CONOCIDO;
-    const r = await cast.youtube(d.nombre, '', { lista, audioOnly: true });
-    fijarDestino(d.nombre, { cancion: elegida ? 'Tu lista' : 'Tu Supermix', artista: '', tapa: '' });
-    if (!r.confirmado) return cast.dichoDeYoutube(r, elegida ? 'tu lista' : 'tu Supermix');
-    return `Le mandé ${elegida ? 'tu lista' : 'tu Supermix'} a ${d.nombre}. Si el aparato no tiene tu cuenta de YouTube vinculada, puede que no suene lo tuyo.`;
+    const lista = elegida || (await buscarSupermix(v).catch(() => null)) || SUPERMIX_CONOCIDO;
+    await ponerLista(v, lista);
+    const arranque = videoEnPC();
+    if (!arranque) throw new Error('No pude saber con qué canción empieza tu Supermix. Probá de nuevo en un rato.');
+    return reproducirEnCast('', dispositivo, { delPC: { ...arranque, lista: arranque.lista || lista, cancion: elegida ? 'Tu lista' : 'Tu Supermix' } });
+  }
+  if (delPC) {
+    const r = await cast.youtube(d.nombre, delPC.id, { lista: delPC.lista });
+    fijarDestino(d.nombre, { cancion: delPC.cancion || 'Música', artista: delPC.artista || '', tapa: delPC.tapa || `https://i.ytimg.com/vi/${delPC.id}/mqdefault.jpg` });
+    return r.confirmado ? `${delPC.cancion || 'La música'} en ${d.nombre}.` : cast.dichoDeYoutube(r, delPC.cancion ? `"${delPC.cancion}"` : 'la música');
   }
   const video = await buscarVideo(pedido, { soloMusica: true });
-  const r = await cast.youtube(d.nombre, video.id, { audioOnly: true }); // es música: sin video aunque el aparato tenga pantalla
+  const r = await cast.youtube(d.nombre, video.id);
   fijarDestino(d.nombre, { cancion: video.titulo, artista: video.canal || '', tapa: video.tapa || (video.id ? `https://i.ytimg.com/vi/${video.id}/mqdefault.jpg` : '') });
   const nombre = video.titulo.length > 70 ? pedido : video.titulo;
   return r.confirmado ? `Poniendo "${nombre}" en ${d.nombre}.` : cast.dichoDeYoutube(r, `"${nombre}"`);
@@ -346,6 +358,9 @@ async function reproducirEnCast(pedido, dispositivo) {
 // Manda a otro aparato lo que está sonando acá (o el Supermix, si no suena nada).
 async function enviarActualA(dispositivo) {
   const e = estado();
+  // Lo que suena en la PC se manda tal cual (mismo video y misma lista), sin buscarlo de nuevo por el nombre.
+  const actual = !destino && e && e.hay ? videoEnPC() : null;
+  if (actual) return reproducirEnCast('', String(dispositivo || '').trim(), { delPC: { ...actual, cancion: e.cancion, artista: e.artista, tapa: e.tapa } });
   const que = e && e.hay ? [e.cancion, e.artista].filter(Boolean).join(' ') : '';
   return reproducirEnCast(que, String(dispositivo || '').trim());
 }

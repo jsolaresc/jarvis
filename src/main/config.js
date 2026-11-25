@@ -336,7 +336,10 @@ function buscarPorNombre(lista, pedido, campo = 'nombre') {
   // El oído a veces junta o separa las palabras ("telecomedor" por "Tele Comedor"): se compara sin espacios.
   const junto = p.replace(/ /g, '');
   if (junto.length < 4) return null;
-  return unico(items.filter((i) => { const nj = i.n.replace(/ /g, ''); return nj === junto || (nj.length >= 4 && junto.includes(nj)); }));
+  // Primero lo idéntico sin espacios ("telecomedor" = "Tele Comedor", aunque "Comedor" también esté adentro).
+  const igual = unico(items.filter((i) => i.n.replace(/ /g, '') === junto));
+  if (igual) return igual;
+  return unico(items.filter((i) => { const nj = i.n.replace(/ /g, ''); return nj.length >= 4 && junto.includes(nj); }));
 }
 
 // Qué se muestra en el panel del notch al pasar el mouse, según el modo (cada modo puede cambiarlo en Ajustes → Modos).

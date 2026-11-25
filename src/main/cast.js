@@ -224,7 +224,8 @@ async function esperarQueArranque(sesion, ficha, videoId, lista, ms = 8000) {
       const { done, value } = await lector.read();
       if (done) break;
       vistos += deco.decode(value, { stream: true });
-      if (/nowPlaying|onStateChange|"videoId"/.test(vistos) && (!videoId || vistos.includes(videoId) || /nowPlaying|onStateChange/.test(vistos))) { anotar(`la pantalla confirmó: ${recorte(vistos.slice(-120))}`); return true; }
+      // Arrancó de verdad: la pantalla cuenta que está reproduciendo o cargando (state 1 o 3) ese video.
+      if (/"(nowPlaying|onStateChange)",\{[^\]]*"state":"(1|3)"/.test(vistos) || (videoId && new RegExp(`"nowPlaying",\\{[^\\]]*"videoId":"${videoId}"`).test(vistos))) { anotar(`la pantalla confirmó: ${recorte(vistos.slice(-120))}`); return true; }
     }
   } catch (e) { if (e.name !== 'AbortError') anotar(`escucha de la pantalla falló: ${e.message}`, true); } finally { clearTimeout(reloj); try { corte.abort(); } catch {} }
   anotar(`la pantalla no confirmó en ${Math.round(ms / 1000)} s${vistos ? ` (llegó: ${recorte(vistos)})` : ''}`, true);
@@ -254,7 +255,8 @@ const sesiones = new Map();
 async function mandarAYoutube(pantalla, videoId, { lista = '', audioOnly = false, nombre = '' } = {}) {
   const sesion = await abrirSesion(pantalla);
   if (nombre) sesiones.set(normalizar(nombre), sesion);
-  const mandar = () => ordenar(sesion, { req0_listId: lista || '', req0__sc: 'setPlaylist', req0_currentTime: '0', req0_currentIndex: -1, req0_audioOnly: audioOnly ? 'true' : 'false', req0_videoId: videoId || '' }, 'mandar el video');
+  // audioOnly va siempre en "false" (como la app de YouTube del celular): en "true" los Nest y Chromecast reciben el pedido pero no arrancan.
+  const mandar = () => ordenar(sesion, { req0_listId: lista || '', req0__sc: 'setPlaylist', req0_currentTime: '0', req0_currentIndex: -1, req0_audioOnly: 'false', req0_videoId: videoId }, 'mandar el video');
   const escucha = esperarQueArranque(sesion, sesion.token, videoId, lista);
   await mandar();
   if (await escucha) return true;
@@ -285,29 +287,34 @@ async function controlarYoutube(nombre, accion, valor) {
 const tieneSesion = (nombre) => sesiones.has(normalizar(nombre));
 const olvidarSesion = (nombre) => sesiones.delete(normalizar(nombre));
 
-// Parlantes sin pantalla (Home Mini, Nest Audio…): se piden solo con el audio.
-const sinPantalla = (d) => /mini|nest audio|home$|audio|speaker|max/i.test(String((d && d.modelo) || '')) && !/hub|chromecast|tv|display/i.test(String((d && d.modelo) || ''));
-async function youtube(pedido, videoId, { lista = '', audioOnly = false } = {}) {
-  if (!videoId && !lista) throw new Error('Falta decir qué video poner.');
+// Los grupos de Google Home ("Toda la casa") no abren apps: YouTube responde NOT_ALLOWED.
+const esGrupo = (d) => /cast group|grupo/i.test(String((d && d.modelo) || ''));
+async function youtube(pedido, videoId, { lista = '' } = {}) {
+  if (!videoId) throw new Error('Falta el video con el que empezar.'); // la app de YouTube del aparato no arranca una lista sin un video
   const d = await resolver(pedido);
   anotar(`${d.nombre} (${d.modelo || 'modelo desconocido'}) en ${d.host}`);
-  // Una tele con Google TV / Android TV ya vinculada: se abre el link directo en la app de YouTube de la tele (es lo más seguro).
+  if (esGrupo(d)) throw new Error(`${d.nombre} es un grupo de Google Home, y los grupos no aceptan YouTube (es una limitación de Google). Pedímelo en un aparato, por ejemplo "${dispositivos().filter((x) => !esGrupo(x))[0]?.nombre || 'Comedor'}".`);
+  // Primero por Cast (la pantalla confirma si arrancó). Si no confirma y la tele tiene el control de Google TV vinculado, se abre el link con el control.
+  let confirmado = false;
   try {
+    const pantalla = await conCliente(d, (cliente) => pantallaDeYoutube(cliente, d.nombre));
+    anotar(`pantalla de YouTube: ${pantalla}`);
+    confirmado = await mandarAYoutube(pantalla, videoId, { lista, nombre: d.nombre });
+  } catch (e) { anotar(`por Cast falló: ${e.message}`, true); if (!require('./androidtv').vinculada(d.nombre)) throw e; }
+  if (!confirmado) {
     const tv = require('./androidtv');
     if (tv.vinculada(d.nombre)) {
-      const enlace = videoId ? `https://www.youtube.com/watch?v=${videoId}${lista ? `&list=${lista}` : ''}` : `https://www.youtube.com/playlist?list=${lista}`;
-      await tv.abrir(d.nombre, enlace);
-      anotar(`abierto en ${d.nombre} por el control de Google TV`);
-      return { dispositivo: d.nombre, confirmado: true };
+      try {
+        await tv.abrir(d.nombre, `https://www.youtube.com/watch?v=${videoId}${lista ? `&list=${lista}` : ''}`);
+        anotar(`abierto en ${d.nombre} por el control de Google TV`);
+        return { dispositivo: d.nombre, confirmado: true };
+      } catch (e) { anotar(`el control de Google TV falló: ${e.message}`, true); }
     }
-  } catch (e) { anotar(`el control de Google TV falló (${e.message}); pruebo por Cast`, true); }
-  const pantalla = await conCliente(d, (cliente) => pantallaDeYoutube(cliente, d.nombre));
-  anotar(`pantalla de YouTube: ${pantalla}`);
-  const confirmado = await mandarAYoutube(pantalla, videoId, { lista, audioOnly: audioOnly || sinPantalla(d), nombre: d.nombre });
+  }
   return { dispositivo: d.nombre, confirmado };
 }
 
 // La frase que se dice según haya o no confirmación de que arrancó.
-const dichoDeYoutube = (r, que) => (r.confirmado ? `${que} en ${r.dispositivo}.` : `Le mandé ${que} a ${r.dispositivo}, pero no recibí confirmación de que empezara a sonar. Si no suena, decímelo y miro el historial.`);
+const dichoDeYoutube = (r, que) => (r.confirmado ? `${que} en ${r.dispositivo}.` : `Le mandé ${que} a ${r.dispositivo}, pero no arrancó (no confirmó que esté sonando). El detalle quedó en el Historial.`);
 
 module.exports = { dichoDeYoutube, descubrir, refrescar, dispositivos, resolver, reproducir, controlar, youtube, mandarAYoutube, pantallaDeYoutube, controlarYoutube, tieneSesion, olvidarSesion };
