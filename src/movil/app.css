@@ -111,18 +111,50 @@ button.texto { border: 0; background: none; color: var(--ojo); font-weight: 600;
 .controles { display: flex; justify-content: center; align-items: center; gap: 18px; }
 .controles .grande { width: 60px; height: 60px; background: var(--superficie); color: var(--texto); }
 
-/* Clips: lista plana con miniatura. */
-#lista-clips { list-style: none; margin: 0; padding: 0; }
-#lista-clips li { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--linea); }
-#lista-clips .mini { flex: none; width: 96px; aspect-ratio: 16 / 9; border-radius: 8px; border: 0; padding: 0; overflow: hidden; background: var(--superficie); }
-#lista-clips .mini img { width: 100%; height: 100%; object-fit: cover; display: block; }
-#lista-clips .datos { flex: 1; min-width: 0; display: grid; }
-#lista-clips .datos b { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-#lista-clips .datos span { font-size: var(--t-s); color: var(--tenue); }
+/* Listas de descargas y archivos: planas, separadas por una línea; la miniatura es lo que se reconoce. */
+.lista { list-style: none; margin: 0; padding: 0; }
+.lista li { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--linea); }
+.lista li.vacio { border: 0; display: block; padding: 18px 0; }
+.lista li.mal .datos span { color: var(--mal); }
+.lista .ic { flex: none; width: 40px; height: 40px; border-radius: 10px; background: var(--superficie); display: grid; place-items: center; color: var(--ojo); }
+.lista .datos { flex: 1; min-width: 0; display: grid; gap: 2px; text-align: left; }
+.lista .datos b { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lista .datos span { font-size: var(--t-s); color: var(--tenue); }
+.lista button.abrir { display: flex; align-items: center; gap: 12px; width: 100%; border: 0; background: none; padding: 0; text-align: left; }
+.lista .mini { flex: none; width: 104px; aspect-ratio: 16 / 9; border-radius: 8px; overflow: hidden; background: var(--superficie); display: grid; place-items: center; color: var(--tenue); }
+.lista .mini img { width: 100%; height: 100%; object-fit: cover; display: block; }
+#lista-descargas { margin-top: 18px; }
+.progreso { height: 4px; border-radius: 2px; background: var(--linea); overflow: hidden; margin-top: 4px; }
+.progreso i { display: block; height: 100%; width: 0; background: var(--ojo); transition: width .3s; }
+
+/* Opciones de a dos o tres: un bloque partido, la elegida en celeste. */
+.segmentado { display: flex; background: var(--superficie); border: 1px solid var(--linea); border-radius: 12px; padding: 3px; gap: 3px; }
+.segmentado button { flex: 1; border: 0; background: none; border-radius: 9px; min-height: 40px; padding: 0 8px; color: var(--tenue); font-weight: 600; }
+.segmentado button[aria-checked="true"], .segmentado button[aria-selected="true"] { background: var(--ojo); color: var(--sobre-ojo); }
+.segmentado.grande { margin: 16px 0 10px; }
+.botonera.tres { grid-template-columns: repeat(3, 1fr); }
+.botonera.tres > button { min-height: 46px; padding: 0 6px; font-size: 14px; }
+#clips-estado { margin: 8px 0 0; }
+.fichas.chicas button { padding: 5px 12px; font-size: 13px; }
+.fila-titulo { gap: 8px; }
+
+/* Hoja de un archivo: sube desde abajo, arriba el video o el audio. */
+#hoja-archivo { width: 100%; max-width: 640px; margin: auto auto 0; max-height: 92vh; padding: 0; border: 0; border-radius: 18px 18px 0 0; background: var(--superficie); color: var(--texto); overflow-y: auto; }
+#hoja-archivo::backdrop { background: rgba(0, 0, 0, .6); }
+#ha-medio video { width: 100%; max-height: 46vh; display: block; background: #000; }
+#ha-medio.audio { padding: 22px 16px 0; }
+#ha-medio audio { width: 100%; }
+.ha-cuerpo { padding: 14px 16px calc(16px + env(safe-area-inset-bottom)); }
+.ha-cuerpo h2 { margin: 0 0 2px; font-size: var(--t-l); line-height: 1.25; overflow-wrap: anywhere; }
+.ha-cuerpo .fila > button { min-height: 48px; border-radius: 12px; padding: 0 18px; font-weight: 600; border: 1px solid var(--ojo); }
+.acciones { display: grid; gap: 0; margin-top: 14px; border-top: 1px solid var(--linea); }
+.acciones button { text-align: left; border: 0; border-bottom: 1px solid var(--linea); background: none; padding: 14px 2px; font-weight: 500; }
+.acciones button.peligro { color: var(--mal); }
+#ha-cerrar { display: block; margin: 8px auto 0; }
 
 /* ---------- Barra de abajo ---------- */
-#abajo { position: fixed; left: 0; right: 0; bottom: 0; z-index: 3; display: grid; grid-template-columns: repeat(4, 1fr); background: #000; border-top: 1px solid #1a1e25; padding-bottom: env(safe-area-inset-bottom); }
-#abajo button { border: 0; background: none; color: var(--tenue); height: 62px; display: grid; justify-items: center; align-content: center; gap: 2px; font-size: 12px; }
+#abajo { position: fixed; left: 0; right: 0; bottom: 0; z-index: 3; display: grid; grid-template-columns: repeat(5, 1fr); background: #000; border-top: 1px solid #1a1e25; padding-bottom: env(safe-area-inset-bottom); }
+#abajo button { border: 0; background: none; color: var(--tenue); height: 62px; display: grid; justify-items: center; align-content: center; gap: 2px; font-size: 11.5px; padding: 0 2px; min-width: 0; }
 #abajo button[aria-current="page"] { color: var(--ojo); }
 
 /* ---------- Menú y visor ---------- */
@@ -130,11 +162,12 @@ button.texto { border: 0; background: none; color: var(--ojo); font-weight: 600;
 #menu p { padding: 6px 10px 8px; margin: 0; border-bottom: 1px solid var(--linea); }
 #menu button { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 12px 10px; border-radius: 8px; }
 #menu button:active { background: var(--linea); }
-#visor { width: 100%; max-width: 100%; height: 100%; max-height: 100%; margin: 0; padding: 0; border: 0; background: #000; color: var(--texto); }
-#visor[open] { display: flex; flex-direction: column; justify-content: center; }
-#visor video { width: 100%; max-height: 80vh; background: #000; }
-#visor .fila { padding: 12px 16px; justify-content: space-between; }
-#visor .fila span { font-size: var(--t-s); color: var(--tenue); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 @media (min-width: 700px) { .hoja, #mensajes, #form-texto { padding-left: max(16px, calc(50% - 320px)); padding-right: max(16px, calc(50% - 320px)); } }
+.fila > button.principal { background: var(--ojo); color: var(--sobre-ojo); border-color: var(--ojo); }
+/* Filtros en una sola línea (se desliza si no entra) y "Actualizar" chico al lado. */
+#s-archivos .fila-titulo { align-items: center; margin-bottom: 4px; }
+#filtros { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; flex: 1; min-width: 0; }
+#filtros::-webkit-scrollbar { display: none; }
+#filtros button { flex: none; }
+#actualizar-archivos { flex: none; width: 40px; height: 40px; }

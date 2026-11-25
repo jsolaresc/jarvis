@@ -105,7 +105,12 @@ let activa = null;
 let historial = []; // más nueva primero, hasta 15
 let proceso = null;
 let numero = 0;
-const publico = (d) => ({ id: d.id, url: d.url, modo: d.modo, calidad: d.calidad, estado: d.estado, pct: d.pct, nombre: d.nombre, archivo: d.archivo, error: d.error, cuando: d.cuando });
+const publico = (d) => ({ id: d.id, url: d.url, modo: d.modo, calidad: d.calidad, estado: d.estado, pct: d.pct, nombre: d.nombre, archivo: d.archivo, error: d.error, cuando: d.cuando, para: d.para || 'pc' });
+// Una descarga por su número (la que baja, las de la fila o las últimas terminadas).
+function buscar(id) {
+  const d = [activa, ...cola, ...historial].find((x) => x && x.id === Number(id));
+  return d ? publico(d) : null;
+}
 function estado() {
   return { activa: activa ? publico(activa) : null, enCola: cola.map(publico), historial: historial.map(publico), carpeta: (() => { try { return carpetaDestino(); } catch { return ''; } })() };
 }
@@ -154,10 +159,10 @@ function terminar(d, error) {
   d.cuando = Date.now();
   if (error) { d.estado = 'error'; d.error = error; } else d.estado = 'listo';
   historial.unshift(d);
-  historial = historial.slice(0, 15);
+  historial = historial.slice(0, 30);
   alCambiar(estado());
   if (error) avisar(`No pude descargar: ${error}`, 'error');
-  else avisar(`Listo, descargué ${d.modo === 'audio' ? 'el audio de ' : ''}"${(d.nombre || 'el video').slice(0, 60)}". Está en Descargas.`, 'ok');
+  else avisar(`Listo, descargué ${d.modo === 'audio' ? 'el audio de ' : ''}"${(d.nombre || 'el video').slice(0, 60)}". ${d.para === 'celular' ? 'Se lo paso al celular.' : 'Está en Descargas.'}`, 'ok');
   setTimeout(siguiente, 300);
 }
 
@@ -170,7 +175,7 @@ async function correr(d) {
     ytdlp = await buscarYtdlp();
     if (!ytdlp) throw new Error('No encuentro yt-dlp. Instalalo, o indicá dónde está en Ajustes → Descargas (también podés dejar que Jarvis lo baje).');
     const ffmpeg = await ffmpegDe().catch(() => null);
-    const carpeta = carpetaDestino();
+    const carpeta = d.carpeta || carpetaDestino();
     proceso = spawn(ytdlp, argumentos(d, carpeta, ffmpeg), { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
     try { os.setPriority(proceso.pid, os.constants.priority.PRIORITY_BELOW_NORMAL); } catch {}
   } catch (e) { terminar(d, e.message); return; }
@@ -204,19 +209,21 @@ function siguiente() {
 }
 
 // Empieza (o pone en cola) una descarga. Devuelve enseguida lo que Jarvis dice; el aviso del final sale por `avisar`.
-async function iniciar({ modo = 'video', calidad = '', url = '' } = {}) {
+// `carpeta` cambia dónde queda (lo usa el celular: una carpeta temporal que se borra cuando el celular se lo llevó).
+const iniciar = async (o) => (await encolar(o)).texto;
+async function encolar({ modo = 'video', calidad = '', url = '', carpeta = '', para = 'pc' } = {}) {
   const m = modo === 'audio' ? 'audio' : 'video';
   const q = CALIDADES.includes(String(calidad)) ? String(calidad) : (CALIDADES.includes(String(cfg().calidad)) ? String(cfg().calidad) : '1080');
   const link = await enlaceDeLoQueMira(url);
   if (!(await buscarYtdlp())) throw new Error('No encuentro yt-dlp. Instalalo, o indicá dónde está en Ajustes → Descargas (también podés dejar que Jarvis lo baje).');
-  const d = { id: ++numero, url: link, modo: m, calidad: q, estado: 'espera', pct: 0, nombre: '', archivo: '', error: '', cuando: Date.now() };
+  const d = { id: ++numero, url: link, modo: m, calidad: q, estado: 'espera', pct: 0, nombre: '', archivo: '', error: '', cuando: Date.now(), carpeta: carpeta || '', para: para === 'celular' ? 'celular' : 'pc' };
   cola.push(d);
   const lugar = (activa ? 1 : 0) + cola.length;
   alCambiar(estado());
   setTimeout(siguiente, 0);
   const que = m === 'audio' ? 'el audio' : (q === 'mejor' ? 'el video en la mejor calidad' : `el video en ${q}p`);
-  if (link.startsWith('ytsearch1:')) return `No pude leer el link, así que busco en YouTube "${link.slice(10, 70)}" y descargo ${que}.`;
-  return lugar > 1 ? `Listo, puse en la fila ${que}; hay ${lugar - 1} descarga${lugar > 2 ? 's' : ''} antes.` : `Listo, empiezo a descargar ${que}. Te aviso cuando termine.`;
+  if (link.startsWith('ytsearch1:')) return { id: d.id, texto: `No pude leer el link, así que busco en YouTube "${link.slice(10, 70)}" y descargo ${que}.` };
+  return { id: d.id, texto: lugar > 1 ? `Listo, puse en la fila ${que}; hay ${lugar - 1} descarga${lugar > 2 ? 's' : ''} antes.` : `Listo, empiezo a descargar ${que}. Te aviso cuando termine.` };
 }
 
 function cancelar() {
@@ -259,4 +266,4 @@ async function actualizar() {
   });
 }
 
-module.exports = { configurar, iniciar, cancelar, estado, buscarYtdlp, version, bajarYtdlp, actualizar, carpetaDestino, dentroDeCarpeta, enlaceDeLoQueMira, enlaceDeTexto, explicar, argumentos, CALIDADES, _pruebas: { nombreDe } };
+module.exports = { configurar, iniciar, encolar, buscar, cancelar, estado, buscarYtdlp, version, bajarYtdlp, actualizar, carpetaDestino, dentroDeCarpeta, enlaceDeLoQueMira, enlaceDeTexto, explicar, argumentos, CALIDADES, _pruebas: { nombreDe } };

@@ -62,21 +62,60 @@
       </div>
     </section>
 
-    <section id="s-clips" class="hoja" aria-label="Clips" hidden>
-      <h2>Clips</h2>
-      <p id="clips-estado" class="tenue"></p>
-      <div class="botonera">
+    <section id="s-descargar" class="hoja" aria-label="Descargar" hidden>
+      <h2>Descargar un video</h2>
+      <p class="tenue">Lo baja tu PC con yt-dlp (tiene que estar prendida). Desde YouTube también podés tocar Compartir → Jarvis.</p>
+      <form id="form-descarga" autocomplete="off">
+        <label for="d-url">Link</label>
+        <div class="fila">
+          <input id="d-url" type="text" inputmode="url" placeholder="https://…" maxlength="2000" autocapitalize="off" spellcheck="false">
+          <button type="button" id="d-pegar">Pegar</button>
+        </div>
+        <label id="l-modo">Qué bajar</label>
+        <div class="segmentado" role="radiogroup" aria-labelledby="l-modo" data-campo="modo">
+          <button type="button" role="radio" data-valor="video" aria-checked="true">Video</button>
+          <button type="button" role="radio" data-valor="audio" aria-checked="false">Solo el audio</button>
+        </div>
+        <div id="d-calidad-fila">
+          <label id="l-calidad">Calidad</label>
+          <div class="segmentado" role="radiogroup" aria-labelledby="l-calidad" data-campo="calidad">
+            <button type="button" role="radio" data-valor="720" aria-checked="false">720p</button>
+            <button type="button" role="radio" data-valor="1080" aria-checked="true">1080p</button>
+            <button type="button" role="radio" data-valor="mejor" aria-checked="false">La mejor</button>
+          </div>
+        </div>
+        <label id="l-para">Dónde guardarlo</label>
+        <div class="segmentado" role="radiogroup" aria-labelledby="l-para" data-campo="para">
+          <button type="button" role="radio" data-valor="celular" aria-checked="true">En este celular</button>
+          <button type="button" role="radio" data-valor="pc" aria-checked="false">En la PC</button>
+        </div>
+        <button type="submit" class="principal">Descargar</button>
+      </form>
+      <ul id="lista-descargas" class="lista"></ul>
+    </section>
+
+    <section id="s-archivos" class="hoja" aria-label="Archivos" hidden>
+      <div class="botonera tres">
         <button type="button" data-clip="guardar">Guardar clip</button>
-        <button type="button" data-clip="grabar" id="boton-grabar">Empezar a grabar</button>
-        <button type="button" data-clip="captura">Captura de pantalla</button>
+        <button type="button" data-clip="grabar" id="boton-grabar">Grabar</button>
+        <button type="button" data-clip="captura">Captura</button>
       </div>
-      <label for="clip-para">Mandar a</label>
-      <div class="fila">
-        <input id="clip-para" list="contactos" placeholder="Contacto o grupo" maxlength="80">
-        <button type="button" data-clip="enviar">Clip nuevo</button>
+      <p id="clips-estado" class="tenue"></p>
+      <div class="segmentado grande" role="tablist" aria-label="Dónde están">
+        <button type="button" role="tab" data-donde="pc" aria-selected="true">En la PC</button>
+        <button type="button" role="tab" data-donde="celular" aria-selected="false">En este celular</button>
       </div>
-      <div class="fila-titulo"><h2>Últimos clips</h2><button type="button" id="actualizar-clips" class="texto">Actualizar</button></div>
-      <ul id="lista-clips"></ul>
+      <div class="fila-titulo">
+        <div id="filtros" class="fichas chicas" role="radiogroup" aria-label="Mostrar">
+          <button type="button" role="radio" data-filtro="todo" aria-checked="true" class="on">Todo</button>
+          <button type="button" role="radio" data-filtro="clip" aria-checked="false">Clips</button>
+          <button type="button" role="radio" data-filtro="video" aria-checked="false">Descargas</button>
+          <button type="button" role="radio" data-filtro="audio" aria-checked="false">Audios</button>
+        </div>
+        <button type="button" id="actualizar-archivos" class="icono" aria-label="Actualizar la lista"></button>
+      </div>
+      <p id="espacio" class="tenue"></p>
+      <ul id="lista-archivos" class="lista"></ul>
     </section>
 
     <section id="s-mensaje" class="hoja" aria-label="Mensaje" hidden>
@@ -96,7 +135,8 @@
   <nav id="abajo" hidden>
     <button type="button" data-hoja="charla" aria-current="page"><span class="i" data-i="charla"></span>Charla</button>
     <button type="button" data-hoja="rutinas"><span class="i" data-i="rayo"></span>Rutinas</button>
-    <button type="button" data-hoja="clips"><span class="i" data-i="clip"></span>Clips</button>
+    <button type="button" data-hoja="descargar"><span class="i" data-i="bajar"></span>Descargar</button>
+    <button type="button" data-hoja="archivos"><span class="i" data-i="carpeta"></span>Archivos</button>
     <button type="button" data-hoja="mensaje"><span class="i" data-i="whatsapp"></span>Mensaje</button>
   </nav>
 
@@ -106,9 +146,21 @@
     <button type="button" role="menuitem" id="m-desvincular" class="peligro">Desvincular este celular</button>
   </div>
 
-  <dialog id="visor">
-    <video id="video" controls playsinline preload="metadata"></video>
-    <div class="fila"><span id="visor-nombre"></span><button type="button" id="cerrar-visor">Cerrar</button></div>
+  <!-- Un archivo: verlo o escucharlo y qué hacer con él -->
+  <dialog id="hoja-archivo" aria-labelledby="ha-nombre">
+    <div id="ha-medio"></div>
+    <div class="ha-cuerpo">
+      <h2 id="ha-nombre"></h2>
+      <p id="ha-datos" class="tenue"></p>
+      <div id="ha-progreso" class="progreso" hidden><i></i></div>
+      <label for="ha-para">Mandar por WhatsApp (desde la PC) a</label>
+      <div class="fila">
+        <input id="ha-para" list="contactos" placeholder="Contacto, grupo o Yo" maxlength="80">
+        <button type="button" id="ha-mandar" class="principal">Mandar</button>
+      </div>
+      <div id="ha-acciones" class="acciones"></div>
+      <button type="button" id="ha-cerrar" class="texto">Cerrar</button>
+    </div>
   </dialog>
 
   <datalist id="contactos"></datalist>

@@ -8,7 +8,7 @@ const edicion = require('./edicion');
 const CADA = 6 * 60 * 60 * 1000; // cada 6 horas
 let actualizador = null;
 let ganchos = { avisar: () => {}, alCambiar: () => {} };
-let e = { fase: 'quieto', actual: '', nueva: '', progreso: 0, error: '', posible: false, motivo: '' };
+let e = { fase: 'quieto', actual: '', nueva: '', nuevaFecha: '', progreso: 0, error: '', posible: false, motivo: '', revisado: 0 };
 
 function cambiar(nuevo) { e = { ...e, ...nuevo }; try { ganchos.alCambiar(estado()); } catch {} }
 function estado() { return { ...e, actual: app.getVersion() }; }
@@ -30,12 +30,12 @@ function iniciar(g = {}) {
   actualizador.allowPrerelease = false;
   actualizador.logger = null;
   actualizador.on('checking-for-update', () => cambiar({ fase: 'buscando', error: '' }));
-  actualizador.on('update-not-available', () => cambiar({ fase: 'al-dia', nueva: '' }));
-  actualizador.on('update-available', (i) => cambiar({ fase: 'bajando', nueva: (i && i.version) || '', progreso: 0 }));
+  actualizador.on('update-not-available', () => cambiar({ fase: 'al-dia', nueva: '', nuevaFecha: '', revisado: Date.now() }));
+  actualizador.on('update-available', (i) => cambiar({ fase: 'bajando', nueva: (i && i.version) || '', nuevaFecha: (i && i.releaseDate) || '', progreso: 0, revisado: Date.now() }));
   actualizador.on('download-progress', (p) => cambiar({ fase: 'bajando', progreso: Math.round((p && p.percent) || 0) }));
   actualizador.on('update-downloaded', (i) => {
-    cambiar({ fase: 'lista', nueva: (i && i.version) || e.nueva, progreso: 100 });
-    ganchos.avisar(`Hay una versión nueva de Jarvis (${e.nueva}). Se instala sola cuando me cierres, o ahora desde Ajustes → Sistema → Actualizaciones.`);
+    cambiar({ fase: 'lista', nueva: (i && i.version) || e.nueva, nuevaFecha: (i && i.releaseDate) || e.nuevaFecha, progreso: 100 });
+    ganchos.avisar(`Hay una versión nueva de Jarvis (${e.nueva}). Se instala sola cuando me cierres, o ahora desde Ajustes → Sistema → Información.`);
   });
   actualizador.on('error', (err) => cambiar({ fase: 'error', error: explicar(err) }));
   cambiar({ posible: true, motivo: '' });

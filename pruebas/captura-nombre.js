@@ -30,6 +30,8 @@ async function correr({ notch, abrirAjustes, ajustes, carpeta }) {
         viernes: (document.body.innerText.match(/\\bViernes\\b/g) || []).length,
         h1: (document.querySelector('main h1') || {}).textContent,
         componentes: [...document.querySelectorAll('.tarjeta-componente strong')].map((x) => x.textContent),
+        cifras: [...document.querySelectorAll('.resumen-espacio .cifra')].map((x) => x.textContent),
+        botones: [...document.querySelectorAll('main button')].map((x) => x.textContent),
       })`);
       resultado.pantallas[hoja] = dato;
       const img = await v.webContents.capturePage();

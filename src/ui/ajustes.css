@@ -761,3 +761,28 @@ ol.pasos > li::before, ol.pasos-lista > li::before, ol.pasos-qr > li::before { c
 .tarjeta-componente .fila { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .tarjeta-componente .fila strong { margin-right: auto; }
 .tarjeta-componente p.nota { margin: 0; }
+
+/* ---------- Celular ---------- */
+.cel-paso { display: grid; gap: 10px; }
+.cel-paso p { margin: 0; }
+.cel-paso ol { margin: 0; padding-left: 20px; color: var(--tenue); }
+.cel-ts { display: flex; align-items: center; gap: 14px; background: var(--tarjeta); border: 1px solid var(--linea); border-radius: var(--radio-g); padding: 14px 16px; }
+.cel-ts > span { color: var(--acento); display: inline-flex; }
+.cel-ts.ok > span { color: var(--bien); }
+.cel-ts > div { flex: 1; min-width: 0; }
+.cel-ts p { margin: 2px 0 0; color: var(--tenue); font-size: var(--t-s); }
+.cel-url { display: flex; align-items: center; gap: 6px; margin-top: 6px; min-width: 0; }
+.cel-url code { flex: 1; min-width: 0; overflow-wrap: anywhere; background: #0c0d10; border: 1px solid var(--linea); border-radius: 6px; padding: 5px 9px; font-size: var(--t-s); color: var(--texto); user-select: all; }
+.cel-resultado { border-radius: var(--radio); padding: 10px 14px; background: color-mix(in srgb, var(--aviso) 9%, var(--tarjeta)); border: 1px solid color-mix(in srgb, var(--aviso) 35%, var(--linea)); display: grid; gap: 8px; }
+.cel-codigo { display: flex; gap: 20px; align-items: center; background: var(--tarjeta); border: 1px solid var(--linea); border-radius: var(--radio-g); padding: 16px; flex-wrap: wrap; }
+.cel-codigo > div { flex: 1; min-width: 220px; display: grid; gap: 8px; justify-items: start; }
+.cel-codigo p { margin: 0; }
+.cel-qr { width: 168px; height: 168px; border-radius: 10px; background: #fff; padding: 6px; image-rendering: pixelated; }
+.cel-numero { font-size: 38px; font-weight: 700; letter-spacing: .12em; font-variant-numeric: tabular-nums; color: var(--acento); line-height: 1.1; }
+.cel-lista { display: grid; gap: 8px; }
+.cel-disp { display: flex; align-items: center; gap: 12px; background: var(--tarjeta); border: 1px solid var(--linea); border-radius: var(--radio); padding: 10px 14px; }
+.cel-disp > div { flex: 1; min-width: 0; }
+.cel-disp input { background: transparent; border: 1px solid transparent; border-radius: 6px; padding: 2px 6px; margin-left: -7px; font-weight: 600; width: 100%; max-width: 280px; }
+.cel-disp input:hover, .cel-disp input:focus { border-color: var(--linea); background: #0c0d10; }
+.cel-disp p { margin: 0; }
+.cel-icono { color: var(--acento); display: inline-flex; }

@@ -405,13 +405,33 @@ async function enviarVideo(pedido, mp4, epigrafe) {
   return `Video enviado ${aQuien(contacto)}.`;
 }
 
+// Un archivo guardado (descarga, audio, algo que subió el celular): se lee del disco de a pedazos, sin cargarlo entero.
+// Videos MP4 y audios de hasta 16 MB van como video/audio (se ven y se escuchan en el chat); lo demás, o lo más pesado,
+// como documento (WhatsApp acepta hasta 2 GB y no le baja la calidad).
+const LIMITE_MEDIO = 16 * 1024 * 1024;
+const LIMITE_DOCUMENTO = 2 * 1024 * 1024 * 1024;
+const TIPOS_DOC = { '.mp4': 'video/mp4', '.mkv': 'video/x-matroska', '.webm': 'video/webm', '.mov': 'video/quicktime', '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.ogg': 'audio/ogg', '.opus': 'audio/ogg', '.wav': 'audio/wav', '.flac': 'audio/flac', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.pdf': 'application/pdf' };
+async function enviarArchivo(pedido, ruta, nombre) {
+  const tam = fs.statSync(ruta).size;
+  if (tam > LIMITE_DOCUMENTO) throw new Error('Pesa más de 2 GB: WhatsApp no lo acepta.');
+  const { jid, contacto } = await jidDe(pedido);
+  const ext = path.extname(nombre || ruta).toLowerCase();
+  const mimetype = TIPOS_DOC[ext] || 'application/octet-stream';
+  let mensaje;
+  if (ext === '.mp4' && tam <= LIMITE_MEDIO) mensaje = { video: { url: ruta }, mimetype };
+  else if (/^audio\//.test(mimetype) && ext !== '.wav' && tam <= LIMITE_MEDIO) mensaje = { audio: { url: ruta }, mimetype };
+  else mensaje = { document: { url: ruta }, mimetype, fileName: path.basename(nombre || ruta) };
+  await socket.sendMessage(jid, mensaje);
+  return `${mensaje.document ? 'Archivo' : mensaje.audio ? 'Audio' : 'Video'} enviado ${aQuien(contacto)}.`;
+}
+
 const haySesionGuardada = () => fs.existsSync(path.join(CARPETA_SESION, 'creds.json'));
 
 // Solo para las pruebas automáticas.
 const _pruebas = { anotarContactos, anotarGrupos, anotarPareja, vaciarAgenda: () => { agenda = { contactos: {}, grupos: {} }; }, ponerSocket: (s, fase = 'conectado') => { socket = s; estado.fase = fase; } };
 
 module.exports = {
-  alCambiar, leerEstado, conectar, detener, desvincular, enviarTexto, enviarFoto, enviarAudio, enviarVideo, responder, haySesionGuardada,
+  alCambiar, leerEstado, conectar, detener, desvincular, enviarTexto, enviarFoto, enviarAudio, enviarVideo, enviarArchivo, responder, haySesionGuardada,
   variantes, esParaMi, jidPropio, alRecibir, entrante, textoDe, conMarca,
   buscarDestino, listaDeAgenda, resumenDeAgenda, releerAgenda, alCambiarAgenda, _pruebas,
 };

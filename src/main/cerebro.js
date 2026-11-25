@@ -518,7 +518,7 @@ class Sesion {
   }
 
   async atender(dicho) {
-    if (this.cerrada || this.ocupada) return;
+    if (this.cerrada || this.ocupada) return null;
     dicho = comandos.corregirNombre(dicho, formasEnsenadas()); // "Harvis" -> "Jarvis" (el oído lo escribe como suena)
     this.ocupada = true;
     this.escuchando = false;
@@ -543,16 +543,19 @@ class Sesion {
     if (exito) puente.estado('ok');
     if (r.texto) {
       puente.texto('jarvis', r.texto);
-      if (habla()) { puente.estado('hablando'); await hablar(r.texto); }
+      if (habla() && !this.callada) { puente.estado('hablando'); await hablar(r.texto); }
     }
     this.ocupada = false;
-    if (this.cerrada) return;
+    // Charla desde el celular: no abre el micrófono de la PC ni se cierra sola; devuelve la respuesta a quien preguntó.
+    if (this.remota) { if (!sesion) puente.estado('reposo'); return r; }
+    if (this.cerrada) return r;
     // ¿Sigue escuchando? Por defecto solo si Jarvis preguntó algo ("¿A quién se lo mando?"): la mayoría
     // de los pedidos no necesitan respuesta, y quedarse escuchando hace que tome por pedido cualquier
     // cosa que suene después (la letra de la canción que acaba de poner, por ejemplo).
     const seguir = leerConfig().escucha.seguir || 'pregunta';
     const pregunto = /\?["»”)\s]*$/.test(String(r.texto || '').trim());
     if (r.terminar || seguir === 'nunca' || (seguir === 'pregunta' && !pregunto)) this.cerrar(); else this.escuchar();
+    return r;
   }
 
   cerrar() {
@@ -660,6 +663,31 @@ async function texto(t) {
   await sesion.atender(dicho);
 }
 
+// Un pedido escrito desde otro aparato (el celular). Cada aparato tiene su propia charla (con su historial y lo
+// que quedó por confirmar: "¿lo hago?" → "sí"), separada de la de la PC; se olvida tras 15 minutos sin uso.
+// Por defecto Jarvis no lo dice en voz alta en la PC (puede no haber nadie, o sí y no tiene por qué oírlo).
+const remotas = new Map(); // id -> { s, ultimo }
+async function textoRemoto(t, { id = 'celular', enVoz = false, origen = 'celular' } = {}) {
+  const dicho = String(t || '').trim().slice(0, 2000);
+  if (!dicho) return { texto: '' };
+  let r = remotas.get(id);
+  if (!r || Date.now() - r.ultimo > 15 * 60000) {
+    r = { s: new Sesion() };
+    r.s.remota = true;
+    r.s.yaHablo = true;
+    remotas.set(id, r);
+  }
+  r.ultimo = Date.now();
+  const s = r.s;
+  if (s.ocupada) throw new Error('Todavía estoy con tu pedido anterior.');
+  s.origen = origen;
+  s.callada = !enVoz;
+  clips.marcarPedidoDeVoz(0); // escrito: nada que recortar de un clip
+  const res = await s.atender(dicho);
+  return { texto: (res && res.texto) || '', espera: !!s.pendiente };
+}
+const olvidarRemota = (id) => remotas.delete(id);
+
 // Dictado: escucha UNA frase y devuelve el texto, sin tratarla como un pedido (para contestar un
 // aviso). Devuelve '' si no se dijo nada o se canceló.
 async function dictar() {
@@ -683,6 +711,6 @@ async function preparar() {
 }
 
 module.exports = {
-  _conMotivo: conMotivo, configurar, activar, activa, audio, vigilia, pista, loLlaman, aprenderNombre, dictar, texto, cancelar, preparar, hablar, callar, probarVoz, puedeEscuchar,
+  _conMotivo: conMotivo, configurar, activar, activa, audio, vigilia, pista, loLlaman, aprenderNombre, dictar, texto, textoRemoto, olvidarRemota, cancelar, preparar, hablar, callar, probarVoz, puedeEscuchar,
   instrucciones, herramientas, transcribir, decidir, wav, FALTA_OIDO,
 };

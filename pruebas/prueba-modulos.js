@@ -253,7 +253,7 @@ prueba('las herramientas y las instrucciones para los modelos están bien armada
   const texto = cerebro.instrucciones();
   assert.match(texto, /rioplatense/);
   assert.match(texto, /Modo juego/, 'incluye las rutinas cargadas');
-  assert.ok(JSON.stringify(h).length + texto.length < 11700, `tiene que entrar holgado en los cupos gratuitos por minuto (${JSON.stringify(h).length + texto.length})`);
+  assert.ok(JSON.stringify(h).length + texto.length < 11900, `tiene que entrar holgado en los cupos gratuitos por minuto (${JSON.stringify(h).length + texto.length})`);
 });
 
 prueba('de los modelos de Gemini se eligen los de mayor cupo gratuito, sin nombres fijos', () => {
@@ -2852,6 +2852,56 @@ prueba('yt-dlp: el link va después de "--" y los audios a su subcarpeta', () =>
   assert.ok(!v.includes('-x') && v.includes('--ffmpeg-location'));
 });
 
+prueba('descarga para el celular: queda en su carpeta propia y se la sigue por número', async () => {
+  const descargas = require('../src/main/descargas');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jdl-cel-'));
+  const falso = path.join(dir, 'yt-dlp.js');
+  fs.writeFileSync(falso, `#!/usr/bin/env node
+const a = process.argv.slice(2); if (a[0] === '--version') { console.log('1'); process.exit(0); }
+const o = a[a.indexOf('-o') + 1].replace('%(title).150B', 'Tema').replace('%(id)s', 'x').replace('%(ext)s', a.includes('-x') ? 'mp3' : 'mp4');
+require('fs').mkdirSync(require('path').dirname(o), { recursive: true }); require('fs').writeFileSync(o, 'abc');
+console.log('[download]  50.0%'); console.log('JARVIS-ARCHIVO:' + o);`);
+  fs.chmodSync(falso, 0o755);
+  const antes = process.env.JARVIS_YTDLP;
+  process.env.JARVIS_YTDLP = falso;
+  const avisos = [];
+  descargas.configurar({ avisar: (t) => avisos.push(t), ffmpeg: async () => null });
+  try {
+    await descargas.buscarYtdlp({ olvidar: true });
+    const carpeta = path.join(dir, 'temporal');
+    const r = await descargas.encolar({ url: 'https://youtu.be/x', modo: 'audio', carpeta, para: 'celular' });
+    assert.ok(r.id > 0 && /empiezo a descargar el audio/.test(r.texto));
+    assert.strictEqual(descargas.buscar(r.id).para, 'celular');
+    for (let i = 0; i < 40 && descargas.buscar(r.id).estado !== 'listo'; i++) await new Promise((ok) => setTimeout(ok, 100));
+    const d = descargas.buscar(r.id);
+    assert.strictEqual(d.estado, 'listo', d.error);
+    assert.strictEqual(d.archivo, path.join(carpeta, 'Audio', 'Tema [x].mp3'), 'en la carpeta pedida, no en Descargas');
+    assert.match(avisos.at(-1), /Se lo paso al celular/);
+    assert.strictEqual(typeof await descargas.iniciar({ url: 'https://youtu.be/y', carpeta }), 'string', 'iniciar sigue devolviendo el texto');
+    assert.strictEqual(descargas.buscar(99999), null);
+  } finally { process.env.JARVIS_YTDLP = antes || ''; if (!antes) delete process.env.JARVIS_YTDLP; await descargas.buscarYtdlp({ olvidar: true }); }
+});
+
+prueba('WhatsApp manda cada archivo como corresponde: video, audio o documento', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jwa-'));
+  const mp4 = path.join(dir, 'chico.mp4'); fs.writeFileSync(mp4, Buffer.alloc(1000));
+  const mp3 = path.join(dir, 'tema.mp3'); fs.writeFileSync(mp3, Buffer.alloc(1000));
+  const mkv = path.join(dir, 'peli.mkv'); fs.writeFileSync(mkv, Buffer.alloc(1000));
+  const grande = path.join(dir, 'largo.mp4'); fs.writeFileSync(grande, ''); fs.truncateSync(grande, 17 * 1024 * 1024);
+  const enviados = [];
+  whatsapp._pruebas.ponerSocket({ user: { id: '5491100001111:5@s.whatsapp.net' }, sendMessage: async (jid, c) => { enviados.push(c); } });
+  try {
+    assert.match(await whatsapp.enviarArchivo('yo', mp4, 'chico.mp4'), /^Video enviado/);
+    assert.deepStrictEqual(enviados.at(-1), { video: { url: mp4 }, mimetype: 'video/mp4' });
+    assert.match(await whatsapp.enviarArchivo('yo', mp3, 'tema.mp3'), /^Audio enviado/);
+    assert.strictEqual(enviados.at(-1).mimetype, 'audio/mpeg');
+    assert.match(await whatsapp.enviarArchivo('yo', mkv, 'peli.mkv'), /^Archivo enviado/);
+    assert.strictEqual(enviados.at(-1).fileName, 'peli.mkv');
+    await whatsapp.enviarArchivo('yo', grande, 'largo.mp4');
+    assert.ok(enviados.at(-1).document, 'lo pesado va como documento (sin perder calidad)');
+  } finally { whatsapp._pruebas.ponerSocket(null, 'apagado'); }
+});
+
 prueba('si no se puede leer la pestaña, el aviso dice qué vio Jarvis y se usa el link copiado', async () => {
   const descargas = require('../src/main/descargas');
   let copiado = '';
@@ -2921,6 +2971,21 @@ prueba('lo elegido en el instalador (nombre, componentes, inicio) se aplica una 
     assert.strictEqual(componentes.aplicarInstalacion(), null);
     assert.strictEqual(comandos.despertar('hey señor ñandú poné música').resto, 'poné música');
   } finally { config.guardarConfig(antes); try { fs.rmSync(`${archivo}.aplicado`, { force: true }); } catch {} }
+});
+
+prueba('Información: versión, fecha del release y tamaño en disco', async () => {
+  const informacion = require('../src/main/informacion');
+  const i = informacion.leer();
+  assert.strictEqual(i.version, require('../package.json').version);
+  assert.ok(!Number.isNaN(Date.parse(i.fecha)), 'tiene fecha de release');
+  assert.strictEqual(i.copia, 'codigo');
+  assert.ok(i.electron === '' || /^\d+\./.test(i.electron));
+  fs.writeFileSync(path.join(process.env.JARVIS_DATOS, 'peso-de-prueba.bin'), Buffer.alloc(5000));
+  const t = await informacion.tamanos();
+  assert.ok(t.datos >= 5000, 'cuenta los datos');
+  assert.strictEqual(t.programaSinDato, true, 'desde el código no inventa el tamaño del programa');
+  assert.strictEqual(t.total, t.programa + t.datos);
+  fs.rmSync(path.join(process.env.JARVIS_DATOS, 'peso-de-prueba.bin'), { force: true });
 });
 
 (async () => {

@@ -40,14 +40,30 @@ const prueba = (nombre, fn) => pruebas.push([nombre, fn]);
 const hecho = [];
 const clipFalso = path.join(process.env.JARVIS_DATOS, 'clip.mp4');
 fs.writeFileSync(clipFalso, Buffer.alloc(5000, 7));
+const audioFalso = path.join(process.env.JARVIS_DATOS, 'tema.mp3');
+fs.writeFileSync(audioFalso, Buffer.alloc(300, 3));
 celular.configurar({
   texto: async (t, q) => { hecho.push(['texto', t, q.id]); return { texto: `Dijiste: ${t}`, espera: false }; },
   accion: async (b, q) => { hecho.push(['accion', b.tipo, q.id]); return `Hecho ${b.tipo}`; },
   estado: () => ({ pc: 'Jarvis', modo: 'normal', rutinas: [{ id: 'r1', nombre: 'Modo juego' }] }),
-  clips: () => [{ archivo: clipFalso, nombre: 'clip.mp4', juego: 'Valheim', bytes: 5000, fecha: Date.now() }],
+  archivos: () => [{ archivo: clipFalso, nombre: 'clip.mp4', tipo: 'clip', carpeta: 'Valheim', bytes: 5000, fecha: Date.now() }, { archivo: audioFalso, nombre: 'tema.mp3', tipo: 'audio', carpeta: 'Audio', bytes: 300, fecha: Date.now() - 1000 }],
   miniatura: async () => `data:image/jpeg;base64,${Buffer.from('jpg-de-mentira').toString('base64')}`,
-  enviarClip: async (a, c) => { hecho.push(['enviarClip', path.basename(a), c]); return `Mandado a ${c}`; },
+  enviarArchivo: async (a, c) => { hecho.push(['enviarArchivo', path.basename(a), c, fs.existsSync(a) ? fs.readFileSync(a).length : -1]); return `Mandado a ${c}`; },
+  // yt-dlp de mentira: "baja" al toque a la carpeta pedida.
+  descargar: async (p) => {
+    const id = ++descargasFalsas.n;
+    const carpeta = p.carpeta || path.join(process.env.JARVIS_DATOS, 'Descargas');
+    fs.mkdirSync(carpeta, { recursive: true });
+    const archivo = path.join(carpeta, p.modo === 'audio' ? 'Tema [abc].mp3' : 'Video [abc].mp4');
+    descargasFalsas[id] = { id, modo: p.modo, estado: 'bajando', pct: 40, nombre: '', archivo: '', para: p.para };
+    setTimeout(() => { fs.writeFileSync(archivo, Buffer.alloc(1234, 1)); Object.assign(descargasFalsas[id], { estado: 'listo', pct: 100, nombre: 'Video', archivo }); }, 200);
+    hecho.push(['descargar', p.url, p.para, p.modo]);
+    return { id, texto: 'Listo, empiezo a descargar el video.' };
+  },
+  descarga: (id) => descargasFalsas[id] || null,
+  guardarSubida: async (ruta, nombre) => { const destino = path.join(process.env.JARVIS_DATOS, 'Descargas', 'Del celular', nombre); fs.mkdirSync(path.dirname(destino), { recursive: true }); fs.copyFileSync(ruta, destino); return `Guardado ${nombre}`; },
 });
+const descargasFalsas = { n: 0 };
 
 let base = '';
 const pedir = (ruta, { metodo = 'GET', cuerpo, token, host, headers = {} } = {}) => fetch(base + ruta, {
@@ -91,7 +107,7 @@ prueba('rechaza nombres que no son esta PC ni Tailscale (DNS rebinding)', async 
 prueba('sin token no se puede hacer nada', async () => {
   const h = await jsonDe(await pedir('/api/hola'));
   assert.deepStrictEqual([h.status, h.dato.jarvis, h.dato.vinculado], [200, true, false]);
-  for (const [ruta, metodo] of [['/api/estado', 'GET'], ['/api/texto', 'POST'], ['/api/accion', 'POST'], ['/api/clips', 'GET'], ['/api/desvincular', 'POST']]) {
+  for (const [ruta, metodo] of [['/api/estado', 'GET'], ['/api/texto', 'POST'], ['/api/accion', 'POST'], ['/api/clips', 'GET'], ['/api/archivos', 'GET'], ['/api/descargas', 'POST'], ['/api/descargas', 'GET'], ['/api/subir', 'POST'], ['/api/desvincular', 'POST']]) {
     assert.strictEqual((await pedir(ruta, { metodo, cuerpo: metodo === 'POST' ? { texto: 'x', tipo: 'rutina' } : undefined })).status, 401, ruta);
   }
   assert.strictEqual((await pedir('/api/estado', { token: 'a'.repeat(43) })).status, 401);
@@ -162,6 +178,69 @@ prueba('clips: lista con enlaces propios, video por partes y miniatura', async (
   assert.strictEqual((await pedir('/api/clips/enviar', { metodo: 'POST', token, cuerpo: { id: 'nada', contacto: 'Tomi' } })).status, 404);
   base.clipVer = c.ver;
   pruebas.verClip = c.ver;
+});
+
+prueba('archivos de la PC: clips y audios, con enlaces y sin rutas', async () => {
+  const { dato } = await jsonDe(await pedir('/api/archivos', { token }));
+  assert.deepStrictEqual(dato.archivos.map((x) => [x.nombre, x.tipo]), [['clip.mp4', 'clip'], ['tema.mp3', 'audio']]);
+  assert.strictEqual(dato.archivos[1].miniatura, '', 'los audios no tienen miniatura');
+  const a = await fetch(base + dato.archivos[1].ver);
+  assert.deepStrictEqual([a.status, a.headers.get('content-type'), (await a.arrayBuffer()).byteLength], [200, 'audio/mpeg', 300]);
+  const env = await jsonDe(await pedir('/api/archivos/enviar', { metodo: 'POST', token, cuerpo: { id: dato.archivos[1].id, contacto: 'Yo' } }));
+  assert.strictEqual(env.dato.texto, 'Mandado a Yo');
+  assert.ok(!JSON.stringify(dato).includes(process.env.JARVIS_DATOS));
+});
+
+prueba('descargar para el celular: la PC baja, el celular se lo lleva y la PC lo borra', async () => {
+  const r = await jsonDe(await pedir('/api/descargas', { metodo: 'POST', token, cuerpo: { url: 'https://youtu.be/xyz', modo: 'video', calidad: '720', para: 'celular' } }));
+  assert.strictEqual(r.status, 200);
+  assert.strictEqual(hecho.at(-1)[2], 'celular');
+  let lista = (await jsonDe(await pedir('/api/descargas', { token }))).dato.descargas;
+  assert.deepStrictEqual([lista[0].estado, lista[0].pct, lista[0].bajar], ['bajando', 40, undefined]);
+  await new Promise((ok) => setTimeout(ok, 350));
+  lista = (await jsonDe(await pedir('/api/descargas', { token }))).dato.descargas;
+  assert.strictEqual(lista[0].estado, 'listo');
+  assert.ok(lista[0].bajar, 'trae el enlace para llevárselo');
+  const v = await fetch(base + lista[0].bajar);
+  assert.strictEqual((await v.arrayBuffer()).byteLength, 1234);
+  const archivo = descargasFalsas[r.dato.id].archivo;
+  assert.ok(archivo.startsWith(celular.TEMP_DESCARGAS()), 'quedó en la carpeta temporal');
+  assert.strictEqual((await pedir('/api/descargas/recibido', { metodo: 'POST', token, cuerpo: { id: r.dato.id } })).status, 200);
+  assert.strictEqual(fs.existsSync(archivo), false, 'la PC lo borró');
+  assert.strictEqual((await jsonDe(await pedir('/api/descargas', { token }))).dato.descargas.length, 0);
+  // Para la PC: queda en Descargas y no trae enlace para llevárselo.
+  const r2 = await jsonDe(await pedir('/api/descargas', { metodo: 'POST', token, cuerpo: { url: 'https://youtu.be/xyz', modo: 'audio', para: 'pc' } }));
+  await new Promise((ok) => setTimeout(ok, 350));
+  lista = (await jsonDe(await pedir('/api/descargas', { token }))).dato.descargas;
+  assert.deepStrictEqual([lista[0].id, lista[0].estado, lista[0].bajar, lista[0].para], [r2.dato.id, 'listo', undefined, 'pc']);
+  assert.strictEqual(fs.existsSync(descargasFalsas[r2.dato.id].archivo), true);
+  assert.strictEqual((await pedir('/api/descargas', { metodo: 'POST', token, cuerpo: { url: '' } })).status, 400);
+  assert.strictEqual((await pedir('/api/descargas/recibido', { metodo: 'POST', token, cuerpo: { id: 999 } })).status, 404);
+});
+
+prueba('subir del celular: a la PC o para mandarlo, y se borra lo temporal', async () => {
+  const cuerpo = Buffer.alloc(70000, 5); // más que el tope de los pedidos comunes
+  let r = await fetch(`${base}/api/subir?destino=pc&nombre=${encodeURIComponent('../../malo:video?.mp4')}`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: cuerpo });
+  assert.strictEqual(r.status, 200, await r.clone().text());
+  assert.strictEqual((await r.json()).texto, 'Guardado malo video .mp4');
+  assert.strictEqual(fs.readFileSync(path.join(process.env.JARVIS_DATOS, 'Descargas', 'Del celular', 'malo video .mp4')).length, 70000);
+  r = await fetch(`${base}/api/subir?destino=enviar&contacto=Nico&nombre=nota.m4a`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: Buffer.alloc(900, 1) });
+  assert.strictEqual(r.status, 200);
+  assert.deepStrictEqual(hecho.at(-1), ['enviarArchivo', 'nota.m4a', 'Nico', 900]);
+  r = await fetch(`${base}/api/subir?destino=enviar&nombre=x.mp4`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: Buffer.alloc(10) });
+  assert.strictEqual(r.status, 400, 'mandar sin contacto');
+  assert.deepStrictEqual(fs.readdirSync(celular.TEMP_SUBIDAS()), [], 'no queda nada temporal');
+  assert.strictEqual(celular._nombreSubido('CON.mp4').startsWith('archivo-'), true);
+  assert.strictEqual(celular._nombreSubido('..'), celular._nombreSubido('..').startsWith('archivo-') ? celular._nombreSubido('..') : 'x');
+  // Lo temporal viejo se borra solo.
+  const viejo = path.join(celular.TEMP_DESCARGAS(), 'viejo');
+  fs.mkdirSync(viejo, { recursive: true });
+  const nuevo = path.join(celular.TEMP_DESCARGAS(), 'nuevo');
+  fs.mkdirSync(nuevo, { recursive: true });
+  const hace2dias = (Date.now() - 48 * 3600000) / 1000;
+  fs.utimesSync(viejo, hace2dias, hace2dias);
+  celular.limpiarTemporales();
+  assert.deepStrictEqual([fs.existsSync(viejo), fs.existsSync(nuevo)], [false, true]);
 });
 
 prueba('novedades: la app espera y recibe lo nuevo al instante', async () => {

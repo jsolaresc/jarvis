@@ -48,6 +48,9 @@ const CONFIG_DEFECTO = {
     gemini: { clave: '', modelo: '' },
     ollama: { url: 'http://127.0.0.1:11434', modelo: '' },
   },
+  // Jarvis en el celular (Ajustes → Celular): servidor solo en 127.0.0.1, que se publica por Tailscale ("tailscale serve").
+  // hablarEnPC: si lo que le escribís desde el celular Jarvis también lo dice en voz alta en la PC.
+  celular: { activo: false, puerto: 47820, https: 443, hablarEnPC: false },
   volumen: 1, // cuánto se escucha la voz de Jarvis (1 = normal; no afecta al resto de la PC)
   modos: [
     { id: 'normal', nombre: 'Normal', habla: true, visible: true },

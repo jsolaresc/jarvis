@@ -37,6 +37,7 @@ const historial = require('./historial');
 const acciones = require('./acciones');
 const cerebro = require('./cerebro');
 const arranque = require('./arranque');
+const celular = require('./celular');
 const descargas = require('./descargas');
 
 const ANCHO = 380; // tamaño de la ventana del notch (la pastilla y el panel viven adentro)
@@ -669,6 +670,7 @@ function aplicarConfig() {
   if (!c.whatsapp.activo && whatsapp.leerEstado().fase !== 'apagado') whatsapp.detener();
   correo.iniciar(); // por si se cargó o cambió una cuenta de mail
   clips.sincronizar().then(publicarEstado);
+  sincronizarCelular();
   cerebro.preparar().catch(() => {}); // por si cambió algo de la escucha (no hace nada si está igual)
   publicarEstado();
 }
@@ -759,17 +761,19 @@ manejar('cfg:guardar', (nueva) => {
 });
 manejar('rutinas:leer', () => leerRutinas());
 manejar('rutinas:guardar', (nuevas) => { guardarRutinas(nuevas); if (notch) notch.webContents.send('rutinas', leerRutinas()); return leerRutinas(); });
-manejar('rutina:ejecutar', async (id) => {
+manejar('rutina:ejecutar', (id) => correrRutina(id, 'click'));
+async function correrRutina(id, origen = 'click') {
   fase('pensando');
   const rutina = leerRutinas().find((x) => x.id === id);
-  const entrada = historial.empezar(`Rutina "${rutina ? rutina.nombre : id}" (click)`, 'click');
+  if (!rutina) { fase('reposo'); throw new Error('Esa rutina ya no existe.'); }
+  const entrada = historial.empezar(`Rutina "${rutina.nombre}" (${origen === 'celular' ? 'desde el celular' : 'click'})`, origen);
   try {
     const r = await acciones.ejecutarRutina(id);
     historial.terminar(entrada, { respuesta: r.ok ? 'Salió todo bien.' : r.errores.join(' · '), ok: r.ok });
     if (r.ok) fase('ok', r.rutina); else fase('error', r.errores[0]);
     return r;
   } catch (e) { historial.terminar(entrada, { respuesta: e.message, ok: false }); fase('error', e.message); throw e; }
-});
+}
 manejar('paso:probar', (paso) => acciones.ejecutarPaso(paso));
 manejar('modo:cambiar', (modo) => { fijarModo(modo); return leerConfig().modo; });
 manejar('ajustes:abrir', (seccion) => { abrirAjustes(seccion); });
@@ -1044,12 +1048,184 @@ manejar('musica:reproducir', (busqueda) => musica.reproducir(busqueda));
 manejar('musica:controlar', (accion) => musica.controlar(accion));
 manejar('windows:mezclador', () => { if (process.platform === 'win32') shell.openExternal('ms-settings:apps-volume'); });
 manejar('app:cerrar', () => { app.quit(); });
-manejar('app:info', () => ({ edicion: edicion.B ? 'B' : '', nombre: require('./nombre').actual(), version: app.getVersion(), instalado: edicion.INSTALADO, portable: edicion.PORTABLE, datos: DATOS, copiado: edicion.copiado, compartidos: edicion.compartidos }));
+manejar('app:tamanos', () => require('./informacion').tamanos());
+manejar('app:info', () => ({ ...require('./informacion').leer(), edicion: edicion.B ? 'B' : '', nombre: require('./nombre').actual(), version: app.getVersion(), instalado: edicion.INSTALADO, portable: edicion.PORTABLE, datos: DATOS, copiado: edicion.copiado, compartidos: edicion.compartidos }));
 
 // ---------- Arranque ----------
 app.on('second-instance', () => { if (escondido()) fijarModo('normal'); else abrirAjustes(); });
 app.on('window-all-closed', () => {}); // Jarvis sigue vivo en la bandeja aunque no haya ventanas
-app.on('will-quit', () => { globalShortcut.unregisterAll(); oido.apagar(); clips.apagar(); clips.matarFfmpeg(); });
+// ---------- Celular (Ajustes → Celular) ----------
+// Lo que el celular puede pedir: lo mismo que la voz o los botones, por las mismas funciones. Queda en el Historial como "celular".
+const MODOS_CLIP = new Set(['guardar', 'grabar', 'parar', 'pausar', 'seguir', 'enviar', 'captura', 'captura-enviar']);
+const MUSICA_CEL = new Set(['alternar', 'pausar', 'reanudar', 'siguiente', 'anterior']);
+async function accionDelCelular(b, quien) {
+  const etiqueta = (t) => `${t} (desde ${quien.nombre || 'el celular'})`;
+  const conHistorial = async (texto, fn) => {
+    const entrada = historial.empezar(etiqueta(texto), 'celular');
+    try { const r = await fn(); const dicho = typeof r === 'string' ? r : 'Listo.'; historial.terminar(entrada, { respuesta: dicho, ok: true }); publicarEstado(); return dicho; }
+    catch (e) { historial.terminar(entrada, { respuesta: e.message, ok: false }); throw e; }
+  };
+  const contacto = String(b.contacto || '').trim().slice(0, 80);
+  switch (b.tipo) {
+    case 'rutina': {
+      const r = await correrRutina(String(b.id || ''), 'celular');
+      return r.ok ? `Listo: ${r.rutina || 'rutina hecha'}.` : `Hubo un problema: ${r.errores.join(' · ')}`;
+    }
+    case 'clip': {
+      const accion = String(b.accion || '');
+      if (!MODOS_CLIP.has(accion)) throw Object.assign(new Error('Acción de clips desconocida.'), { status: 400 });
+      if ((accion === 'enviar' || accion === 'captura-enviar') && !contacto && !leerConfig().clips.enviarA) throw Object.assign(new Error('Elegí a quién mandárselo.'), { status: 400 });
+      return conHistorial(`Clips: ${accion}${contacto ? ` a ${contacto}` : ''}`, () => acciones.ejecutarPaso({ tipo: 'clip', accion, ...(contacto ? { contacto } : {}), ...(b.ultimo ? { ultimo: true } : {}), ...(b.modo ? { modo: String(b.modo) } : {}) }, { porVoz: false }));
+    }
+    case 'whatsapp': {
+      const mensaje = String(b.mensaje || '').trim().slice(0, 4000);
+      if (!contacto || !mensaje) throw Object.assign(new Error('Falta a quién o el mensaje.'), { status: 400 });
+      return conHistorial(`WhatsApp a ${contacto}: ${mensaje.slice(0, 80)}`, async () => { await acciones.ejecutarPaso({ tipo: 'whatsapp', contacto, mensaje }, { porVoz: false }); return `Listo, le mandé el mensaje a ${contacto}.`; });
+    }
+    case 'foto': {
+      if (!contacto) throw Object.assign(new Error('Elegí a quién mandarle la foto.'), { status: 400 });
+      return conHistorial(`Foto de la webcam a ${contacto}`, async () => { await acciones.ejecutarPaso({ tipo: 'foto_whatsapp', contacto }, { porVoz: false }); return `Listo, le mandé la foto a ${contacto}.`; });
+    }
+    case 'modo': {
+      const modo = String(b.modo || '');
+      if (!acciones.idsDeModos().includes(modo)) throw Object.assign(new Error('Ese modo no existe.'), { status: 400 });
+      return conHistorial(`Modo ${modo}`, async () => { fijarModo(modo); const m = (leerConfig().modos || []).find((x) => x.id === modo); return `Listo, modo ${m ? m.nombre : modo}.`; });
+    }
+    case 'musica': {
+      if (b.accion === 'poner') return conHistorial(`Música: ${b.busqueda || 'la de siempre'}`, () => acciones.ejecutarPaso({ tipo: 'musica', busqueda: String(b.busqueda || '').slice(0, 200) }, { porVoz: false }));
+      if (b.accion === 'aLaPC') { musica.soltarDestino(); publicarEstado(); return 'La música vuelve a la PC.'; }
+      if (!MUSICA_CEL.has(b.accion)) throw Object.assign(new Error('Acción de música desconocida.'), { status: 400 });
+      return conHistorial(`Música: ${b.accion}`, () => acciones.ejecutarPaso({ tipo: 'musica_control', accion: b.accion }, { porVoz: false }));
+    }
+    default: throw Object.assign(new Error('Acción desconocida.'), { status: 400 });
+  }
+}
+// Archivos de la PC que el celular puede ver y mandar: clips, videos y audios descargados (más nuevos primero).
+const EXT_VIDEO = /\.(mp4|mkv|webm|mov)$/i;
+const EXT_AUDIO = /\.(mp3|m4a|opus|ogg|wav|flac|aac)$/i;
+function archivosParaCelular() {
+  const vistos = new Set();
+  const salida = [];
+  let base = '';
+  try { base = descargas.carpetaDestino(); } catch {}
+  const sumar = (x) => { const k = path.resolve(x.archivo).toLowerCase(); if (vistos.has(k)) return; vistos.add(k); salida.push(x); };
+  for (const c of clips.listar(200)) {
+    const esDescarga = base && descargas.dentroDeCarpeta(c.archivo);
+    if (!esDescarga) sumar({ ...c, tipo: 'clip', carpeta: c.juego || '' });
+  }
+  const mirar = (dir, nivel) => {
+    let entradas = [];
+    try { entradas = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of entradas) {
+      const ruta = path.join(dir, e.name);
+      if (e.isDirectory()) { if (nivel < 2) mirar(ruta, nivel + 1); continue; }
+      const tipo = EXT_VIDEO.test(e.name) ? 'video' : EXT_AUDIO.test(e.name) ? 'audio' : '';
+      if (!tipo || /\.(part|parte|ytdl)$/i.test(e.name)) continue;
+      try { const st = fs.statSync(ruta); sumar({ archivo: ruta, nombre: e.name, tipo, carpeta: path.relative(base, dir), bytes: st.size, fecha: st.mtimeMs }); } catch {}
+    }
+  };
+  if (base) mirar(base, 0);
+  return salida.sort((a, b) => b.fecha - a.fecha);
+}
+// Lo que la app del celular muestra: nada de claves ni tokens, solo nombres y estados.
+function estadoParaCelular() {
+  const c = leerConfig();
+  const { nombrePrincipal } = require('./config');
+  const rutinas = leerRutinas().map((r) => ({ id: r.id, nombre: nombrePrincipal(r.nombre) || r.nombre, icono: r.icono || '', rapida: !!r.rapida }));
+  const contactos = [...new Set((c.contactos || []).map((x) => nombrePrincipal(x.nombre)).filter(Boolean))];
+  const ce = clips.estado();
+  const mu = musica.estado();
+  return {
+    pc: c.nombre || 'Jarvis', usuario: c.usuario || '',
+    modo: c.modo, modos: (c.modos || []).map((m) => ({ id: m.id, nombre: m.nombre })),
+    rutinas, contactos, enviarA: c.clips.enviarA || '',
+    clips: { activo: !!ce.activo, permitido: !!ce.permitido, corriendo: !!ce.corriendo, grabando: !!ce.grabando, pausado: !!ce.pausado, segundos: ce.segundos, ultimo: ce.ultimo, error: ce.error || '' },
+    whatsapp: whatsapp.leerEstado().fase,
+    musica: { sonando: !!mu.sonando, cancion: mu.cancion || '', artista: mu.artista || '', destino: mu.destino ? (mu.destino.nombre || String(mu.destino)) : '' },
+    conexion: { sin: !!conexion.estado().sin },
+  };
+}
+celular.configurar({
+  texto: (texto, quien) => cerebro.textoRemoto(texto, { id: `cel:${quien.id}`, enVoz: !!leerConfig().celular.hablarEnPC, origen: 'celular' }),
+  accion: accionDelCelular,
+  estado: estadoParaCelular,
+  clips: () => clips.listar(30),
+  miniatura: (archivo) => clips.miniatura(archivo),
+  enviarClip: async (archivo, contacto) => {
+    const para = contacto || leerConfig().clips.enviarA;
+    const entrada = historial.empezar(`Mandar el clip ${path.basename(archivo)} a ${para || '?'} (desde el celular)`, 'celular');
+    try { const r = await clips.enviarGuardado(archivo, para, (x, mp4) => whatsapp.enviarVideo(x, mp4)); historial.terminar(entrada, { respuesta: 'Enviado.', ok: true }); return typeof r === 'string' ? r : `Listo, se lo mandé a ${para}.`; }
+    catch (e) { historial.terminar(entrada, { respuesta: e.message, ok: false }); throw e; }
+  },
+  archivos: archivosParaCelular,
+  enviarArchivo: async (archivo, contacto) => {
+    const entrada = historial.empezar(`Mandar ${path.basename(archivo)} a ${contacto} (desde el celular)`, 'celular');
+    try {
+      // Los clips siguen como siempre (se achican para que viajen como video); lo demás va tal cual (video, audio o documento).
+      const r = clips.dentroDeCarpeta(archivo) && !descargas.dentroDeCarpeta(archivo) && /\.(mp4|mkv|webm|mov)$/i.test(archivo)
+        ? await clips.enviarGuardado(archivo, contacto, (x, mp4) => whatsapp.enviarVideo(x, mp4))
+        : await whatsapp.enviarArchivo(contacto, archivo, path.basename(archivo));
+      const dicho = typeof r === 'string' ? r : `Listo, se lo mandé a ${contacto}.`;
+      historial.terminar(entrada, { respuesta: dicho, ok: true });
+      return dicho;
+    } catch (e) { historial.terminar(entrada, { respuesta: e.message, ok: false }); throw e; }
+  },
+  descargar: async (pedido, quien) => {
+    const entrada = historial.empezar(`Descargar ${pedido.modo === 'audio' ? 'el audio' : 'el video'} de ${pedido.url.slice(0, 90)} ${pedido.para === 'celular' ? 'para el celular' : 'en la PC'} (desde ${quien.nombre || 'el celular'})`, 'celular');
+    try { const r = await descargas.encolar(pedido); historial.terminar(entrada, { respuesta: r.texto, ok: true }); return r; }
+    catch (e) { historial.terminar(entrada, { respuesta: e.message, ok: false }); throw e; }
+  },
+  descarga: (id) => descargas.buscar(id),
+  // Lo que el celular pasa a la PC queda en Descargas\Del celular (sin pisar nada).
+  guardarSubida: async (ruta, nombre) => {
+    const carpeta = path.join(descargas.carpetaDestino(), 'Del celular');
+    fs.mkdirSync(carpeta, { recursive: true });
+    const ext = path.extname(nombre); const base = path.basename(nombre, ext);
+    let destino = path.join(carpeta, nombre);
+    for (let i = 2; fs.existsSync(destino); i++) destino = path.join(carpeta, `${base} (${i})${ext}`);
+    try { fs.renameSync(ruta, destino); } catch { fs.copyFileSync(ruta, destino); }
+    const entrada = historial.empezar(`Guardar ${path.basename(destino)} del celular en la PC`, 'celular');
+    historial.terminar(entrada, { respuesta: `En ${carpeta}`, ok: true });
+    return `Listo, quedó en la PC: Descargas\\Del celular\\${path.basename(destino)}.`;
+  },
+  anotar: (texto, o = {}) => { const e = historial.empezar(texto, 'celular'); historial.terminar(e, { respuesta: o.error ? 'Ojo.' : 'Hecho.', ok: !o.error }); },
+  cambio: () => { if (ajustes && !ajustes.isDestroyed()) ajustes.webContents.send('celular'); },
+});
+let celularPrendiendo = Promise.resolve();
+function sincronizarCelular() {
+  const c = leerConfig().celular || {};
+  celularPrendiendo = celularPrendiendo.then(async () => {
+    if (c.activo && celular.puerto() && celular.puerto() !== (Number(c.puerto) || celular.PUERTO)) await celular.detener();
+    if (c.activo && !celular.puerto()) { try { await celular.iniciar(Number(c.puerto) || celular.PUERTO); } catch (e) { anotarError('celular', e); historial.anotar(`Celular: no pude abrir el puerto ${c.puerto}: ${e.message}`, { error: true }); } }
+    if (!c.activo && celular.puerto()) await celular.detener();
+  }).catch(() => {});
+  return celularPrendiendo;
+}
+async function estadoCelularParaAjustes(conTailscale = true) {
+  await celularPrendiendo;
+  const c = leerConfig().celular || {};
+  const ts = conTailscale ? await celular.estadoTailscale(Number(c.https) || 443) : null;
+  return { activo: !!c.activo, puerto: celular.puerto(), local: celular.puerto() ? `http://127.0.0.1:${celular.puerto()}` : '', dispositivos: celular.dispositivos(), codigo: celular.codigoVigente(), tailscale: ts, comando: celular.comandoServe(Number(c.https) || 443) };
+}
+manejar('celular:estado', (conTailscale) => estadoCelularParaAjustes(conTailscale !== false));
+manejar('celular:codigo', async () => {
+  await sincronizarCelular();
+  if (!celular.puerto()) throw new Error('Primero prendé "Usar Jarvis desde el celular".');
+  const c = leerConfig().celular || {};
+  const cod = celular.nuevoCodigo();
+  const ts = await celular.estadoTailscale(Number(c.https) || 443);
+  const base = ts && ts.publicado ? ts.url : '';
+  const url = base ? `${base}/#v=${cod.codigo}` : '';
+  const qr = url ? await require('qrcode').toDataURL(url, { margin: 1, width: 280, color: { dark: '#000000', light: '#ffffff' } }) : '';
+  return { ...cod, url, qr, base, tailscale: ts };
+});
+manejar('celular:cancelarCodigo', () => { celular.cancelarCodigo(); });
+manejar('celular:revocar', (id) => { cerebro.olvidarRemota(`cel:${id}`); return celular.revocar(String(id)); });
+manejar('celular:renombrar', ({ id, nombre }) => celular.renombrar(String(id), nombre));
+manejar('celular:publicar', async () => { await sincronizarCelular(); if (!celular.puerto()) throw new Error('Primero prendé "Usar Jarvis desde el celular".'); return celular.publicarEnTailscale(Number((leerConfig().celular || {}).https) || 443); });
+manejar('celular:despublicar', () => celular.despublicarDeTailscale(Number((leerConfig().celular || {}).https) || 443));
+
+app.on('will-quit', () => { celular.detener().catch(() => {}); globalShortcut.unregisterAll(); oido.apagar(); clips.apagar(); clips.matarFfmpeg(); });
 
 app.whenReady().then(async () => {
   arranque.iniciar(DATOS);
@@ -1180,6 +1356,7 @@ app.whenReady().then(async () => {
     anotarError('voz', e);
     if (notch && !PRUEBA) notch.webContents.send('decir', { texto: `No pude iniciar la escucha en esta PC: ${e.message}`, voz: false });
   }));
+  arranque.tarea('celular', D(3000), () => sincronizarCelular());
   arranque.tarea('inicio con Windows', D(8000), () => aplicarInicio());
   arranque.tarea('calendario', D(12000), () => calendario.iniciar());
   arranque.tarea('correo', D(16000), () => correo.iniciar(alLlegarMail));

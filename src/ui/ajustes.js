@@ -38,6 +38,8 @@ let registros = []; // historial de pedidos
 let contextoPrueba = null; // lo último que devolvió "¿Qué vería ahora?"
 const calGoogle = { lista: null, error: '', esperando: false };
 const calAgenda = { lista: null, buscar: '' }; // lo que Jarvis tiene cargado de tu agenda (próximos días) // los calendarios de la cuenta de Google conectada
+// Celular: estado (servidor, Tailscale, aparatos vinculados), el código para vincular y el último resultado de "Publicar".
+const cel = { estado: null, codigo: null, resultado: null, cargando: false };
 const detallesAbiertos = new Set(); // qué registros tienen el detalle desplegado (para no cerrarlos al repintar)
 
 // ---------- Mini ayudante para armar la página ----------
@@ -725,7 +727,7 @@ function buscadorDeAgenda() {
   return campo('Agregar de mi agenda', h('input', { type: 'text', placeholder: 'Escribí parte del nombre de un contacto o grupo…', oninput: (e) => buscar(e.target.value) }), hallados);
 }
 
-const compo = { lista: null, act: null, info: {} }; // Componentes y Actualizaciones
+const compo = { lista: null, act: null, info: {}, tam: null }; // Componentes y Actualizaciones
 let relojCompo = null;
 async function cargarComponentes() {
   clearTimeout(relojCompo);
@@ -734,10 +736,18 @@ async function cargarComponentes() {
   if (seccion === 'componentes' && !['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement && document.activeElement.tagName)) pintar();
   if (seccion === 'componentes' && compo.lista.some((c) => c.bajando)) relojCompo = setTimeout(cargarComponentes, 1500);
 }
+const formatoBytes = (b) => {
+  if (!b) return '0 MB';
+  const coma = (n) => n.toFixed(n >= 100 ? 0 : 1).replace('.', ',');
+  return b >= 1e9 ? `${coma(b / 1e9)} GB` : b >= 1e6 ? `${coma(b / 1e6)} MB` : `${Math.max(1, Math.round(b / 1e3))} KB`;
+};
 async function cargarActualizacion() {
   compo.act = await pedir('actualizacion:estado').catch(() => compo.act);
   compo.info = await pedir('app:info').catch(() => compo.info);
+  compo.tam = null;
   if (seccion === 'actualizaciones') pintar();
+  compo.tam = await pedir('app:tamanos').catch(() => null);
+  if (seccion === 'actualizaciones' && !escribiendo()) pintar();
 }
 let almacen = null; // lo que ocupa Jarvis en el disco (se calcula al entrar a Almacenamiento)
 let confirmando = '';
@@ -2633,6 +2643,85 @@ const secciones = {
     ];
   },
 
+  celular() {
+    const c = cfg.celular = cfg.celular || { activo: false, puerto: 47820, https: 443, hablarEnPC: false };
+    const e = cel.estado;
+    const ts = e && e.tailscale;
+    const fecha = (t) => (t ? new Date(t).toLocaleString('es-AR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—');
+    const hace = (t) => { if (!t) return 'nunca'; const m = Math.round((Date.now() - t) / 60000); return m < 2 ? 'recién' : m < 60 ? `hace ${m} min` : m < 1440 ? `hace ${Math.round(m / 60)} h` : `hace ${Math.round(m / 1440)} días`; };
+    const copiar = (t) => { navigator.clipboard.writeText(t).then(() => avisarGuardado('Copiado.')).catch(() => {}); };
+    const pasoTs = () => {
+      if (!c.activo) return h('p', { class: 'ayuda' }, 'Prendé "Usar Jarvis desde el celular" para configurar el acceso.');
+      if (!e || cel.cargando) return h('p', { class: 'ayuda' }, 'Revisando Tailscale…');
+      if (!ts || !ts.instalado) return h('div', { class: 'cel-paso' },
+        h('p', {}, 'Tailscale no está instalado en esta PC. Es gratis: arma una red privada entre tu PC y tu celular, cifrada de punta a punta, sin abrir nada a internet.'),
+        h('ol', {}, h('li', {}, 'Instalalo en la PC y en el celular (Play Store: "Tailscale").'), h('li', {}, 'Iniciá sesión con la misma cuenta en los dos.'), h('li', {}, 'Volvé acá y tocá "Revisar".')),
+        h('div', { class: 'fila' }, boton('Bajar Tailscale', () => pedir('abrir:enlace', 'https://tailscale.com/download/windows'), 'principal'), boton('Revisar', () => cargarCelular(true))));
+      if (!ts.conectado) return h('div', { class: 'cel-paso' }, h('p', {}, ts.texto || 'Tailscale no está conectado.'), h('p', { class: 'ayuda' }, 'Abrí Tailscale desde el ícono de la bandeja e iniciá sesión.'), boton('Revisar', () => cargarCelular(true)));
+      const r = cel.resultado;
+      return h('div', { class: 'cel-paso' },
+        h('div', { class: `cel-ts ${ts.publicado ? 'ok' : ''}` },
+          h('span', { html: icono(ts.publicado ? 'tilde' : 'wifi', 20) }),
+          h('div', {}, h('b', {}, ts.publicado ? 'Listo para usar desde el celular' : 'Tailscale conectado'),
+            h('p', {}, ts.publicado ? 'Dirección de Jarvis (solo funciona en tus aparatos con Tailscale):' : `Esta PC en Tailscale: ${ts.nombre}. Falta publicar Jarvis en tu red privada.`),
+            ts.publicado ? h('div', { class: 'cel-url' }, h('code', {}, ts.url), botonIcono('copiar', 'Copiar la dirección', () => copiar(ts.url))) : null),
+          ts.publicado ? boton('Dejar de publicar', async () => { cel.resultado = await pedir('celular:despublicar').catch((x) => ({ texto: x.message })); cargarCelular(true); }, 'chico')
+            : boton('Publicar Jarvis en Tailscale', async (ev) => { ev.target.disabled = true; ev.target.textContent = 'Publicando…'; try { cel.resultado = await pedir('celular:publicar'); } catch (x) { cel.resultado = { ok: false, texto: x.message }; } cargarCelular(true); }, 'principal')),
+        r && !r.ok ? h('div', { class: 'cel-resultado mal' }, h('p', {}, r.texto),
+          r.habilitar ? h('div', { class: 'fila' }, boton('Habilitar HTTPS en Tailscale', () => pedir('abrir:enlace', r.habilitar), 'principal'), boton('Ya lo habilité', async () => { cel.resultado = await pedir('celular:publicar').catch((x) => ({ ok: false, texto: x.message })); cargarCelular(true); })) : null,
+          r.comando ? h('div', { class: 'cel-url' }, h('code', {}, r.comando), botonIcono('copiar', 'Copiar el comando', () => copiar(r.comando))) : null) : null);
+    };
+    const pasoVincular = () => {
+      if (!c.activo) return null;
+      const k = cel.codigo;
+      if (k && k.vence > Date.now()) {
+        const quedan = Math.max(0, Math.round((k.vence - Date.now()) / 1000));
+        return h('div', { class: 'cel-codigo' },
+          k.qr ? h('img', { class: 'cel-qr', src: k.qr, alt: 'Código QR para vincular el celular' }) : null,
+          h('div', {},
+            h('p', {}, k.qr ? 'Escaneá el QR con la cámara del celular (con Tailscale prendido), o abrí la dirección y escribí el código:' : 'En el celular, abrí la dirección de Jarvis y escribí este código:'),
+            h('div', { class: 'cel-numero', 'aria-label': `Código ${k.codigo.split('').join(' ')}` }, `${k.codigo.slice(0, 3)} ${k.codigo.slice(3)}`),
+            h('p', { class: 'ayuda', id: 'cel-quedan' }, `Vence en ${Math.floor(quedan / 60)}:${String(quedan % 60).padStart(2, '0')}. Sirve una sola vez.`),
+            !k.base ? h('p', { class: 'ayuda' }, 'Todavía no publicaste Jarvis en Tailscale (paso 1): sin eso el celular no llega.') : null,
+            boton('Cancelar', async () => { await pedir('celular:cancelarCodigo').catch(() => {}); cel.codigo = null; pintar(); }, 'chico')));
+      }
+      return h('div', { class: 'fila' }, boton('Vincular un celular', async () => {
+        try { cel.codigo = await pedir('celular:codigo'); } catch (x) { avisarGuardado(`No pude: ${x.message}`); }
+        pintar(); seguirCodigo();
+      }, 'principal'));
+    };
+    const lista = e && e.dispositivos && e.dispositivos.length
+      ? h('div', { class: 'cel-lista' }, e.dispositivos.map((d) => h('div', { class: 'cel-disp' },
+        h('span', { class: 'cel-icono', html: icono('celular', 20) }),
+        h('div', {}, h('input', { type: 'text', value: d.nombre, 'aria-label': 'Nombre del celular', onchange: async (ev) => { try { await pedir('celular:renombrar', { id: d.id, nombre: ev.target.value }); avisarGuardado(); } catch (x) { avisarGuardado(x.message); } } }),
+          h('p', { class: 'ayuda' }, `Vinculado el ${fecha(d.creado)} · último uso ${hace(d.ultimo)}`)),
+        boton('Desvincular', async () => {
+          if (!await confirmar({ titulo: `¿Desvincular "${d.nombre}"?`, texto: 'Ese celular deja de poder usar Jarvis al instante. Para volver a usarlo hay que vincularlo de nuevo con un código.', si: 'Desvincular', peligro: true })) return;
+          try { await pedir('celular:revocar', d.id); } catch (x) { avisarGuardado(x.message); } cargarCelular(false);
+        }, 'chico peligro'))))
+      : h('p', { class: 'ayuda' }, 'Ningún celular vinculado todavía.');
+    return [
+      h('h1', {}, 'Celular'),
+      h('p', { class: 'bajada' }, 'Usá Jarvis desde el celular, también fuera de casa: escribile, corré rutinas, guardá o mandá clips y mandá WhatsApp desde la PC. Es una app web que se instala en el celular (Chrome → "Agregar a la pantalla principal"). La conexión va por Tailscale, una red privada y gratuita entre tus aparatos: nada queda abierto a internet y solo entran los celulares que vincules acá.'),
+      campo('Usar Jarvis desde el celular', casilla(c, 'activo', () => { guardar(); setTimeout(() => cargarCelular(true), 700); }),
+        'Mientras está apagado no hay nada escuchando. Prendido, espera pedidos sin gastar recursos.'),
+      h('h2', {}, '1. Acceso desde el celular (Tailscale)'),
+      pasoTs(),
+      h('h2', {}, '2. Vincular'),
+      c.activo ? h('p', { class: 'ayuda' }, 'Cada celular se vincula una sola vez con un código de 6 cifras. Después queda reconocido hasta que lo desvincules acá.') : null,
+      pasoVincular(),
+      h('h2', {}, 'Celulares vinculados'),
+      lista,
+      h('h2', {}, 'Cuando le escribís desde el celular'),
+      campo('Contestar también en voz alta en la PC', casilla(c, 'hablarEnPC', guardar),
+        'Apagado (recomendado): la respuesta solo aparece en el celular; en la PC queda escrita en el notch y en el Historial ("desde el celular").'),
+      avanzado('Avanzado',
+        campo('Puerto interno', numero(c, 'puerto', guardar, { min: 1024, max: 65535 }), 'Solo se escucha en esta PC (127.0.0.1). Tailscale le pasa los pedidos. Si lo cambiás, volvé a publicar en Tailscale.'),
+        campo('Puerto HTTPS en Tailscale', numero(c, 'https', guardar, { min: 1, max: 65535 }), '443 = la dirección queda sin número al final. Cambialo solo si ya usás ese puerto para otra cosa.'),
+        e && e.local ? h('p', { class: 'ayuda' }, 'Para probar la app en esta misma PC: ', enlace(e.local, e.local)) : null),
+    ];
+  },
+
   streaming() {
     const st = cfg.streaming;
     const clave = h('input', { type: 'password', value: st.tmdb, placeholder: 'Opcional', oninput: (e) => { st.tmdb = e.target.value.trim(); guardar(); } });
@@ -2733,18 +2822,62 @@ const secciones = {
 
   actualizaciones() {
     const a = compo.act || {};
-    const fases = { quieto: 'Sin revisar todavía.', buscando: 'Buscando una versión nueva…', 'al-dia': 'Tenés la última versión.', bajando: `Bajando la versión ${a.nueva || 'nueva'}… ${a.progreso || 0} %`, lista: `La versión ${a.nueva} está lista: se instala cuando cierres Jarvis.`, error: a.error || 'No se pudo revisar.' };
+    const i = compo.info || {};
+    const t = compo.tam;
+    const fechaLinda = (iso) => { const d = new Date(iso); return !iso || Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString('es-AR', { day: 'numeric', month: 'long', year: 'numeric' }); };
+    const copias = { instalada: 'Instalada (se actualiza sola)', portable: 'Portable (un solo .exe)', codigo: 'Desde el código (npm start)' };
+    const fases = { quieto: 'Todavía no revisó.', buscando: 'Buscando una versión nueva…', 'al-dia': 'Tenés la última versión.', bajando: `Bajando la versión ${a.nueva || 'nueva'}… ${a.progreso || 0} %`, lista: `La versión ${a.nueva} está lista para instalar.`, error: a.error || 'No se pudo revisar.' };
+    const revisado = a.revisado ? ` Última revisión: ${new Date(a.revisado).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' })}.` : '';
+    const barraTamano = t && t.total > 0 ? [
+      h('div', { class: 'barra-espacio', role: 'img', 'aria-label': 'Reparto del espacio: programa y datos' },
+        t.programa > 0 ? h('span', { class: 'trozo g-herramientas', style: `flex:${Math.max(t.programa, t.total * 0.02)}`, title: `Programa: ${formatoBytes(t.programa)}` }) : null,
+        h('span', { class: 'trozo g-datos', style: `flex:${Math.max(t.datos, t.total * 0.02)}`, title: `Tus datos: ${formatoBytes(t.datos)}` })),
+      h('div', { class: 'leyenda' },
+        t.programaSinDato ? null : h('span', { class: 'rotulo' }, h('i', { class: 'punto g-herramientas' }), `Programa ${formatoBytes(t.programa)}`),
+        h('span', { class: 'rotulo' }, h('i', { class: 'punto g-datos' }), `Tus datos ${formatoBytes(t.datos)}`)),
+    ] : [];
+    const sinActualizar = a.posible === false;
+    const accion = a.fase === 'lista'
+      ? boton(`Reiniciar y actualizar a ${a.nueva}`, () => pedir('actualizacion:instalar').catch((e) => avisarGuardado(e.message)), 'principal')
+      : a.fase === 'bajando' || a.fase === 'buscando'
+        ? Object.assign(boton(a.fase === 'bajando' ? `Bajando… ${a.progreso || 0} %` : 'Buscando…', () => {}, 'chico'), { disabled: true })
+        : boton('Buscar actualizaciones', async (ev) => { ev.target.disabled = true; compo.act = await pedir('actualizacion:buscar').catch(() => compo.act); pintar(); }, 'principal');
+    const texto = [
+      `Jarvis ${i.version || ''}${i.commit ? ` (${i.commit})` : ''}`,
+      `Release: ${fechaLinda(i.fecha) || 'sin dato'}`,
+      `Copia: ${copias[i.copia] || ''}`,
+      t ? `Tamaño en disco: ${formatoBytes(t.total)} (programa ${t.programaSinDato ? '—' : formatoBytes(t.programa)}, datos ${formatoBytes(t.datos)})` : '',
+      `Electron ${i.electron || ''} · Chromium ${i.chromium || ''} · Node ${i.node || ''}`,
+      `Sistema: ${i.sistema || ''}`,
+    ].filter(Boolean).join('\n');
     return [
-      h('h1', {}, 'Actualizaciones'),
-      h('p', { class: 'bajada' }, 'Jarvis busca versiones nuevas en GitHub cada unas horas, las baja en segundo plano y las instala al cerrarse. Tus datos y ajustes se conservan.'),
-      campo('Versión instalada', h('strong', {}, a.actual || compo.info.version || '…')),
-      a.posible === false
-        ? h('p', { class: 'nota aviso' }, a.motivo || 'Las actualizaciones automáticas son para la versión instalada.')
-        : campo('Estado', [h('span', { class: `nota ${a.fase === 'error' ? 'mal' : a.fase === 'lista' || a.fase === 'al-dia' ? 'bien' : 'aviso'}` }, fases[a.fase] || ''),
-          a.fase === 'lista'
-            ? boton('Reiniciar y actualizar', () => pedir('actualizacion:instalar').catch((e) => avisarGuardado(e.message)), 'principal chico')
-            : boton('Buscar ahora', async () => { compo.act = await pedir('actualizacion:buscar').catch(() => compo.act); pintar(); }, 'chico')]),
-      campo('Todas las versiones', enlace('github.com/jsolaresc/jarvis/releases', 'https://github.com/jsolaresc/jarvis/releases'), 'Qué cambió en cada una, y el instalador para bajar a mano.'),
+      h('h1', {}, 'Información'),
+      h('p', { class: 'bajada' }, 'Qué versión tenés, de cuándo es, cuánto ocupa y cómo actualizarla. Tus datos y ajustes se conservan al actualizar.'),
+      h('div', { class: 'resumen-espacio' },
+        h('div', { class: 'cifra' }, `${i.nombre || 'Jarvis'} ${i.version || '…'}`, h('small', {}, ` · ${copias[i.copia] || ''}`)),
+        h('p', { class: 'nota' }, i.fecha ? `Release del ${fechaLinda(i.fecha)}${i.commit ? ` · compilación ${i.commit}` : ''}` : 'Fecha del release: sin dato')),
+      h('h2', {}, 'Actualizar'),
+      sinActualizar
+        ? [h('p', { class: 'nota aviso' }, a.motivo || 'Las actualizaciones automáticas son para la versión instalada.'),
+          h('div', { class: 'fila' }, boton('Abrir la página de descargas', () => pedir('abrir:enlace', 'https://github.com/jsolaresc/jarvis/releases/latest'), 'principal'))]
+        : [campo('Estado', [h('span', { class: `nota ${a.fase === 'error' ? 'mal' : a.fase === 'lista' || a.fase === 'al-dia' ? 'bien' : 'aviso'}` }, (fases[a.fase] || '') + (a.fase === 'al-dia' || a.fase === 'error' ? revisado : '')), accion],
+          'Jarvis busca solo cada unas horas, baja la versión nueva en segundo plano y la instala cuando lo cerrás. Con este botón la buscás o la instalás ahora.'),
+        a.nueva ? campo('Versión nueva', [h('strong', {}, a.nueva), a.nuevaFecha ? h('span', { class: 'nota' }, `publicada el ${fechaLinda(a.nuevaFecha)}`) : null, enlace('Qué cambió', `https://github.com/jsolaresc/jarvis/releases/tag/v${a.nueva}`)]) : null,
+        a.fase === 'bajando' ? h('div', { class: 'barra-espacio', role: 'progressbar', 'aria-valuenow': String(a.progreso || 0), 'aria-valuemin': '0', 'aria-valuemax': '100' }, h('span', { class: 'trozo', style: `--c:var(--acento);flex:${Math.max(a.progreso || 0, 2)}` }), h('span', { style: `flex:${100 - Math.max(a.progreso || 0, 2)}` })) : null],
+      h('h2', {}, 'Tamaño en disco'),
+      !t ? h('p', { class: 'bajada cargando' }, 'Calculando cuánto ocupa…') : h('div', { class: 'resumen-espacio' },
+        h('div', { class: 'cifra' }, formatoBytes(t.total), h('small', {}, ' entre programa y datos')),
+        ...barraTamano,
+        h('p', { class: 'nota' }, `${t.completo ? '' : 'Cálculo parcial (hay muchísimos archivos). '}${t.libre != null ? `Quedan ${formatoBytes(t.libre)} libres en ese disco. ` : ''}Los clips y las descargas se guardan aparte, en tu carpeta de videos.`),
+        h('div', { class: 'fila' }, boton('Ver detalle y liberar espacio', () => irA('almacenamiento'), 'chico'), boton('Volver a calcular', cargarActualizacion, 'chico'))),
+      h('h2', {}, 'Esta copia'),
+      campo('Programa', [h('code', {}, i.programa || '…')]),
+      campo('Datos', [h('code', {}, i.datos || '…'), boton('Abrir la carpeta', () => pedir('datos:carpeta').catch((e) => avisarGuardado(e.message)), 'chico')], 'Configuración, rutinas, WhatsApp vinculado, voces y modelos.'),
+      campo('Componentes', [h('span', { class: 'nota' }, `Electron ${i.electron || '…'} · Chromium ${i.chromium || '…'} · Node ${i.node || '…'}`)]),
+      campo('Sistema', [h('span', { class: 'nota' }, i.sistema || '…')]),
+      h('div', { class: 'fila' },
+        boton('Copiar esta información', async () => { try { await navigator.clipboard.writeText(texto); avisarGuardado('Copiado. Pegalo donde lo necesites.'); } catch { avisarGuardado('No pude copiar.'); } }, 'chico'),
+        enlace('Todas las versiones', 'https://github.com/jsolaresc/jarvis/releases')),
     ];
   },
 
@@ -2800,7 +2933,7 @@ secciones.escucha = () => secciones._general().escucha;
 
 secciones.historial = function historial() {
   const hora = (ms) => new Date(ms).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
-  const ORIGEN = { voz: 'por voz', texto: 'escrito', click: 'con un click', aviso: 'por su cuenta' };
+  const ORIGEN = { voz: 'por voz', texto: 'escrito', click: 'con un click', aviso: 'por su cuenta', celular: 'desde el celular' };
   return [
     h('h1', {}, 'Historial'),
     h('p', { class: 'bajada' }, 'Qué le pediste a Jarvis y qué hizo, lo último arriba. En "Ver detalle" está con qué lo resolvió —una regla directa, qué modelo, qué servicio, cuánto tardó cada cosa— por si algo falla y hay que entender dónde. Se guarda solo en esta PC (los últimos 300 pedidos).'),
@@ -2987,9 +3120,9 @@ const GRUPOS = [
   { id: 'asistente', titulo: 'Ajustes', nombre: 'Asistente', icono: 'asistente', hojas: [['general', 'Básico'], ['voz', 'Voz'], ['escucha', 'Escucha'], ['inteligencia', 'Inteligencia'], ['contexto', 'Contexto']] },
   { id: 'interfaz', nombre: 'Interfaz', icono: 'interfaz', hojas: [['panel', 'Panel'], ['apariencia', 'Apariencia'], ['modos', 'Modos']] },
   { id: 'cuentas', nombre: 'Cuentas y avisos', icono: 'cuentas', hojas: [['whatsapp', 'WhatsApp'], ['mail', 'Mail'], ['calendario', 'Calendario'], ['notificaciones', 'Notificaciones'], ['conexion', 'Conexión']] },
-  { id: 'equipos', nombre: 'Dispositivos', icono: 'equipos', hojas: [['dispositivos', 'Teles y parlantes'], ['pc', 'PC']] },
+  { id: 'equipos', nombre: 'Dispositivos', icono: 'equipos', hojas: [['dispositivos', 'Teles y parlantes'], ['celular', 'Celular'], ['pc', 'PC']] },
   { id: 'multimedia', nombre: 'Multimedia', icono: 'musica', hojas: [['clips-ajustes', 'Grabación de clips'], ['descargas', 'Descargas'], ['musica', 'Música'], ['streaming', 'Streaming']] },
-  { id: 'sistema', nombre: 'Sistema', icono: 'sistema', hojas: [['componentes', 'Componentes'], ['actualizaciones', 'Actualizaciones'], ['almacenamiento', 'Almacenamiento']] },
+  { id: 'sistema', nombre: 'Sistema', icono: 'sistema', hojas: [['actualizaciones', 'Información'], ['componentes', 'Componentes'], ['almacenamiento', 'Almacenamiento']] },
 ];
 // [A6] Palabras para el buscador (además del nombre de cada pantalla).
 const CLAVES = {
@@ -3011,6 +3144,7 @@ const CLAVES = {
   whatsapp: 'vincular qr contactos grupos agenda firma audio foto',
   mail: 'gmail hotmail outlook correo contraseña de aplicación',
   calendario: 'google agenda eventos ical',
+  celular: 'celular teléfono android app vincular código qr tailscale afuera remoto descargar archivos',
   dispositivos: 'chromecast tele parlante nest home assistant vincular control',
   pc: 'programas salida de audio juegos steam',
   clips: 'grabar pantalla video repetición instantánea últimos clips editar recortar enviar',
@@ -3019,7 +3153,7 @@ const CLAVES = {
   streaming: 'netflix disney hbo tmdb stremio flow fútbol pluto navegador chrome',
   almacenamiento: 'espacio disco liberar borrar',
   componentes: 'instalar bajar modelos voz ffmpeg yt-dlp kokoro daniela componentes importar portable datos',
-  actualizaciones: 'actualizar versión nueva update github',
+  actualizaciones: 'información info versión fecha release tamaño disco actualizar actualización update acerca de github',
   historial: 'registro pedidos errores detalle',
   resumen: 'estado inicio resumen primeros pasos',
 };
@@ -3157,6 +3291,27 @@ function pintar(forzar) {
   pintarPuntosDelMenu();
   document.title = `${nombreDeHoja(seccion)} · ${INFO.nombre}`;
 }
+async function cargarCelular(conTailscale) {
+  if (conTailscale) cel.cargando = !cel.estado;
+  try { cel.estado = await pedir('celular:estado', !!conTailscale || !(cel.estado && cel.estado.tailscale)); } catch {}
+  if (cel.estado && !conTailscale && cel.estado.tailscale === null) cel.estado.tailscale = (cel.prev || {}).tailscale;
+  if (cel.estado && cel.estado.tailscale) cel.prev = cel.estado;
+  cel.cargando = false;
+  if (cel.codigo && !cel.estado.codigo) cel.codigo = null; // se usó (o venció)
+  if (seccion === 'celular' && !escribiendo()) pintar();
+}
+// Cuenta regresiva del código (sin repintar toda la hoja cada segundo).
+function seguirCodigo() {
+  clearInterval(seguirCodigo.reloj);
+  seguirCodigo.reloj = setInterval(() => {
+    const k = cel.codigo;
+    const el = document.getElementById('cel-quedan');
+    if (!k || seccion !== 'celular') { clearInterval(seguirCodigo.reloj); return; }
+    const quedan = Math.round((k.vence - Date.now()) / 1000);
+    if (quedan <= 0) { cel.codigo = null; clearInterval(seguirCodigo.reloj); pintar(); return; }
+    if (el) el.textContent = `Vence en ${Math.floor(quedan / 60)}:${String(quedan % 60).padStart(2, '0')}. Sirve una sola vez.`;
+  }, 1000);
+}
 async function cargarAgendaCargada() {
   try { calAgenda.lista = await pedir('calendario:lista'); } catch { calAgenda.lista = []; }
   if ((seccion === 'calendario' || seccion === 'agenda') && !escribiendo()) pintar();
@@ -3187,6 +3342,7 @@ function irA(hoja) {
   if (seccion === 'voz') { if (vp.sel) cargarVoz(); else cargarVoces(); }
   if (seccion === 'conexion') pedir('conexion:estado').then((x) => { estadoConexion = x; if (cfg && cfg.conexion && x) cfg.conexion.manual = !!x.manual; if (seccion === 'conexion') pintar(); }).catch(() => {});
   if (seccion === 'agenda') cargarAgendaCargada();
+  if (seccion === 'celular') cargarCelular(true);
   if (seccion === 'notas') cargarNotas();
   if (seccion === 'whatsapp') pedir('wa:agenda').then((x) => { agenda = x; if (seccion === 'whatsapp') pintar(); }).catch(() => {});
 }
@@ -3227,6 +3383,7 @@ jarvis.escuchar('notas', () => { if (seccion === 'notas' || notasLista) cargarNo
 jarvis.escuchar('wa', (estado) => { whatsapp = estado; pintarPuntosDelMenu(); if (seccion === 'whatsapp' || (seccion === 'resumen' && !escribiendo())) pintar(); });
 const escribiendo = () => ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement && document.activeElement.tagName);
 jarvis.escuchar('agenda', (a) => { agenda = a; if (seccion === 'whatsapp' && !escribiendo()) pintar(); });
+jarvis.escuchar('celular', () => { if (seccion === 'celular') cargarCelular(false); });
 jarvis.escuchar('conexion', (e) => { estadoConexion = e; if (cfg && cfg.conexion && e) cfg.conexion.manual = !!e.manual; if (seccion === 'conexion' && !escribiendo()) pintar(); });
 jarvis.escuchar('avisos-config', (n) => { if (n) { cfg.notificaciones = n; if (seccion === 'notificaciones' && !escribiendo()) pintar(); } }); // lo cambió el notch ("No avisarme más de…")
 jarvis.escuchar('historial', async () => { if (seccion !== 'historial') return; registros = await pedir('historial:leer').catch(() => registros); pintar(); });

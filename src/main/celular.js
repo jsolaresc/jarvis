@@ -21,6 +21,12 @@ const ARCHIVO = () => path.join(DATOS, 'celular.json');
 const PUERTO = 47820;
 const MAX_CUERPO = 64 * 1024;
 const VIDA_CODIGO = 5 * 60000;
+const MAX_SUBIDA = 2 * 1024 * 1024 * 1024; // lo que acepta WhatsApp como documento
+// Lo que se baja para el celular y lo que el celular sube quedan aparte (en datos/) y se borran solos: al llevárselo,
+// al terminar de mandarlo, o pasadas 24 h.
+const TEMP_DESCARGAS = () => path.join(DATOS, 'celular-temporal');
+const TEMP_SUBIDAS = () => path.join(DATOS, 'celular-subidas');
+const VIDA_TEMPORAL = 24 * 3600000;
 const INTENTOS = 5;
 
 // Lo que hace de verdad cada pedido lo pone main.js (así este módulo se prueba solo, con funciones de mentira).
@@ -31,6 +37,11 @@ const puente = {
   clips: () => [], // [{ archivo, nombre, juego, bytes, fecha }]
   miniatura: async () => '', // archivo -> 'data:image/jpeg;base64,…' ('' si no hay)
   enviarClip: async () => 'Listo.', // (archivo, contacto)
+  archivos: () => [], // [{ archivo, nombre, tipo: 'clip'|'video'|'audio', carpeta, bytes, fecha }] (clips y descargas de la PC)
+  enviarArchivo: async () => 'Listo.', // (archivo, contacto) por WhatsApp desde la PC
+  descargar: async () => ({ id: 0, texto: '' }), // ({ url, modo, calidad, para, carpeta }) con yt-dlp
+  descarga: () => null, // id -> { estado, pct, nombre, archivo, error, … }
+  guardarSubida: async () => 'Listo.', // (ruta, nombre) lo que mandó el celular, a la carpeta de Descargas de la PC
   anotar: () => {}, // (texto, { error }) al Historial
   cambio: () => {}, // avisa a Ajustes que cambió la lista de aparatos o el código
 };
@@ -144,7 +155,7 @@ function enlace(c) {
 }
 
 // ---------- HTTP ----------
-const TIPOS = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.webmanifest': 'application/manifest+json', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml', '.jpg': 'image/jpeg', '.mp4': 'video/mp4', '.webm': 'video/webm', '.mkv': 'video/x-matroska', '.mov': 'video/quicktime' };
+const TIPOS = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.webmanifest': 'application/manifest+json', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml', '.jpg': 'image/jpeg', '.mp4': 'video/mp4', '.webm': 'video/webm', '.mkv': 'video/x-matroska', '.mov': 'video/quicktime', '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.opus': 'audio/ogg', '.ogg': 'audio/ogg', '.wav': 'audio/wav', '.flac': 'audio/flac' };
 const SEGURIDAD = {
   'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', 'X-Frame-Options': 'DENY',
   'Content-Security-Policy': "default-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'",
@@ -199,6 +210,51 @@ function frenar() {
 }
 
 const ACCIONES = new Set(['rutina', 'clip', 'whatsapp', 'foto', 'modo', 'musica']);
+
+// ---------- Archivos temporales del celular ----------
+const misDescargas = new Map(); // id de la descarga -> { dispositivo, para, carpeta }
+const dentroDe = (base, ruta) => { const b = path.resolve(base) + path.sep; return path.resolve(String(ruta || '')).startsWith(b); };
+function borrarCarpetaTemporal(carpeta) {
+  if (!carpeta || !(dentroDe(TEMP_DESCARGAS(), carpeta) || dentroDe(TEMP_SUBIDAS(), carpeta))) return;
+  try { fs.rmSync(carpeta, { recursive: true, force: true }); } catch {}
+}
+function limpiarTemporales(ahora = Date.now()) {
+  for (const base of [TEMP_DESCARGAS(), TEMP_SUBIDAS()]) {
+    let lista = [];
+    try { lista = fs.readdirSync(base); } catch { continue; }
+    for (const n of lista) {
+      const r = path.join(base, n);
+      try { if (ahora - fs.statSync(r).mtimeMs > VIDA_TEMPORAL) fs.rmSync(r, { recursive: true, force: true }); } catch {}
+    }
+  }
+}
+// Nombre de archivo que llega del celular: sin carpetas, sin caracteres que Windows no acepta, con un largo razonable.
+function nombreSubido(n) {
+  const limpio = path.basename(String(n || '').replace(/\\/g, '/')).replace(/[<>:"/\\|?*\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').trim().replace(/^\.+/, '').replace(/[. ]+$/, '').slice(0, 150);
+  return /^(con|prn|aux|nul|com\d|lpt\d)(\.|$)/i.test(limpio) || !limpio ? `archivo-${Date.now()}` : limpio;
+}
+function recibirArchivo(req, carpeta, nombre) {
+  return new Promise((ok, mal) => {
+    const largo = Number(req.headers['content-length']);
+    if (largo > MAX_SUBIDA) { req.resume(); mal(conCodigo(413, 'Pesa más de 2 GB.')); return; }
+    fs.mkdirSync(carpeta, { recursive: true });
+    const ruta = path.join(carpeta, nombre);
+    const f = fs.createWriteStream(ruta);
+    let n = 0; let fallo = null;
+    req.on('data', (c) => { n += c.length; if (n > MAX_SUBIDA && !fallo) { fallo = conCodigo(413, 'Pesa más de 2 GB.'); req.unpipe(f); f.destroy(); req.resume(); } });
+    req.on('aborted', () => { fallo = fallo || conCodigo(400, 'Se cortó la subida.'); f.destroy(); });
+    f.on('error', (e) => { fallo = fallo || e; });
+    f.on('close', () => {
+      if (fallo || !n || (largo && n !== largo)) { borrarCarpetaTemporal(carpeta); mal(fallo || conCodigo(400, n ? 'Se cortó la subida.' : 'No llegó nada.')); return; }
+      ok({ ruta, bytes: n });
+    });
+    req.pipe(f);
+  });
+}
+const LISTA_ARCHIVOS = (yo) => (puente.archivos() || []).slice(0, 120).map((c) => {
+  const k = enlazar(c.archivo, yo.id);
+  return { id: k, nombre: c.nombre, tipo: c.tipo || 'clip', carpeta: c.carpeta || c.juego || '', juego: c.juego || c.carpeta || '', bytes: c.bytes, fecha: c.fecha, ver: `/api/archivo/${k}/${encodeURIComponent(c.nombre)}`, miniatura: c.tipo === 'audio' ? '' : `/api/miniatura/${k}` };
+});
 
 async function atender(req, res) {
   if (!anfitrionValido(req.headers.host)) { res.writeHead(421, SEGURIDAD); res.end(); return; }
@@ -277,19 +333,68 @@ async function atender(req, res) {
       json(res, 200, { texto: String(await puente.accion(b, { id: yo.id, nombre: yo.nombre }) || 'Listo.') });
       return;
     }
-    if (ruta === '/api/clips' && metodo === 'GET') {
-      const lista = (puente.clips() || []).slice(0, 30).map((c) => {
-        const k = enlazar(c.archivo, yo.id);
-        return { id: k, nombre: c.nombre, juego: c.juego, bytes: c.bytes, fecha: c.fecha, ver: `/api/archivo/${k}/${encodeURIComponent(c.nombre)}`, miniatura: `/api/miniatura/${k}` };
-      });
-      json(res, 200, { clips: lista });
-      return;
-    }
-    if (ruta === '/api/clips/enviar' && metodo === 'POST') {
+    if (ruta === '/api/clips' && metodo === 'GET') { json(res, 200, { clips: LISTA_ARCHIVOS(yo).filter((a) => a.tipo === 'clip').slice(0, 30) }); return; }
+    if (ruta === '/api/archivos' && metodo === 'GET') { json(res, 200, { archivos: LISTA_ARCHIVOS(yo) }); return; }
+    if ((ruta === '/api/clips/enviar' || ruta === '/api/archivos/enviar') && metodo === 'POST') {
       const b = await leerCuerpo(req);
       const e = enlace(b.id);
-      if (!e || e.id !== yo.id) throw conCodigo(404, 'Ese clip ya no está en la lista: actualizala.');
-      json(res, 200, { texto: String(await puente.enviarClip(e.archivo, String(b.contacto || '').trim()) || 'Listo.') });
+      if (!e || e.id !== yo.id) throw conCodigo(404, 'Ese archivo ya no está en la lista: actualizala.');
+      const contacto = String(b.contacto || '').trim().slice(0, 80);
+      if (!contacto) throw conCodigo(400, 'Elegí a quién mandárselo.');
+      json(res, 200, { texto: String(await puente.enviarArchivo(e.archivo, contacto) || 'Listo.') });
+      return;
+    }
+    // Descargar con yt-dlp en la PC: para dejarlo en la PC o para que el celular se lo lleve.
+    if (ruta === '/api/descargas' && metodo === 'POST') {
+      const b = await leerCuerpo(req);
+      const url = String(b.url || '').trim().slice(0, 2000);
+      if (!url) throw conCodigo(400, 'Pegá el link del video.');
+      const para = b.para === 'celular' ? 'celular' : 'pc';
+      const carpeta = para === 'celular' ? path.join(TEMP_DESCARGAS(), `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`) : '';
+      const r = await puente.descargar({ url, modo: b.modo === 'audio' ? 'audio' : 'video', calidad: String(b.calidad || ''), para, carpeta }, { id: yo.id, nombre: yo.nombre });
+      misDescargas.set(r.id, { dispositivo: yo.id, para, carpeta });
+      json(res, 200, r);
+      return;
+    }
+    if (ruta === '/api/descargas' && metodo === 'GET') {
+      const lista = [];
+      for (const [id, m] of misDescargas) {
+        if (m.dispositivo !== yo.id) continue;
+        const d = puente.descarga(id);
+        if (!d) continue;
+        const listo = d.estado === 'listo' && d.archivo && fs.existsSync(d.archivo);
+        const x = { id, estado: d.estado, pct: d.pct || 0, nombre: d.nombre || '', modo: d.modo, para: m.para, error: d.error || '' };
+        if (listo) {
+          x.bytes = fs.statSync(d.archivo).size;
+          x.archivo = path.basename(d.archivo);
+          if (m.para === 'celular') x.bajar = `/api/archivo/${enlazar(d.archivo, yo.id)}/${encodeURIComponent(x.archivo)}`;
+        }
+        lista.push(x);
+      }
+      json(res, 200, { descargas: lista.sort((a, b) => b.id - a.id) });
+      return;
+    }
+    if (ruta === '/api/descargas/recibido' && metodo === 'POST') {
+      const b = await leerCuerpo(req);
+      const m = misDescargas.get(Number(b.id));
+      if (!m || m.dispositivo !== yo.id) throw conCodigo(404, 'Esa descarga no es de este celular.');
+      if (m.para === 'celular') borrarCarpetaTemporal(m.carpeta);
+      misDescargas.delete(Number(b.id));
+      json(res, 200, { ok: true });
+      return;
+    }
+    // El celular sube un archivo suyo: para guardarlo en la PC o para que la PC lo mande por WhatsApp.
+    if (ruta === '/api/subir' && metodo === 'POST') {
+      const destino = url.searchParams.get('destino') === 'pc' ? 'pc' : 'enviar';
+      const contacto = String(url.searchParams.get('contacto') || '').trim().slice(0, 80);
+      if (destino === 'enviar' && !contacto) { req.resume(); throw conCodigo(400, 'Elegí a quién mandárselo.'); }
+      const nombre = nombreSubido(url.searchParams.get('nombre'));
+      const carpeta = path.join(TEMP_SUBIDAS(), `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`);
+      const { ruta: subido } = await recibirArchivo(req, carpeta, nombre);
+      try {
+        const texto = destino === 'pc' ? await puente.guardarSubida(subido, nombre) : await puente.enviarArchivo(subido, contacto);
+        json(res, 200, { texto: String(texto || 'Listo.') });
+      } finally { borrarCarpetaTemporal(carpeta); }
       return;
     }
     if (ruta === '/api/desvincular' && metodo === 'POST') { revocar(yo.id); json(res, 200, { ok: true }); return; }
@@ -317,6 +422,7 @@ async function iniciar(puerto = PUERTO) {
   await new Promise((ok, mal) => { s.once('error', mal); s.listen(puerto, '127.0.0.1', () => { s.removeListener('error', mal); ok(); }); });
   servidor = s;
   puertoReal = s.address().port;
+  limpiarTemporales();
   return puertoReal;
 }
 async function detener() {
@@ -398,5 +504,5 @@ module.exports = {
   configurar, iniciar, detener, puerto, publicar,
   nuevoCodigo, cancelarCodigo, codigoVigente, vincular, revocar, renombrar, dispositivos: publicos,
   estadoTailscale, publicarEnTailscale, despublicarDeTailscale, comandoServe,
-  _anfitrionValido: anfitrionValido, _hashDe: hashDe, PUERTO,
+  limpiarTemporales, TEMP_DESCARGAS, TEMP_SUBIDAS, _nombreSubido: nombreSubido, _anfitrionValido: anfitrionValido, _hashDe: hashDe, PUERTO,
 };

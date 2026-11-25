@@ -41,7 +41,8 @@ lado del exe), pero esa no se actualiza sola.
 
 La versión instalada busca versiones nuevas en las Releases de este repositorio, las baja en segundo
 plano y las instala cuando cerrás el asistente (o al tocar **Reiniciar y actualizar** en
-Ajustes → Sistema → Actualizaciones). Tu configuración no se toca.
+Ajustes → Sistema → Información, donde también ves la versión, la fecha del release y cuánto
+ocupa en el disco). Tu configuración no se toca.
 
 ## Tus datos
 
