@@ -34,6 +34,14 @@ const t = setInterval(() => {
 }, 150);
 `);
 fs.chmodSync(YTDLP, 0o755);
+// jarvis-red de mentira (Tailscale integrado): pide iniciar sesión y al segundo queda conectado.
+const RED = path.join(DATOS, 'jarvis-red-falso.js');
+fs.writeFileSync(RED, `#!/usr/bin/env node
+console.log(JSON.stringify({ estado: 'NeedsLogin', url: 'https://login.tailscale.com/a/prueba' }));
+setTimeout(() => console.log(JSON.stringify({ estado: 'Running', ip: '100.101.102.103', nombre: 'jarvis-pc.tail1234.ts.net' })), 1000);
+process.stdin.on('end', () => process.exit(0)); process.stdin.resume();
+`);
+fs.chmodSync(RED, 0o755);
 fs.writeFileSync(path.join(DATOS, 'config.json'), JSON.stringify({
   nombre: 'Jarvis', usuario: 'Sofía', celular: { activo: true, puerto: PUERTO, https: 443, hablarEnPC: false },
   clips: { carpeta: CLIPS },
@@ -57,7 +65,7 @@ async function hasta(fn, ms = 20000, que = '') {
 (async () => {
   const raiz = path.join(__dirname, '..');
   const electron = spawn('xvfb-run', ['-a', path.join(raiz, 'node_modules', '.bin', 'electron'), '.', '--no-sandbox', '--remote-debugging-port=9333'], {
-    cwd: raiz, env: { ...process.env, JARVIS_DATOS: DATOS, JARVIS_TAILSCALE: ts, JARVIS_YTDLP: YTDLP, JARVIS_FFMPEG: '/usr/local/bin/ffmpeg' }, stdio: ['ignore', 'pipe', 'pipe'],
+    cwd: raiz, env: { ...process.env, JARVIS_DATOS: DATOS, JARVIS_TAILSCALE: ts, JARVIS_YTDLP: YTDLP, JARVIS_RED: RED, JARVIS_FFMPEG: '/usr/local/bin/ffmpeg' }, stdio: ['ignore', 'pipe', 'pipe'],
   });
   let log = '';
   electron.stdout.on('data', (d) => { log += d; });
@@ -244,8 +252,17 @@ async function hasta(fn, ms = 20000, que = '') {
       userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 8 Build/AP2A; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/131.0 Mobile Safari/537.36' });
     await ctxA.route('http://localhost/**', (r) => { const f = path.join(WWW, decodeURIComponent(new URL(r.request().url()).pathname).replace(/^\/$/, '/index.html')); return fs.existsSync(f) ? r.fulfill({ path: f }) : r.fulfill({ status: 404, body: '' }); });
     await ctxA.route('http://localhost/pc/api/**', async (r) => { const u = new URL(r.request().url()); return r.fulfill(await reenviar(r.request(), new URL(`http://${IP_PC}:47821${u.pathname.slice(3)}${u.search}`))); }); // lo que hace JarvisWebViewClient (va después: la última ruta manda)
-    await ctxA.route(/^http:\/\/192\.168\.77\.\d+:47821\//, async (r) => { const u = new URL(r.request().url()); if (u.hostname !== IP_PC) return r.abort('connectionrefused'); return r.fulfill(await reenviar(r.request(), u)); });
+    let enCasa = true;
+    await ctxA.route(/^http:\/\/192\.168\.77\.\d+:47821\//, async (r) => { const u = new URL(r.request().url()); if (u.hostname !== IP_PC || !enCasa) return r.abort('connectionrefused'); return r.fulfill(await reenviar(r.request(), u)); });
     await ctxA.route('https://api.github.com/**', (r) => r.fulfill({ json: { tag_name: 'v9.9.9', assets: [{ name: 'Jarvis-9.9.9.apk', browser_download_url: 'https://github.com/jsolaresc/jarvis/releases/download/v9.9.9/Jarvis-9.9.9.apk' }] } }));
+    // CapacitorHttp (los pedidos que hace Android, no el WebView): los hace Node.
+    await ctxA.exposeBinding('httpNativo', async (_x, o) => new Promise((ok) => {
+      const u = new URL(o.url); const datos = o.data ? JSON.stringify(o.data) : '';
+      const q = require('http').request({ hostname: u.hostname, port: u.port, path: u.pathname + u.search, method: o.method || 'GET', headers: { ...(o.headers || {}), ...(datos ? { 'Content-Length': Buffer.byteLength(datos) } : {}) } }, (r) => {
+        let t = ''; r.on('data', (c) => { t += c; }); r.on('end', () => { let data = t; try { data = JSON.parse(t); } catch {} ok({ status: r.statusCode, headers: r.headers, data }); });
+      });
+      q.on('error', () => ok({ status: 0, headers: {}, data: {} })); q.end(datos || undefined);
+    }));
     await ctxA.addInitScript(() => {
       const oyentes = {};
       window.androidFalso = { archivos: [], abiertos: {}, abierto: '', avisos: null, pc: null, salio: 0 };
@@ -266,8 +283,14 @@ async function hasta(fn, ms = 20000, que = '') {
         salir: async () => { A.salio++; },
       };
       window.atrasFalso = () => oyentes.atras && oyentes.atras();
+      Object.assign(plugin, {
+        afueraIniciar: async () => { A.tsIniciado = true; },
+        afueraEstado: async () => ({ estado: 'Running', ip: '100.64.0.9' }),
+        afueraProxy: async ({ destino }) => { A.tsDestino = destino; return { puerto: window.PUERTO_PROXY_TS }; },
+        afueraSalir: async () => {},
+      });
       window.compartirDesdeOtraApp = (t) => oyentes.compartido && oyentes.compartido({ texto: t });
-      window.Capacitor = { isNativePlatform: () => true, registerPlugin: () => plugin };
+      window.Capacitor = { isNativePlatform: () => true, registerPlugin: () => plugin, Plugins: { CapacitorHttp: { request: async (o) => { const r = await window.httpNativo(o); if (!r.status) throw new Error('sin conexión'); return r; } } } };
     });
     const pA = await ctxA.newPage();
     pA.on('console', (m) => { if (m.type() === 'error' && !/ERR_CONNECTION_REFUSED|ERR_FAILED/.test(m.text())) errores.push(`android: ${m.text()}`); });
@@ -339,6 +362,40 @@ async function hasta(fn, ms = 20000, que = '') {
     await hasta(async () => (await pA.textContent('#estado-pc')).startsWith('Modo'), 30000, 'android: reencuentra la PC');
     assert.strictEqual(JSON.parse(await pA.evaluate(() => localStorage.getItem('jarvis.pc'))).base, `http://${IP_PC}:47821`, 'guarda la IP nueva');
     await pA.screenshot({ path: path.join(SALIDA, '15-android-charla.png') });
+    // ----- Desde afuera (Tailscale integrado) -----
+    // En la PC se prende "Usar Jarvis desde afuera": jarvis-red (de mentira) pide sesión y queda conectado.
+    const cfgAntes = (await notch.evaluate(() => window.jarvis.pedir('cfg:leer'))).dato;
+    await ajustes.getByLabel('Usar Jarvis desde afuera (app de Android)').check({ force: true });
+    await hasta(() => ajustes.locator('text=Listo para usar desde afuera').count(), 15000, 'Tailscale integrado conectado en Ajustes');
+    await ajustes.screenshot({ path: path.join(SALIDA, '16-ajustes-desde-afuera.png') });
+    // El celular aprende la IP de la PC en Tailscale mientras está en casa.
+    await pA.evaluate(() => { localStorage.setItem('jarvis.revisado', String(Date.now())); });
+    await hasta(async () => { await pA.click('#abajo button[data-hoja="inicio"]'); return (JSON.parse(await pA.evaluate(() => localStorage.getItem('jarvis.pc'))) || {}).tsip === '100.101.102.103'; }, 20000, 'android: IP de Tailscale de la PC');
+    // Un "proxy de tsnet" de mentira: lo que llega a 127.0.0.1 va al servidor del celular de Jarvis, como si viniera por Tailscale.
+    const proxyTs = require('http').createServer((q, r) => {
+      const partes = []; q.on('data', (c) => partes.push(c)); q.on('end', () => {
+        const x = require('http').request({ hostname: '127.0.0.1', port: PUERTO, path: q.url, method: q.method, headers: { ...q.headers, host: `100.101.102.103:${PUERTO}` } }, (y) => { r.writeHead(y.statusCode, y.headers); y.pipe(r); });
+        x.on('error', () => { r.writeHead(502); r.end(); }); x.end(Buffer.concat(partes));
+      });
+    });
+    await new Promise((ok) => proxyTs.listen(0, '127.0.0.1', ok));
+    await pA.evaluate((p) => { window.PUERTO_PROXY_TS = p; }, proxyTs.address().port);
+    await pA.click('#boton-menu');
+    await pA.click('#m-afuera');
+    await hasta(() => pA.locator('#aviso:has-text("ya podés usar Jarvis desde afuera")').count(), 8000, 'android: Tailscale listo');
+    // Me voy de casa: la Wi-Fi de casa no contesta más. La app sigue por Tailscale.
+    enCasa = false;
+    await pA.click('#abajo button[data-hoja="charla"]');
+    await pA.fill('#texto', 'modo juego');
+    await pA.click('#enviar');
+    await hasta(async () => /^Modo juego/.test(await pA.locator('#mensajes li.jarvis:not(.pensando)').last().textContent()), 30000, 'android: respuesta desde afuera');
+    assert.strictEqual(await pA.evaluate(() => window.androidFalso.tsDestino), `100.101.102.103:${PUERTO}`);
+    await hasta(async () => /desde afuera/.test(await pA.textContent('#estado-pc')), 15000, 'android: dice "desde afuera"');
+    await pA.screenshot({ path: path.join(SALIDA, '17-android-desde-afuera.png') });
+    enCasa = true;
+    proxyTs.close();
+    await notch.evaluate((c) => window.jarvis.pedir('cfg:guardar', c), { ...cfgAntes, celular: { ...cfgAntes.celular, afuera: false }, modo: 'normal' });
+
     // Se lo desvincula desde la PC (así queda un solo celular para lo que sigue).
     const estCel = await notch.evaluate(() => window.jarvis.pedir('celular:estado', false));
     const idA = estCel.dato.dispositivos.find((d) => d.nombre === 'App de prueba').id;

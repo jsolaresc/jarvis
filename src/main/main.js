@@ -38,6 +38,7 @@ const acciones = require('./acciones');
 const cerebro = require('./cerebro');
 const arranque = require('./arranque');
 const celular = require('./celular');
+const red = require('./red');
 const descargas = require('./descargas');
 
 const ANCHO = 380; // tamaño de la ventana del notch (la pastilla y el panel viven adentro)
@@ -1156,6 +1157,8 @@ function estadoParaCelular() {
     whatsapp: whatsapp.leerEstado().fase,
     musica: { sonando: !!mu.sonando, cancion: mu.cancion || '', artista: mu.artista || '', destino: mu.destino ? (mu.destino.nombre || String(mu.destino)) : '' },
     conexion: { sin: !!conexion.estado().sin },
+    // Para que la app de Android sepa cómo llegar a esta PC desde afuera (por la red de Tailscale).
+    afuera: red.ip() ? { ip: red.ip(), puerto: Number(c.celular.puerto) || celular.PUERTO } : null,
   };
 }
 // Inicio del celular: lo que muestran los widgets que necesitan datos de la PC.
@@ -1177,6 +1180,10 @@ function avisosParaCelular() {
   if ((av.calendario || {}).celular !== false) salida.push(...calendario.proximosAvisos(ahora, hasta));
   return salida.sort((a, b) => a.cuando - b.cuando).slice(0, 60);
 }
+red.configurar({
+  alCambiar: () => { if (ajustes && !ajustes.isDestroyed()) ajustes.webContents.send('celular'); },
+  anotar: (t) => historial.anotar(t),
+});
 celular.configurar({
   inicio: inicioParaCelular,
   avisos: avisosParaCelular,
@@ -1238,6 +1245,8 @@ function sincronizarCelular() {
     if (casa && celular.puertoCasa() && celular.puertoCasa() !== pc) await celular.detenerCasa();
     if (casa && !celular.puertoCasa()) { try { await celular.iniciarCasa(pc); } catch (e) { anotarError('celular', e); historial.anotar(`Celular: no pude abrir el modo casa en el puerto ${pc}: ${e.message}`, { error: true }); } }
     if (!casa && celular.puertoCasa()) await celular.detenerCasa();
+    // Desde afuera: Tailscale integrado (jarvis-red), apuntando al servidor del celular.
+    if (c.activo && c.afuera && celular.puerto()) red.iniciar(celular.puerto()); else red.detener();
   }).catch(() => {});
   return celularPrendiendo;
 }
@@ -1245,7 +1254,7 @@ async function estadoCelularParaAjustes(conTailscale = true) {
   await celularPrendiendo;
   const c = leerConfig().celular || {};
   const ts = conTailscale ? await celular.estadoTailscale(Number(c.https) || 443) : null;
-  return { activo: !!c.activo, casa: { activo: !!celular.puertoCasa(), puerto: celular.puertoCasa(), ips: celular.ipsCasa() }, puerto: celular.puerto(), local: celular.puerto() ? `http://127.0.0.1:${celular.puerto()}` : '', dispositivos: celular.dispositivos(), codigo: celular.codigoVigente(), tailscale: ts, comando: celular.comandoServe(Number(c.https) || 443) };
+  return { activo: !!c.activo, red: red.estado(), casa: { activo: !!celular.puertoCasa(), puerto: celular.puertoCasa(), ips: celular.ipsCasa() }, puerto: celular.puerto(), local: celular.puerto() ? `http://127.0.0.1:${celular.puerto()}` : '', dispositivos: celular.dispositivos(), codigo: celular.codigoVigente(), tailscale: ts, comando: celular.comandoServe(Number(c.https) || 443) };
 }
 manejar('celular:estado', (conTailscale) => estadoCelularParaAjustes(conTailscale !== false));
 manejar('celular:codigo', async () => {
@@ -1259,13 +1268,14 @@ manejar('celular:codigo', async () => {
   const qr = url ? await require('qrcode').toDataURL(url, { margin: 1, width: 280, color: { dark: '#000000', light: '#ffffff' } }) : '';
   return { ...cod, url, qr, base, tailscale: ts };
 });
+manejar('celular:redSalir', async () => { await red.salir(); const c = leerConfig(); guardarConfig({ ...c, celular: { ...c.celular, afuera: false } }); await sincronizarCelular(); return red.estado(); });
 manejar('celular:cancelarCodigo', () => { celular.cancelarCodigo(); });
 manejar('celular:revocar', (id) => { cerebro.olvidarRemota(`cel:${id}`); return celular.revocar(String(id)); });
 manejar('celular:renombrar', ({ id, nombre }) => celular.renombrar(String(id), nombre));
 manejar('celular:publicar', async () => { await sincronizarCelular(); if (!celular.puerto()) throw new Error('Primero prendé "Usar Jarvis desde el celular".'); return celular.publicarEnTailscale(Number((leerConfig().celular || {}).https) || 443); });
 manejar('celular:despublicar', () => celular.despublicarDeTailscale(Number((leerConfig().celular || {}).https) || 443));
 
-app.on('will-quit', () => { celular.detener().catch(() => {}); globalShortcut.unregisterAll(); oido.apagar(); clips.apagar(); clips.matarFfmpeg(); });
+app.on('will-quit', () => { red.detener(); celular.detener().catch(() => {}); globalShortcut.unregisterAll(); oido.apagar(); clips.apagar(); clips.matarFfmpeg(); });
 
 app.whenReady().then(async () => {
   arranque.iniciar(DATOS);

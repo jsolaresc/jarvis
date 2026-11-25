@@ -2664,6 +2664,23 @@ const secciones = {
             h('p', {}, 'La app se baja de ', enlace('la página de descargas de Jarvis', 'https://github.com/jsolaresc/jarvis/releases/latest'), ' (el archivo que termina en .apk). Android va a pedir permiso para instalar apps de otros orígenes.'))) : null,
       ];
     };
+    // Desde afuera con Tailscale integrado (jarvis-red): sin instalar la app de Tailscale.
+    const pasoAfuera = () => {
+      if (!c.activo) return null;
+      const r = (e && e.red) || {};
+      const partes = [campo('Usar Jarvis desde afuera (app de Android)', casilla(c, 'afuera', () => { guardar(); setTimeout(() => cargarCelular(false), 900); }, false),
+        'Con Tailscale integrado: una red privada y gratuita entre esta PC y tu celular, cifrada de punta a punta, sin abrir nada a internet ni instalar otra app. La primera vez hay que iniciar sesión en Tailscale (con Google, por ejemplo) en la PC y en el celular, con la misma cuenta.')];
+      if (!c.afuera) return partes;
+      let cuerpo;
+      if (r.disponible === false || r.estado === 'no-disponible') cuerpo = h('p', {}, 'Esta copia de Jarvis no trae Tailscale integrado (viene con el instalador de GitHub). Podés usar la app de Tailscale (más abajo).');
+      else if (r.estado === 'NeedsLogin' && r.url) cuerpo = [h('p', {}, 'Falta iniciar sesión en Tailscale (una sola vez). Usá la misma cuenta que vas a usar en el celular.'), h('div', { class: 'fila' }, boton('Iniciar sesión en Tailscale', () => pedir('abrir:enlace', r.url), 'principal'))];
+      else if (r.estado === 'Running') cuerpo = [h('b', {}, 'Listo para usar desde afuera'), h('p', {}, `Esta PC en tu red de Tailscale: ${r.nombre || r.ip}. En el celular: menú de la app → "Usar desde afuera" (con la misma cuenta).`)];
+      else if (r.estado === 'error') cuerpo = h('p', {}, `No pude conectar: ${r.texto || 'error sin detalle'}.`);
+      else cuerpo = h('p', {}, 'Conectando con Tailscale…');
+      partes.push(h('div', { class: `cel-ts ${r.estado === 'Running' ? 'ok' : ''}` }, h('span', { html: icono(r.estado === 'Running' ? 'tilde' : 'wifi', 20) }), h('div', {}, cuerpo),
+        r.estado === 'Running' ? boton('Cerrar sesión', async (ev) => { ev.target.disabled = true; await pedir('celular:redSalir').catch(() => {}); c.afuera = false; cargarCelular(false); }, 'chico') : null));
+      return partes;
+    };
     const pasoTs = () => {
       if (!c.activo) return null;
       if (!e || cel.cargando) return h('p', { class: 'ayuda' }, 'Revisando Tailscale…');
@@ -2721,8 +2738,9 @@ const secciones = {
         'Mientras está apagado no hay nada escuchando. Prendido, espera pedidos sin gastar recursos.'),
       h('h2', {}, '1. En casa'),
       pasoCasa(),
-      c.activo ? h('h2', {}, '2. Desde afuera (Tailscale, opcional)') : null,
-      pasoTs(),
+      c.activo ? h('h2', {}, '2. Desde afuera') : null,
+      pasoAfuera(),
+      c.activo ? avanzado('Con la app de Tailscale (para el navegador del celular)', pasoTs()) : null,
       h('h2', {}, '3. Vincular'),
       c.activo ? h('p', { class: 'ayuda' }, 'Cada celular se vincula una sola vez con un código de 6 cifras. Después queda reconocido hasta que lo desvincules acá.') : null,
       pasoVincular(),
@@ -3410,7 +3428,8 @@ jarvis.escuchar('actualizacion', (e) => { compo.act = e; if (seccion === 'actual
 jarvis.escuchar('descargas', (e) => { if (descargasEstado) descargasEstado = { ...descargasEstado, ...e }; if (seccion === 'descargas' && !escribiendo()) pintar(); });
 jarvis.escuchar('notas', () => { if (seccion === 'notas' || notasLista) cargarNotas(); });
 jarvis.escuchar('wa', (estado) => { whatsapp = estado; pintarPuntosDelMenu(); if (seccion === 'whatsapp' || (seccion === 'resumen' && !escribiendo())) pintar(); });
-const escribiendo = () => ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement && document.activeElement.tagName);
+// ¿Está escribiendo algo? (un interruptor o un deslizador con el foco no cuenta: si no, la hoja no se actualiza al tocarlos)
+const escribiendo = () => { const el = document.activeElement; return !!el && ['INPUT', 'SELECT', 'TEXTAREA'].includes(el.tagName) && !(el.tagName === 'INPUT' && ['checkbox', 'radio', 'range', 'button'].includes(el.type)); };
 jarvis.escuchar('agenda', (a) => { agenda = a; if (seccion === 'whatsapp' && !escribiendo()) pintar(); });
 jarvis.escuchar('celular', () => { if (seccion === 'celular') cargarCelular(false); });
 jarvis.escuchar('conexion', (e) => { estadoConexion = e; if (cfg && cfg.conexion && e) cfg.conexion.manual = !!e.manual; if (seccion === 'conexion' && !escribiendo()) pintar(); });

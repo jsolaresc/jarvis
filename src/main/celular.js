@@ -301,8 +301,11 @@ const LISTA_ARCHIVOS = (yo) => (puente.archivos() || []).slice(0, 120).map((c) =
 async function atender(req, res, { casa = false } = {}) {
   if (casa) {
     if (!anfitrionCasa(req.headers.host) || !deCasa(req.socket.remoteAddress)) { res.writeHead(421, SEGURIDAD); res.end(); return; }
-    const extra = cors(req);
-    // Todas las respuestas de este servidor llevan los permisos para la app.
+  } else if (!anfitrionValido(req.headers.host)) { res.writeHead(421, SEGURIDAD); res.end(); return; }
+  // La app de Android (https://localhost) llega por el modo casa o, desde afuera, por Tailscale integrado:
+  // todas las respuestas llevan los permisos para ella (solo para ese origen; todo lo que hace algo sigue pidiendo token).
+  const extra = cors(req);
+  if (extra['Access-Control-Allow-Origin']) {
     const original = res.writeHead.bind(res);
     res.writeHead = (status, a, b) => {
       const cab = typeof a === 'object' && a ? a : (b || {});
@@ -310,7 +313,7 @@ async function atender(req, res, { casa = false } = {}) {
       return typeof a === 'string' ? original(status, a, unidas) : original(status, unidas);
     };
     if (req.method === 'OPTIONS') { res.writeHead(204, SEGURIDAD); res.end(); return; }
-  } else if (!anfitrionValido(req.headers.host)) { res.writeHead(421, SEGURIDAD); res.end(); return; }
+  }
   let url;
   try { url = new URL(req.url, 'http://x'); } catch { res.writeHead(400, SEGURIDAD); res.end(); return; }
   const ruta = url.pathname;

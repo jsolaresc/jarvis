@@ -31,6 +31,19 @@ jobs:
       - name: Instalar dependencias
         run: npm ci
 
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: red/go.mod
+          cache: false
+
+      - name: Tailscale integrado (jarvis-red.exe, desde red/pc)
+        shell: bash
+        working-directory: red
+        run: |
+          go mod tidy
+          go build -trimpath -ldflags "-s -w" -o ../build/red/jarvis-red.exe ./pc
+          ls -la ../build/red
+
       - name: Anotar la fecha de esta versión
         shell: bash
         run: |

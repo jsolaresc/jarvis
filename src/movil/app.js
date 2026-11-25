@@ -61,7 +61,7 @@ const CAP = window.Capacitor;
 const NATIVO = !!(CAP && CAP.isNativePlatform && CAP.isNativePlatform());
 const nativo = NATIVO ? (CAP.registerPlugin ? CAP.registerPlugin('JarvisNativo') : CAP.Plugins.JarvisNativo) : null;
 const PUERTO_CASA = 47821;
-const SIN_PC = NATIVO ? 'Tu PC no responde. Revisá que esté prendida, con Jarvis abierto, y que el celular esté en la misma Wi-Fi.'
+const SIN_PC = NATIVO ? 'Tu PC no responde. Revisá que esté prendida, con Jarvis abierto, y que el celular esté en la misma Wi-Fi (o, fuera de casa, con "Usar desde afuera" prendido).'
   : 'Tu PC no responde. Puede estar apagada, o Tailscale apagado en la PC o en este celular.';
 
 // ---------- Guardado local ----------
@@ -75,18 +75,33 @@ const guardado = {
 // ---------- Pedidos a la PC ----------
 // En la app de Android, la PC elegida: { base: 'http://192.168.0.10:47821', id, nombre }. En el navegador, la misma página.
 const pcElegida = () => (NATIVO ? guardado.leer('pc', null) : null);
-const u = (ruta) => { const pc = pcElegida(); return pc && typeof ruta === 'string' && ruta.startsWith('/api/') ? pc.base + ruta : ruta; };
+// Desde afuera (Tailscale integrado): la app le habla a un proxy local (127.0.0.1) que llega a la PC por la red de Tailscale.
+let modoAfuera = false; let baseAfuera = '';
+const baseActual = () => { const pc = pcElegida(); return !pc ? '' : modoAfuera && baseAfuera ? baseAfuera : pc.base; };
+const u = (ruta) => { const b = baseActual(); return b && typeof ruta === 'string' && ruta.startsWith('/api/') ? b + ruta : ruta; };
 // Videos, audios y miniaturas: en la app de Android pasan por la propia app (https://localhost/pc/…), que se los pide a la PC.
 // Así el WebView los trata como propios (sin bloqueos por venir de otra dirección) y se pueden adelantar.
 const medio = (ruta) => (NATIVO && pcElegida() && typeof ruta === 'string' && ruta.startsWith('/api/') ? `/pc${ruta}` : u(ruta));
 class SinPC extends Error {}
 class NoVinculado extends Error {}
+// Desde afuera, los pedidos a la PC los hace Android (CapacitorHttp), no el WebView: el WebView no deja que una página
+// le hable a 127.0.0.1 (donde está el proxy de Tailscale). Devuelve algo con la forma de una respuesta de fetch.
+async function pedirNativo(url, { metodo = 'GET', cuerpo, espera = 20000 } = {}) {
+  const http = CAP.Plugins.CapacitorHttp;
+  const r = await http.request({ url, method: metodo, connectTimeout: Math.min(espera, 15000), readTimeout: espera, responseType: 'json',
+    headers: { ...(guardado.token ? { Authorization: `Bearer ${guardado.token}` } : {}), ...(cuerpo ? { 'Content-Type': 'application/json' } : {}) },
+    ...(cuerpo ? { data: cuerpo } : {}) });
+  let dato = r.data;
+  if (typeof dato === 'string') { try { dato = JSON.parse(dato); } catch { dato = {}; } }
+  return { status: r.status, ok: r.status >= 200 && r.status < 300, json: async () => dato || {} };
+}
 async function api(ruta, { metodo = 'GET', cuerpo, espera = 20000, base, reintento = false } = {}) {
   const ctrl = new AbortController();
   const reloj = setTimeout(() => ctrl.abort(), espera);
   let r;
   try {
-    r = await fetch(base ? base + ruta : u(ruta), {
+    if (NATIVO && !base && modoAfuera) r = await pedirNativo(u(ruta), { metodo, cuerpo, espera });
+    else r = await fetch(base ? base + ruta : u(ruta), {
       method: metodo, signal: ctrl.signal, cache: 'no-store',
       headers: { ...(guardado.token && !base ? { Authorization: `Bearer ${guardado.token}` } : {}), ...(cuerpo ? { 'Content-Type': 'application/json' } : {}) },
       body: cuerpo ? JSON.stringify(cuerpo) : undefined,
@@ -94,7 +109,7 @@ async function api(ruta, { metodo = 'GET', cuerpo, espera = 20000, base, reinten
   } catch {
     clearTimeout(reloj);
     // En la app de Android: quizás el router le cambió la IP a la PC. Se la busca y se prueba de nuevo.
-    if (NATIVO && !base && !reintento && pcElegida() && await reencontrar()) return api(ruta, { metodo, cuerpo, espera, reintento: true });
+    if (NATIVO && !base && !reintento && pcElegida() && await elegirCamino()) return api(ruta, { metodo, cuerpo, espera, reintento: true });
     throw new SinPC('Tu PC no responde.');
   } finally { clearTimeout(reloj); }
   let dato = {};
@@ -127,6 +142,33 @@ async function buscarPCs({ alEncontrar = () => {}, primero } = {}) {
   const cola = [...candidatas];
   await Promise.all(Array.from({ length: 48 }, async () => { while (cola.length) await probar(cola.shift()); }));
   return halladas;
+}
+// ¿La PC contesta en esta dirección?
+async function responde(base, ms = 1500) {
+  if (/^http:\/\/127\.0\.0\.1:/.test(base)) { try { const d = await (await pedirNativo(`${base}/api/hola`, { espera: ms })).json(); return !!(d && d.jarvis); } catch { return false; } }
+  const ctrl = new AbortController(); const reloj = setTimeout(() => ctrl.abort(), ms);
+  try { const r = await fetch(`${base}/api/hola`, { signal: ctrl.signal, cache: 'no-store' }); const d = await r.json(); return !!(d && d.jarvis); } catch { return false; } finally { clearTimeout(reloj); }
+}
+// Cuando la PC no contesta: ¿fue un corte? ¿estoy afuera (Tailscale)? ¿volví a casa? ¿le cambió la IP?
+const afueraActivo = () => NATIVO && guardado.leer('afuera', false);
+let eligiendo = null;
+function elegirCamino() {
+  if (eligiendo) return eligiendo;
+  eligiendo = (async () => {
+    const pc = pcElegida();
+    if (!pc) return false;
+    if (!modoAfuera && await responde(pc.base)) return true;
+    if (modoAfuera && await responde(pc.base)) { modoAfuera = false; ultimaSincro = 0; sincronizarAvisos(); return true; } // volví a casa
+    if (afueraActivo() && pc.tsip) {
+      try {
+        const { puerto } = await nativo.afueraProxy({ destino: `${pc.tsip}:${pc.tspuerto || 47820}` });
+        const b = `http://127.0.0.1:${puerto}`;
+        if (await responde(b, 8000)) { baseAfuera = b; if (!modoAfuera) { modoAfuera = true; ultimaSincro = 0; sincronizarAvisos(); } return true; }
+      } catch {}
+    }
+    return reencontrar();
+  })().finally(() => { eligiendo = null; });
+  return eligiendo;
 }
 let reencontrando = null; let ultimoReencuentro = 0;
 function reencontrar() {
@@ -172,6 +214,8 @@ async function refrescar({ silencioso = false } = {}) {
     estado = await api('/api/estado', { espera: 8000 });
     if (!conectado) { conectado = true; aviso(''); }
     pintarEstado();
+    if (NATIVO && estado.afuera && estado.afuera.ip) { const pc = pcElegida(); if (pc && (pc.tsip !== estado.afuera.ip || pc.tspuerto !== estado.afuera.puerto)) guardado.escribir('pc', { ...pc, tsip: estado.afuera.ip, tspuerto: estado.afuera.puerto }); }
+    $('#estado-pc').textContent += modoAfuera ? ' · desde afuera' : '';
     if (NATIVO && Date.now() - ultimaSincro > 5 * 60000) { ultimaSincro = Date.now(); sincronizarAvisos(); }
     if (pastilla.dataset.fase === 'dormido') fase('reposo');
   } catch (e) {
@@ -278,7 +322,7 @@ const local = {
   escribir(l) { guardado.escribir('archivos', l); },
   clave: (id) => `/local/${id}`,
   async guardarDesde(url, meta, alAvanzar = () => {}) {
-    const r = await fetch(u(url), { headers: { Authorization: `Bearer ${guardado.token}` }, cache: 'no-store' });
+    const r = await fetch(NATIVO ? medio(url) : u(url), { headers: NATIVO ? {} : { Authorization: `Bearer ${guardado.token}` }, cache: 'no-store' });
     if (!r.ok || !r.body) throw new Error(r.status === 404 ? 'El archivo ya no está en la PC.' : `La PC contestó ${r.status}.`);
     const total = Number(r.headers.get('content-length')) || meta.bytes || 0;
     let n = 0;
@@ -492,6 +536,7 @@ $('#ha-mandar').addEventListener('click', (ev) => {
 });
 // Subir con progreso (fetch todavía no lo informa al subir).
 function subir(a, { destino, contacto = '' }) {
+  if (modoAfuera) return Promise.reject(new Error('Para pasar archivos del celular a la PC, conectate a la Wi-Fi de casa.'));
   return local.blob(a.id).then((blob) => new Promise((ok, mal) => {
     const x = new XMLHttpRequest();
     x.open('POST', u(`/api/subir?destino=${destino}&nombre=${encodeURIComponent(a.nombre)}&contacto=${encodeURIComponent(contacto)}`));
@@ -518,7 +563,7 @@ async function compartir() {
     let blob;
     if (enCel) blob = await local.blob(a.id);
     else {
-      const r = await fetch(u(a.ver)); if (!r.ok) throw new Error('No pude traerlo de la PC.');
+      const r = await fetch(medio(a.ver)); if (!r.ok) throw new Error('No pude traerlo de la PC.');
       blob = await r.blob();
     }
     if (NATIVO) { await aAndroid(blob, a.nombre, 'compartir'); return; }
@@ -892,7 +937,7 @@ const avisosActivos = () => guardado.leer('avisos', true);
 async function sincronizarAvisos() {
   if (!NATIVO || !guardado.token) return;
   const pc = pcElegida();
-  try { await nativo.configurarPC({ base: pc ? pc.base : '', token: guardado.token, avisos: avisosActivos() }); } catch {}
+  try { await nativo.configurarPC({ base: pc ? baseActual() : '', token: guardado.token, avisos: avisosActivos() }); } catch {}
   if (!avisosActivos()) { nativo.programarAvisos({ avisos: [] }).catch(() => {}); return; }
   try {
     const r = await api('/api/avisos', { espera: 10000 });
@@ -906,6 +951,34 @@ $('#m-avisos').addEventListener('click', async () => {
   sincronizarAvisos();
   aviso(avisosActivos() ? 'Listo: los recordatorios y eventos también te avisan en este celular.' : 'Listo: este celular no te va a avisar nada.', { tipo: 'bien' });
 });
+
+// ---------- Desde afuera: Tailscale integrado (app de Android) ----------
+const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
+function pintarMenuAfuera() { const b = $('#m-afuera'); b.hidden = !NATIVO; b.textContent = `Usar desde afuera: ${afueraActivo() ? 'sí' : 'no'}`; }
+async function activarAfuera() {
+  guardado.escribir('afuera', true); pintarMenuAfuera();
+  try { await nativo.afueraIniciar(); } catch (e) { aviso(`No pude iniciar Tailscale: ${e.message}`, { tipo: 'mal', ms: 8000 }); return; }
+  let abrio = false;
+  aviso('Conectando con Tailscale…', { ms: 0 });
+  for (const fin = Date.now() + 5 * 60000; Date.now() < fin && afueraActivo();) {
+    const st = await nativo.afueraEstado().catch(() => ({}));
+    if (st.estado === 'Running') {
+      const pc = pcElegida();
+      aviso(pc && pc.tsip ? 'Listo: ya podés usar Jarvis desde afuera (con la PC prendida).' : 'Listo en el celular. Falta prender "Usar Jarvis desde afuera" en la PC (Ajustes → Celular), con la misma cuenta de Tailscale.', { tipo: 'bien', ms: 9000 });
+      return;
+    }
+    if (st.url && !abrio) { abrio = true; aviso('Iniciá sesión en Tailscale con la misma cuenta que en la PC y volvé a Jarvis.', { ms: 0 }); nativo.abrir({ url: st.url }).catch(() => {}); }
+    await dormir(2000);
+  }
+  if (afueraActivo()) aviso('Tailscale no terminó de conectar. Probá de nuevo desde el menú.', { tipo: 'mal', ms: 8000 });
+}
+$('#m-afuera').addEventListener('click', () => {
+  menu.hidden = true;
+  if (afueraActivo()) { guardado.escribir('afuera', false); pintarMenuAfuera(); modoAfuera = false; aviso('Listo: la app se conecta solo en casa.', { tipo: 'bien' }); return; }
+  activarAfuera();
+});
+// Al volver a la app: si estaba afuera, ¿ya estoy en casa? (por la Wi-Fi es más rápido)
+document.addEventListener('visibilitychange', () => { if (!document.hidden && modoAfuera) elegirCamino().then(() => refrescar({ silencioso: true })); });
 
 // ---------- Botón "atrás" de Android ----------
 // Cierra lo que esté abierto; si no hay nada, vuelve a Inicio; en Inicio, sale de la app.
@@ -947,6 +1020,8 @@ function prepararNativo() {
   $('#buscar-pcs').addEventListener('click', () => buscarParaVincular());
   nativo.addListener('atras', () => atras());
   pintarMenuAvisos();
+  pintarMenuAfuera();
+  if (afueraActivo()) nativo.afueraIniciar().catch(() => {}); // que Tailscale esté listo por si salgo de casa
   revisarVersion();
 }
 

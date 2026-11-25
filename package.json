@@ -59,6 +59,15 @@
       "!node_modules/sherpa-onnx-linux-*/**",
       "!node_modules/sherpa-onnx-darwin-*/**"
     ],
+    "extraResources": [
+      {
+        "from": "build/red",
+        "to": "red",
+        "filter": [
+          "*.exe"
+        ]
+      }
+    ],
     "asar": true,
     "win": {
       "target": [

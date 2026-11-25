@@ -32,6 +32,24 @@ jobs:
           distribution: temurin
           java-version: 21
 
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: red/go.mod
+          cache: false
+
+      - name: Tailscale integrado (red/movil → jarvisred.aar, con gomobile)
+        working-directory: red
+        run: |
+          go mod tidy
+          go install golang.org/x/mobile/cmd/gomobile@latest
+          go install golang.org/x/mobile/cmd/gobind@latest
+          go get golang.org/x/mobile/bind
+          export ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME"
+          gomobile init
+          mkdir -p ../android-app/android/app/libs
+          gomobile bind -target=android/arm64,android/arm -androidapi 24 -javapkg=ar.jsolares.red -ldflags "-s -w" -o ../android-app/android/app/libs/jarvisred.aar ./movil
+          ls -la ../android-app/android/app/libs
+
       - name: Preparar la app (www desde src/movil) y sincronizar Capacitor
         working-directory: android-app
         run: |
@@ -70,3 +88,19 @@ jobs:
           name: apk
           path: salida/*.apk
           retention-days: 14
+
+  # Que jarvis-red.exe (Tailscale integrado de la PC) compile, sin esperar al instalador de Windows.
+  red-pc:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: red/go.mod
+          cache: false
+      - name: Compilar jarvis-red.exe
+        working-directory: red
+        run: |
+          go mod tidy
+          GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o /tmp/jarvis-red.exe ./pc
+          ls -la /tmp/jarvis-red.exe

@@ -8,3 +8,6 @@ dist/
 
 # App de Android: lo generado (www se arma desde src/movil con android-app/preparar.js)
 android-app/www/
+
+# Tailscale integrado (lo compila el workflow)
+build/red/
