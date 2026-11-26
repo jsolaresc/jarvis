@@ -39,6 +39,7 @@ function iniciar(puerto) {
       try {
         const m = JSON.parse(l);
         if (m.estado === 'Running' && estado.estado !== 'Running') anotar(`Tailscale integrado: conectado como ${m.nombre || m.ip}.`);
+        if (m.funnel === 'listo' && estado.funnel !== 'listo') anotar(`Desde afuera: dirección pública lista (${m.publica}).`);
         cambiar(m);
       } catch {}
     }
@@ -74,5 +75,7 @@ async function salir() {
 
 const leer = () => ({ ...estado, disponible: !!exe() });
 const ip = () => (estado.estado === 'Running' && estado.ip ? estado.ip : '');
+// La dirección pública (Tailscale Funnel) para que el celular entre desde afuera con sus datos, sin VPN.
+const publica = () => (estado.estado === 'Running' && estado.funnel === 'listo' && /^https:\/\/[a-z0-9.-]+\.ts\.net$/i.test(estado.publica || '') ? estado.publica : '');
 
-module.exports = { configurar, iniciar, detener, salir, estado: leer, ip, nombrePC };
+module.exports = { configurar, iniciar, detener, salir, estado: leer, ip, publica, nombrePC };

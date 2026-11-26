@@ -18,7 +18,6 @@ import androidx.core.content.FileProvider;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-import ar.jsolares.red.movil.Movil;
 
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
@@ -87,97 +86,6 @@ public class JarvisNativoPlugin extends Plugin {
         } else {
             compartidoPendiente = todo;
         }
-    }
-
-    // ---------- Desde afuera: Tailscale adentro de la app (red/movil, compilado con gomobile) ----------
-    private static String interfacesJSON() {
-        JSONArray lista = new JSONArray();
-        try {
-            for (NetworkInterface ni : Collections.list(NetworkInterface.getNetworkInterfaces())) {
-                JSONObject x = new JSONObject();
-                x.put("nombre", ni.getName());
-                x.put("indice", ni.getIndex());
-                x.put("mtu", Math.max(ni.getMTU(), 0));
-                x.put("arriba", ni.isUp());
-                JSONArray dirs = new JSONArray();
-                for (InterfaceAddress ia : ni.getInterfaceAddresses()) {
-                    String ip = ia.getAddress().getHostAddress();
-                    if (ip == null) continue;
-                    int pct = ip.indexOf('%');
-                    if (pct >= 0) ip = ip.substring(0, pct);
-                    dirs.put(ip + "/" + ia.getNetworkPrefixLength());
-                }
-                x.put("dirs", dirs);
-                lista.put(x);
-            }
-        } catch (Exception ignored) {}
-        return lista.toString();
-    }
-
-    // Lo que pasó al iniciar (se arranca en segundo plano: la app pregunta el estado con afueraEstado).
-    private static volatile String errorAfuera = null;
-    private static volatile boolean iniciando = false;
-
-    @PluginMethod
-    public void afueraIniciar(PluginCall call) {
-        if (!iniciando) {
-            iniciando = true;
-            errorAfuera = null;
-            new Thread(() -> {
-                try {
-                    Movil.fijarInterfaces(interfacesJSON());
-                    String nombre = ("jarvis-" + Build.MODEL).toLowerCase().replaceAll("[^a-z0-9-]+", "-");
-                    File dir = new File(getContext().getFilesDir(), "tailscale");
-                    dir.mkdirs();
-                    Movil.iniciar(dir.getAbsolutePath(), nombre.length() > 40 ? nombre.substring(0, 40) : nombre);
-                } catch (Throwable t) { // también errores de la librería (UnsatisfiedLinkError, etc.)
-                    errorAfuera = t.getClass().getSimpleName() + ": " + t.getMessage();
-                } finally {
-                    iniciando = false;
-                }
-            }).start();
-        }
-        call.resolve();
-    }
-
-    @PluginMethod
-    public void afueraEstado(PluginCall call) {
-        new Thread(() -> {
-            JSObject r;
-            try {
-                if (errorAfuera != null) throw new Exception(errorAfuera);
-                Movil.fijarInterfaces(interfacesJSON()); // por si cambió la red (Wi-Fi ↔ datos)
-                r = new JSObject(Movil.estado());
-                if (iniciando && "apagado".equals(r.getString("estado"))) r.put("estado", "Starting");
-            } catch (Throwable t) {
-                r = new JSObject();
-                r.put("estado", "error");
-                r.put("texto", t.getMessage() != null ? t.getMessage() : t.getClass().getSimpleName());
-            }
-            call.resolve(r);
-        }).start();
-    }
-
-    @PluginMethod
-    public void afueraProxy(PluginCall call) {
-        String destino = call.getString("destino", "");
-        new Thread(() -> {
-            try {
-                JSObject r = new JSObject();
-                r.put("puerto", Movil.proxy(destino));
-                call.resolve(r);
-            } catch (Throwable e) {
-                call.reject(e.getMessage() != null ? e.getMessage() : "No pude llegar a la PC por Tailscale.");
-            }
-        }).start();
-    }
-
-    @PluginMethod
-    public void afueraSalir(PluginCall call) {
-        new Thread(() -> {
-            try { Movil.salir(); } catch (Throwable ignored) {}
-            call.resolve();
-        }).start();
     }
 
     // ---------- Actualizar la app desde la app ----------

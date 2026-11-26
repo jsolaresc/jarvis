@@ -64,7 +64,7 @@ const CAP = window.Capacitor;
 const NATIVO = !!(CAP && CAP.isNativePlatform && CAP.isNativePlatform());
 const nativo = NATIVO ? (CAP.registerPlugin ? CAP.registerPlugin('JarvisNativo') : CAP.Plugins.JarvisNativo) : null;
 const PUERTO_CASA = 47821;
-const SIN_PC = NATIVO ? 'Tu PC no responde. Revisá que esté prendida, con Jarvis abierto, y que el celular esté en la misma Wi-Fi (o, fuera de casa, con "Usar desde afuera" prendido).'
+const SIN_PC = NATIVO ? 'Tu PC no responde. Revisá que esté prendida, con Jarvis abierto, y que el celular esté en la misma Wi-Fi (o, para usarlo desde afuera, que en la PC esté prendido "Usar Jarvis desde afuera").'
   : 'Tu PC no responde. Puede estar apagada, o Tailscale apagado en la PC o en este celular.';
 
 // ---------- Guardado local ----------
@@ -78,7 +78,7 @@ const guardado = {
 // ---------- Pedidos a la PC ----------
 // En la app de Android, la PC elegida: { base: 'http://192.168.0.10:47821', id, nombre }. En el navegador, la misma página.
 const pcElegida = () => (NATIVO ? guardado.leer('pc', null) : null);
-// Desde afuera (Tailscale integrado): la app le habla a un proxy local (127.0.0.1) que llega a la PC por la red de Tailscale.
+// Desde afuera: la PC tiene una dirección pública https (Tailscale Funnel, en la PC). El celular entra con sus datos, sin VPN.
 let modoAfuera = false; let baseAfuera = '';
 const baseActual = () => { const pc = pcElegida(); return !pc ? '' : modoAfuera && baseAfuera ? baseAfuera : pc.base; };
 const u = (ruta) => { const b = baseActual(); return b && typeof ruta === 'string' && ruta.startsWith('/api/') ? b + ruta : ruta; };
@@ -87,24 +87,12 @@ const u = (ruta) => { const b = baseActual(); return b && typeof ruta === 'strin
 const medio = (ruta) => (NATIVO && pcElegida() && typeof ruta === 'string' && ruta.startsWith('/api/') ? `/pc${ruta}` : u(ruta));
 class SinPC extends Error {}
 class NoVinculado extends Error {}
-// Desde afuera, los pedidos a la PC los hace Android (CapacitorHttp), no el WebView: el WebView no deja que una página
-// le hable a 127.0.0.1 (donde está el proxy de Tailscale). Devuelve algo con la forma de una respuesta de fetch.
-async function pedirNativo(url, { metodo = 'GET', cuerpo, espera = 20000 } = {}) {
-  const http = CAP.Plugins.CapacitorHttp;
-  const r = await http.request({ url, method: metodo, connectTimeout: Math.min(espera, 15000), readTimeout: espera, responseType: 'json',
-    headers: { ...(guardado.token ? { Authorization: `Bearer ${guardado.token}` } : {}), ...(cuerpo ? { 'Content-Type': 'application/json' } : {}) },
-    ...(cuerpo ? { data: cuerpo } : {}) });
-  let dato = r.data;
-  if (typeof dato === 'string') { try { dato = JSON.parse(dato); } catch { dato = {}; } }
-  return { status: r.status, ok: r.status >= 200 && r.status < 300, json: async () => dato || {} };
-}
 async function api(ruta, { metodo = 'GET', cuerpo, espera = 20000, base, reintento = false } = {}) {
   const ctrl = new AbortController();
   const reloj = setTimeout(() => ctrl.abort(), espera);
   let r;
   try {
-    if (NATIVO && !base && modoAfuera) r = await pedirNativo(u(ruta), { metodo, cuerpo, espera });
-    else r = await fetch(base ? base + ruta : u(ruta), {
+    r = await fetch(base ? base + ruta : u(ruta), {
       method: metodo, signal: ctrl.signal, cache: 'no-store',
       headers: { ...(guardado.token && !base ? { Authorization: `Bearer ${guardado.token}` } : {}), ...(cuerpo ? { 'Content-Type': 'application/json' } : {}) },
       body: cuerpo ? JSON.stringify(cuerpo) : undefined,
@@ -148,12 +136,10 @@ async function buscarPCs({ alEncontrar = () => {}, primero } = {}) {
 }
 // ¿La PC contesta en esta dirección?
 async function responde(base, ms = 1500) {
-  if (/^http:\/\/127\.0\.0\.1:/.test(base)) { try { const d = await (await pedirNativo(`${base}/api/hola`, { espera: ms })).json(); return !!(d && d.jarvis); } catch { return false; } }
   const ctrl = new AbortController(); const reloj = setTimeout(() => ctrl.abort(), ms);
   try { const r = await fetch(`${base}/api/hola`, { signal: ctrl.signal, cache: 'no-store' }); const d = await r.json(); return !!(d && d.jarvis); } catch { return false; } finally { clearTimeout(reloj); }
 }
 // Cuando la PC no contesta: ¿fue un corte? ¿estoy afuera (Tailscale)? ¿volví a casa? ¿le cambió la IP?
-const afueraActivo = () => NATIVO && guardado.leer('afuera', false);
 let eligiendo = null;
 function elegirCamino() {
   if (eligiendo) return eligiendo;
@@ -162,13 +148,7 @@ function elegirCamino() {
     if (!pc) return false;
     if (!modoAfuera && await responde(pc.base)) return true;
     if (modoAfuera && await responde(pc.base)) { modoAfuera = false; ultimaSincro = 0; sincronizarAvisos(); return true; } // volví a casa
-    if (afueraActivo() && pc.tsip) {
-      try {
-        const { puerto } = await nativo.afueraProxy({ destino: `${pc.tsip}:${pc.tspuerto || 47820}` });
-        const b = `http://127.0.0.1:${puerto}`;
-        if (await responde(b, 8000)) { baseAfuera = b; if (!modoAfuera) { modoAfuera = true; ultimaSincro = 0; sincronizarAvisos(); } return true; }
-      } catch {}
-    }
+    if (pc.publica && await responde(pc.publica, 8000)) { baseAfuera = pc.publica; if (!modoAfuera) { modoAfuera = true; ultimaSincro = 0; sincronizarAvisos(); } return true; }
     return reencontrar();
   })().finally(() => { eligiendo = null; });
   return eligiendo;
@@ -217,7 +197,7 @@ async function refrescar({ silencioso = false } = {}) {
     estado = await api('/api/estado', { espera: 8000 });
     if (!conectado) { conectado = true; aviso(''); }
     pintarEstado();
-    if (NATIVO && estado.afuera && estado.afuera.ip) { const pc = pcElegida(); if (pc && (pc.tsip !== estado.afuera.ip || pc.tspuerto !== estado.afuera.puerto)) guardado.escribir('pc', { ...pc, tsip: estado.afuera.ip, tspuerto: estado.afuera.puerto }); }
+    if (NATIVO) { const pc = pcElegida(); const pub = (estado.afuera && estado.afuera.publica) || ''; if (pc && (pc.publica || '') !== pub) guardado.escribir('pc', { ...pc, publica: pub }); }
     $('#estado-pc').textContent += modoAfuera ? ' · desde afuera' : '';
     if (NATIVO && Date.now() - ultimaSincro > 5 * 60000) { ultimaSincro = Date.now(); sincronizarAvisos(); }
     if (pastilla.dataset.fase === 'dormido') fase('reposo');
@@ -489,13 +469,42 @@ async function pintarArchivos() {
 // La hoja de un archivo: verlo o escucharlo y qué hacer con él.
 const hoja = $('#hoja-archivo');
 let abierto = null; // { a, donde, url }
+// En la app de Android, un video de la PC se trae entero antes de reproducirlo: el reproductor del WebView no sabe
+// pedirlo de a pedazos a través de la app (se trababa). Con el progreso a la vista.
+async function traerParaVer(a, reproductor, boton) {
+  boton.disabled = true;
+  try {
+    const r = await fetch(medio(a.ver), { cache: 'no-store' });
+    if (!r.ok) throw new Error('No pude traerlo de la PC.');
+    const total = Number(r.headers.get('Content-Length')) || a.bytes || 0;
+    const lector = r.body.getReader(); const partes = []; let n = 0;
+    for (;;) {
+      const { done, value } = await lector.read();
+      if (done) break;
+      partes.push(value); n += value.length;
+      boton.textContent = total ? `Trayendo… ${Math.min(99, Math.round((n / total) * 100))} %` : 'Trayendo…';
+    }
+    const url = URL.createObjectURL(new Blob(partes, { type: a.tipo === 'audio' ? 'audio/mpeg' : 'video/mp4' }));
+    if (!abierto || abierto.a !== a) { URL.revokeObjectURL(url); return; }
+    abierto.url = url;
+    reproductor.src = url;
+    boton.remove();
+    reproductor.play().catch(() => {});
+    if (abierto.alCargar) abierto.alCargar();
+  } catch (e) { boton.disabled = false; boton.textContent = 'Reproducir'; aviso(e.message, { tipo: 'mal' }); }
+}
 async function abrirArchivo(a) {
   const enCel = donde === 'celular';
   let src = medio(a.ver);
   if (enCel) { try { src = URL.createObjectURL(await local.blob(a.id)); } catch (e) { aviso(e.message, { tipo: 'mal' }); return; } }
+  const traer = NATIVO && !enCel; // en la app de Android, lo de la PC se trae al tocar Reproducir
   abierto = { a, enCel, url: enCel ? src : '' };
-  const reproductor = a.tipo === 'audio' ? h('audio', { controls: '', src, preload: 'metadata' }) : h('video', { controls: '', playsinline: '', src, preload: 'metadata' });
+  const reproductor = a.tipo === 'audio' ? h('audio', { controls: '', ...(traer ? {} : { src }), preload: 'metadata' }) : h('video', { controls: '', playsinline: '', ...(traer ? { poster: a.miniatura ? medio(a.miniatura) : '' } : { src }), preload: 'metadata' });
   $('#ha-medio').replaceChildren(reproductor);
+  if (traer) {
+    const boton = h('button', { type: 'button', class: 'ha-play principal', onclick: () => traerParaVer(a, reproductor, boton) }, 'Reproducir');
+    $('#ha-medio').append(boton);
+  }
   $('#ha-medio').className = a.tipo === 'audio' ? 'audio' : '';
   $('#ha-nombre').textContent = sinExt(a.nombre);
   $('#ha-datos').textContent = [TIPO[a.tipo], enCel ? 'En este celular' : `En la PC${a.carpeta ? ` (${a.carpeta})` : ''}`, tam(a.bytes)].filter(Boolean).join('. ');
@@ -506,10 +515,47 @@ async function abrirArchivo(a) {
     acciones.push(['Compartir…', compartir], ['Guardar en Descargas del celular', exportar], ['Pasar a la PC', pasarAPC], ['Borrar del celular', borrarLocal, 'peligro']);
   } else {
     acciones.push(['Pasar al celular', pasarAlCelular], ['Compartir…', compartir]);
+    if (a.tipo === 'clip') acciones.push(['Recortar (en la PC)', () => abrirRecorte()]);
   }
   $('#ha-acciones').replaceChildren(...acciones.map(([t, fn, clase]) => h('button', { type: 'button', class: clase || '', onclick: (ev) => fn(ev.currentTarget) }, t)));
   hoja.showModal();
 }
+// Recortar un clip de la PC: se elige desde y hasta mirando el video, y lo recorta la PC (queda como un clip nuevo).
+function abrirRecorte() {
+  const a = abierto && abierto.a; const v = $('#ha-medio video');
+  if (!a || !v) return;
+  if (!v.src) { // primero hay que tenerlo para verlo
+    abierto.alCargar = () => { abierto.alCargar = null; abrirRecorte(); };
+    const b = $('#ha-medio .ha-play'); if (b) b.click();
+    return;
+  }
+  if (!isFinite(v.duration) || !v.duration) { v.addEventListener('loadedmetadata', abrirRecorte, { once: true }); return; }
+  const dur = v.duration;
+  const r = { desde: 0, hasta: dur };
+  const etiqueta = h('p', { class: 'tenue rc-texto' });
+  const pintarTexto = () => { etiqueta.textContent = `Desde ${tiempo(r.desde)} hasta ${tiempo(r.hasta)} (${(r.hasta - r.desde).toFixed(1).replace('.', ',')} s)`; };
+  const barra = (k, nombre) => {
+    const i = h('input', { type: 'range', min: '0', max: String(dur), step: '0.1', value: String(r[k]), 'aria-label': nombre });
+    i.addEventListener('input', () => {
+      r[k] = Number(i.value);
+      if (r.desde > r.hasta - 0.5) { if (k === 'desde') r.desde = Math.max(0, r.hasta - 0.5); else r.hasta = Math.min(dur, r.desde + 0.5); i.value = String(r[k]); }
+      v.currentTime = r[k]; pintarTexto();
+    });
+    return h('label', { class: 'rc-barra' }, h('span', {}, nombre), i);
+  };
+  const probar = () => { v.currentTime = r.desde; v.play().catch(() => {}); const corte = () => { if (v.currentTime >= r.hasta) { v.pause(); v.removeEventListener('timeupdate', corte); } }; v.addEventListener('timeupdate', corte); };
+  const guardar = async (b) => {
+    await trabajando(b, async () => {
+      const res = await api('/api/archivos/recortar', { metodo: 'POST', cuerpo: { id: a.id, desde: r.desde, hasta: r.hasta }, espera: 300000 });
+      aviso(res.texto || 'Listo: el recorte quedó en la PC.', { tipo: 'bien', ms: 6000 });
+      cerrarHoja(); cargarArchivos();
+    });
+  };
+  pintarTexto();
+  $('#ha-acciones').replaceChildren(h('div', { class: 'recorte' }, barra('desde', 'Desde'), barra('hasta', 'Hasta'), etiqueta,
+    h('div', { class: 'fila' }, h('button', { type: 'button', onclick: probar }, 'Ver el recorte'), h('button', { type: 'button', class: 'principal', onclick: (ev) => guardar(ev.currentTarget) }, 'Guardar recorte en la PC'))));
+}
+const tiempo = (s) => { const m = Math.floor(s / 60); const x = s - m * 60; return `${m}:${x < 10 ? '0' : ''}${x.toFixed(1).replace('.', ',')}`; };
 function cerrarHoja() { hoja.close(); }
 hoja.addEventListener('close', () => {
   const m = $('#ha-medio').firstChild; if (m) { m.pause(); m.removeAttribute('src'); m.load && m.load(); }
@@ -977,48 +1023,6 @@ $('#m-avisos').addEventListener('click', async () => {
   aviso(avisosActivos() ? 'Listo: los recordatorios y eventos también te avisan en este celular.' : 'Listo: este celular no te va a avisar nada.', { tipo: 'bien' });
 });
 
-// ---------- Desde afuera: Tailscale integrado (app de Android) ----------
-const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
-let estadoAfuera = null;
-function pintarMenuAfuera(st) {
-  if (st) estadoAfuera = st;
-  const b = $('#m-afuera'); b.hidden = !NATIVO;
-  const detalle = afueraActivo() && estadoAfuera ? ` (${TEXTO_AFUERA[estadoAfuera.estado] || estadoAfuera.estado})` : '';
-  b.textContent = `Usar desde afuera: ${afueraActivo() ? 'sí' : 'no'}${detalle}`;
-}
-const TEXTO_AFUERA = { Running: 'conectado', NeedsLogin: 'falta iniciar sesión', Starting: 'conectando…', NoState: 'conectando…', Stopped: 'detenido', error: 'error' };
-async function activarAfuera() {
-  guardado.escribir('afuera', true); pintarMenuAfuera();
-  aviso('Iniciando Tailscale en el celular…', { ms: 0 });
-  try { await nativo.afueraIniciar(); } catch (e) { aviso(`No pude iniciar Tailscale: ${e.message}`, { tipo: 'mal', ms: 0 }); return; }
-  let abrio = false;
-  for (const fin = Date.now() + 5 * 60000; Date.now() < fin && afueraActivo();) {
-    const st = await nativo.afueraEstado().catch((e) => ({ estado: 'error', texto: e.message }));
-    pintarMenuAfuera(st);
-    if (st.estado === 'error') { aviso(`Tailscale no pudo arrancar: ${st.texto || 'sin detalle'}. Mandale una captura de esto a quien te ayuda con Jarvis.`, { tipo: 'mal', ms: 0 }); return; }
-    if (st.estado === 'Running') {
-      const pc = pcElegida();
-      aviso(pc && pc.tsip ? 'Listo: ya podés usar Jarvis desde afuera (con la PC prendida).' : 'Listo en el celular. Falta prender "Usar Jarvis desde afuera" en la PC (Ajustes → Celular), con la misma cuenta de Tailscale, y abrir esta app una vez en casa.', { tipo: 'bien', ms: 0 });
-      return;
-    }
-    if (st.url && !abrio) {
-      abrio = true;
-      aviso('Iniciá sesión en Tailscale con la misma cuenta que en la PC y volvé a Jarvis.', { ms: 0, accion: { texto: 'Abrir', hacer: () => nativo.abrir({ url: st.url }).catch(() => {}) } });
-      nativo.abrir({ url: st.url }).catch(() => {});
-    } else if (!abrio) aviso(`Tailscale: ${TEXTO_AFUERA[st.estado] || st.estado || 'conectando…'}`, { ms: 0 });
-    await dormir(2000);
-  }
-  if (afueraActivo()) aviso('Tailscale no terminó de conectar. Probá de nuevo desde el menú.', { tipo: 'mal', ms: 8000 });
-}
-$('#m-afuera').addEventListener('click', () => {
-  menu.hidden = true;
-  // Prendido pero sin terminar (falta sesión o hubo un error): tocarlo de nuevo reintenta en vez de apagar.
-  if (afueraActivo() && estadoAfuera && estadoAfuera.estado !== 'Running') { activarAfuera(); return; }
-  if (afueraActivo()) { guardado.escribir('afuera', false); estadoAfuera = null; pintarMenuAfuera(); modoAfuera = false; aviso('Listo: la app se conecta solo en casa.', { tipo: 'bien' }); return; }
-  activarAfuera();
-});
-// Al abrir el menú, el estado de Tailscale al día.
-$('#boton-menu').addEventListener('click', () => { if (NATIVO && afueraActivo()) nativo.afueraEstado().then((st) => pintarMenuAfuera(st)).catch(() => {}); });
 // Al volver a la app: si estaba afuera, ¿ya estoy en casa? (por la Wi-Fi es más rápido)
 document.addEventListener('visibilitychange', () => { if (!document.hidden && modoAfuera) elegirCamino().then(() => refrescar({ silencioso: true })); });
 
@@ -1088,8 +1092,7 @@ function prepararNativo() {
   $('#buscar-pcs').addEventListener('click', () => buscarParaVincular());
   nativo.addListener('atras', () => atras());
   pintarMenuAvisos();
-  pintarMenuAfuera();
-  if (afueraActivo()) nativo.afueraIniciar().catch(() => {}); // que Tailscale esté listo por si salgo de casa
+  guardado.escribir('afuera', null); // (de la 1.1.2–1.1.4: Tailscale adentro de la app; ya no se usa)
   revisarVersion();
 }
 

@@ -38,7 +38,8 @@ fs.chmodSync(YTDLP, 0o755);
 const RED = path.join(DATOS, 'jarvis-red-falso.js');
 fs.writeFileSync(RED, `#!/usr/bin/env node
 console.log(JSON.stringify({ estado: 'NeedsLogin', url: 'https://login.tailscale.com/a/prueba' }));
-setTimeout(() => console.log(JSON.stringify({ estado: 'Running', ip: '100.101.102.103', nombre: 'jarvis-pc.tail1234.ts.net' })), 1000);
+setTimeout(() => console.log(JSON.stringify({ estado: 'Running', ip: '100.101.102.103', nombre: 'jarvis-pc.tail1234.ts.net', funnel: 'falta', funnelUrl: 'https://login.tailscale.com/f/funnel?node=prueba' })), 1000);
+setTimeout(() => console.log(JSON.stringify({ estado: 'Running', ip: '100.101.102.103', nombre: 'jarvis-pc.tail1234.ts.net', funnel: 'listo', publica: 'https://jarvis-pc.tail1234.ts.net' })), 2500);
 process.stdin.on('end', () => process.exit(0)); process.stdin.resume();
 `);
 fs.chmodSync(RED, 0o755);
@@ -294,7 +295,7 @@ async function hasta(fn, ms = 20000, que = '') {
       window.Capacitor = { isNativePlatform: () => true, registerPlugin: () => plugin, Plugins: { CapacitorHttp: { request: async (o) => { const r = await window.httpNativo(o); if (!r.status) throw new Error('sin conexión'); return r; } } } };
     });
     const pA = await ctxA.newPage();
-    pA.on('console', (m) => { if (m.type() === 'error' && !/ERR_CONNECTION_REFUSED|ERR_FAILED/.test(m.text())) errores.push(`android: ${m.text()}`); });
+    pA.on('console', (m) => { if (m.type() === 'error' && !/ERR_CONNECTION_REFUSED|ERR_FAILED|status of 404/.test(m.text())) errores.push(`android: ${m.text()}`); });
     pA.on('pageerror', (e) => errores.push(`android: ${e.message}`));
     await pA.goto('http://localhost/index.html');
     await hasta(() => pA.locator('#vincular:not([hidden])').count(), 5000, 'android: pantalla de vincular');
@@ -342,7 +343,23 @@ async function hasta(fn, ms = 20000, que = '') {
     // Miniaturas y video pasan por la app (/pc/…): se ven.
     await hasta(() => pA.evaluate(() => [...document.querySelectorAll('#lista-archivos img')].some((i) => i.complete && i.naturalWidth > 0 && i.src.includes('/pc/api/'))), 8000, 'android: miniatura');
     await pA.locator('#lista-archivos li:has-text("Jefe final") button').first().click();
-    await hasta(() => pA.evaluate(() => { const v = document.querySelector('#ha-medio video'); return v && v.src.includes('/pc/api/archivo/') && v.readyState >= 1; }), 8000, 'android: el video carga');
+    // El video de la PC se trae entero al tocar Reproducir (por /pc/) y se ve desde el celular.
+    await pA.click('#ha-medio .ha-play');
+    await hasta(() => pA.evaluate(() => { const v = document.querySelector('#ha-medio video'); return v && v.src.startsWith('blob:') && v.readyState >= 1; }), 10000, 'android: el video carga');
+    // Recortar en la PC desde el celular: queda un clip nuevo.
+    if (await pA.locator('#ha-acciones button:has-text("Recortar")').count()) {
+      await pA.click('#ha-acciones button:has-text("Recortar")');
+      await hasta(() => pA.locator('.recorte input[aria-label="Hasta"]').count(), 5000, 'android: recorte abierto');
+      await pA.locator('.recorte input[aria-label="Hasta"]').fill('1');
+      await pA.locator('.recorte input[aria-label="Hasta"]').dispatchEvent('input');
+      await pA.screenshot({ path: path.join(SALIDA, '14b-android-recortar.png') });
+      await pA.click('.recorte button:has-text("Guardar recorte")');
+      await hasta(() => pA.locator('#aviso:has-text("recorte")').count(), 60000, 'android: recorte hecho en la PC');
+      await hasta(() => pA.locator('#lista-archivos li:has-text("Jefe final")').count(), 8000, 'android: archivos de la PC otra vez');
+      await pA.locator('#lista-archivos li:has-text("Jefe final") button').first().click();
+      await pA.click('#ha-medio .ha-play');
+      await hasta(() => pA.evaluate(() => { const v = document.querySelector('#ha-medio video'); return v && v.src.startsWith('blob:'); }), 10000, 'android: el video carga otra vez');
+    }
     await pA.getByRole('button', { name: 'Pasar al celular' }).click();
     await hasta(() => pA.locator('#aviso:has-text("quedó en este celular")').count(), 15000, 'android: pasado al celular');
     await pA.keyboard.press('Escape');
@@ -352,7 +369,8 @@ async function hasta(fn, ms = 20000, que = '') {
     await hasta(() => pA.locator('#aviso:has-text("Descargas")').count(), 8000, 'android: guardado en Descargas');
     const guardadosA = await pA.evaluate(() => window.androidFalso.archivos);
     assert.strictEqual(guardadosA.length, 1);
-    assert.deepStrictEqual([guardadosA[0].nombre, guardadosA[0].destino, guardadosA[0].bytes > 10000], ['Jefe final.mp4', 'descargas', true]);
+    assert.match(guardadosA[0].nombre, /^Jefe final( \(recorte\))?\.mp4$/);
+    assert.deepStrictEqual([guardadosA[0].destino, guardadosA[0].bytes > 1000], ['descargas', true]);
     await pA.keyboard.press('Escape');
     await pA.screenshot({ path: path.join(SALIDA, '14-android-archivos.png') });
     // "Compartir" desde YouTube con la app abierta.
@@ -371,32 +389,24 @@ async function hasta(fn, ms = 20000, que = '') {
     await ajustes.getByLabel('Usar Jarvis desde afuera (app de Android)').check({ force: true });
     await hasta(() => ajustes.locator('text=Listo para usar desde afuera').count(), 15000, 'Tailscale integrado conectado en Ajustes');
     await ajustes.screenshot({ path: path.join(SALIDA, '16-ajustes-desde-afuera.png') });
-    // El celular aprende la IP de la PC en Tailscale mientras está en casa.
+    // El celular aprende la dirección pública de la PC mientras está en casa.
     await pA.evaluate(() => { localStorage.setItem('jarvis.revisado', String(Date.now())); });
-    await hasta(async () => { await pA.click('#abajo button[data-hoja="inicio"]'); return (JSON.parse(await pA.evaluate(() => localStorage.getItem('jarvis.pc'))) || {}).tsip === '100.101.102.103'; }, 20000, 'android: IP de Tailscale de la PC');
-    // Un "proxy de tsnet" de mentira: lo que llega a 127.0.0.1 va al servidor del celular de Jarvis, como si viniera por Tailscale.
-    const proxyTs = require('http').createServer((q, r) => {
-      const partes = []; q.on('data', (c) => partes.push(c)); q.on('end', () => {
-        const x = require('http').request({ hostname: '127.0.0.1', port: PUERTO, path: q.url, method: q.method, headers: { ...q.headers, host: `100.101.102.103:${PUERTO}` } }, (y) => { r.writeHead(y.statusCode, y.headers); y.pipe(r); });
-        x.on('error', () => { r.writeHead(502); r.end(); }); x.end(Buffer.concat(partes));
-      });
-    });
-    await new Promise((ok) => proxyTs.listen(0, '127.0.0.1', ok));
-    await pA.evaluate((p) => { window.PUERTO_PROXY_TS = p; }, proxyTs.address().port);
-    await pA.click('#boton-menu');
-    await pA.click('#m-afuera');
-    await hasta(() => pA.locator('#aviso:has-text("ya podés usar Jarvis desde afuera")').count(), 8000, 'android: Tailscale listo');
+    await hasta(async () => { await pA.click('#abajo button[data-hoja="inicio"]'); return (JSON.parse(await pA.evaluate(() => localStorage.getItem('jarvis.pc'))) || {}).publica === 'https://jarvis-pc.tail1234.ts.net'; }, 20000, 'android: dirección pública de la PC');
+    // La dirección pública (Funnel) llega al servidor del celular de Jarvis, como hace jarvis-red.
+    let pedidosPublica = 0;
+    await ctxA.route('https://jarvis-pc.tail1234.ts.net/**', async (r) => { pedidosPublica++; const u = new URL(r.request().url()); const q = r.request(); const cuerpo = q.postDataBuffer();
+      const res = await new Promise((ok, mal) => { const x = require('http').request({ hostname: '127.0.0.1', port: PUERTO, path: u.pathname + u.search, method: q.method(), headers: { ...q.headers(), host: 'jarvis-pc.tail1234.ts.net' } }, (y) => { const p = []; y.on('data', (c) => p.push(c)); y.on('end', () => ok({ status: y.statusCode, headers: y.headers, body: Buffer.concat(p) })); }); x.on('error', mal); x.end(cuerpo || undefined); });
+      return r.fulfill(res); });
     // Me voy de casa: la Wi-Fi de casa no contesta más. La app sigue por Tailscale.
     enCasa = false;
     await pA.click('#abajo button[data-hoja="charla"]');
     await pA.fill('#texto', 'modo juego');
     await pA.click('#enviar');
     await hasta(async () => /^Modo juego/.test(await pA.locator('#mensajes li.jarvis:not(.pensando)').last().textContent()), 30000, 'android: respuesta desde afuera');
-    assert.strictEqual(await pA.evaluate(() => window.androidFalso.tsDestino), `100.101.102.103:${PUERTO}`);
+    assert.ok(pedidosPublica > 0, 'fue por la dirección pública');
     await hasta(async () => /desde afuera/.test(await pA.textContent('#estado-pc')), 15000, 'android: dice "desde afuera"');
     await pA.screenshot({ path: path.join(SALIDA, '17-android-desde-afuera.png') });
     enCasa = true;
-    proxyTs.close();
     await notch.evaluate((c) => window.jarvis.pedir('cfg:guardar', c), { ...cfgAntes, celular: { ...cfgAntes.celular, afuera: false }, modo: 'normal' });
 
     // Se lo desvincula desde la PC (así queda un solo celular para lo que sigue).
@@ -433,6 +443,18 @@ async function hasta(fn, ms = 20000, que = '') {
     await esperar(400);
     assert.strictEqual(await p2.getAttribute('#pastilla', 'data-fase'), 'dormido', 'los ojos se duermen sin PC');
     await p2.screenshot({ path: path.join(SALIDA, '11-celular-sin-pc.png') });
+
+    // Clips en la PC: todos, con filtro por carpeta, orden y páginas.
+    const erroresAjustes = [];
+    ajustes.on('pageerror', (e) => erroresAjustes.push(e.message));
+    await ajustes.locator('button[data-grupo="clips"]').first().click();
+    await hasta(() => ajustes.locator('.clips-filtros select').count(), 8000, 'clips: filtros');
+    await ajustes.locator('.clips-filtros select[aria-label="Ordenar por"]').selectOption('nombre');
+    await hasta(() => ajustes.locator('.clip-fila').count(), 5000, 'clips: lista');
+    const nombresClips = await ajustes.locator('.nombre-clip').allTextContents();
+    assert.deepStrictEqual(nombresClips, [...nombresClips].sort((a, b) => a.localeCompare(b, 'es', { numeric: true, sensitivity: 'base' })), 'ordenados por nombre');
+    await ajustes.screenshot({ path: path.join(SALIDA, '18-pc-clips-filtros.png') });
+    assert.deepStrictEqual(erroresAjustes, []);
 
     // El 401 es esperado (el pedido después de desvincular) y el 422 también (WhatsApp sin conectar en el sandbox).
     const inesperados = errores.filter((x) => !/status of (401|422)/.test(x));

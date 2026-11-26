@@ -756,14 +756,28 @@ async function cargarAlmacen() {
   almacen = await pedir('almacenamiento:resumen').catch((e) => ({ error: e.message }));
   if (seccion === 'almacenamiento') pintar();
 }
-// ---------- Últimos clips guardados ----------
+// ---------- Los clips guardados (todos, de a páginas) ----------
 let clipsGuardados = null; // [{ archivo, nombre, juego, bytes, fecha }] o null mientras carga
 const miniaturas = new Map(); // archivo -> data URL del cuadro del video
 let clipsEnviando = '';
-async function cargarClips() {
-  clipsGuardados = await pedir('clips:lista').catch(() => []);
-  if (seccion === 'clips' || seccion === 'clips-ajustes') pintar();
-  for (const x of clipsGuardados.slice(0, 12)) {
+// Lista completa, de a páginas: filtro por carpeta (juego o programa) y orden por fecha, tamaño o nombre.
+const clipsUI = { carpeta: '', orden: 'fecha', asc: false, pagina: 0 };
+const POR_PAGINA = 30;
+function clipsVisibles() {
+  const todos = clipsGuardados || [];
+  const lista = clipsUI.carpeta ? todos.filter((x) => (x.juego || '') === clipsUI.carpeta) : todos.slice();
+  const k = clipsUI.orden;
+  lista.sort((a, b) => {
+    const d = k === 'nombre' ? a.nombre.localeCompare(b.nombre, 'es', { numeric: true, sensitivity: 'base' }) : k === 'tamano' ? a.bytes - b.bytes : a.fecha - b.fecha;
+    return clipsUI.asc ? d : -d;
+  });
+  const paginas = Math.max(1, Math.ceil(lista.length / POR_PAGINA));
+  clipsUI.pagina = Math.min(clipsUI.pagina, paginas - 1);
+  return { total: lista.length, paginas, pagina: lista.slice(clipsUI.pagina * POR_PAGINA, (clipsUI.pagina + 1) * POR_PAGINA) };
+}
+// Las miniaturas se piden solo para los clips de la página que se ve.
+function pedirMiniaturas(lista) {
+  for (const x of lista) {
     if (miniaturas.has(x.archivo)) continue;
     miniaturas.set(x.archivo, '');
     pedir('clips:miniatura', x.archivo).then((url) => {
@@ -772,6 +786,11 @@ async function cargarClips() {
       if (img && url) { img.src = url; img.hidden = false; img.nextElementSibling && (img.nextElementSibling.hidden = true); }
     }).catch(() => {});
   }
+}
+async function cargarClips() {
+  clipsGuardados = await pedir('clips:lista').catch(() => []);
+  if (clipsUI.carpeta && !clipsGuardados.some((x) => (x.juego || '') === clipsUI.carpeta)) clipsUI.carpeta = '';
+  if (seccion === 'clips' || seccion === 'clips-ajustes') pintar();
 }
 // ---------- Editor de clips: renombrar y recortar ----------
 let clipEditor = null; // { archivo, base, ext, nodo } mientras se edita un clip (la pantalla no se repinta para no cortar el video)
@@ -994,7 +1013,23 @@ function listaDeClips() {
   const c = cfg.clips;
   const nombres = [...new Set((cfg.contactos || []).map((x) => String(x.nombre || '').split(',')[0].trim()).filter(Boolean))];
   const destino = h('input', { type: 'text', value: c.enviarA || '', placeholder: 'Nombre del contacto', list: 'contactos-clips', style: 'max-width:220px', oninput: (e) => { c.enviarA = e.target.value; guardar(); } });
-  const hechos = (clipsGuardados || []).map((x) => {
+  const vis = clipsVisibles();
+  setTimeout(() => pedirMiniaturas(vis.pagina), 0);
+  const carpetas = [...new Set((clipsGuardados || []).map((x) => x.juego || ''))].sort((a, b) => a.localeCompare(b, 'es'));
+  const irPagina = (n) => { clipsUI.pagina = n; pintar(); const l = document.querySelector('.clips-lista'); if (l) l.scrollIntoView({ block: 'start' }); };
+  const filtros = h('div', { class: 'fila clips-filtros' },
+    h('label', { class: 'nota' }, 'Carpeta ', h('select', { 'aria-label': 'Carpeta', onchange: (e) => { clipsUI.carpeta = e.target.value; clipsUI.pagina = 0; pintar(); } },
+      h('option', { value: '', selected: !clipsUI.carpeta }, `Todas (${(clipsGuardados || []).length})`),
+      carpetas.map((c) => h('option', { value: c, selected: clipsUI.carpeta === c }, `${c || 'Sueltos'} (${clipsGuardados.filter((x) => (x.juego || '') === c).length})`)))),
+    h('label', { class: 'nota' }, 'Ordenar por ', h('select', { 'aria-label': 'Ordenar por', onchange: (e) => { clipsUI.orden = e.target.value; clipsUI.asc = e.target.value === 'nombre'; clipsUI.pagina = 0; pintar(); } },
+      [['fecha', 'Fecha'], ['tamano', 'Tamaño'], ['nombre', 'Nombre']].map(([v, t]) => h('option', { value: v, selected: clipsUI.orden === v }, t)))),
+    boton(clipsUI.orden === 'nombre' ? (clipsUI.asc ? 'A → Z' : 'Z → A') : clipsUI.orden === 'tamano' ? (clipsUI.asc ? 'Más chicos primero' : 'Más grandes primero') : (clipsUI.asc ? 'Más viejos primero' : 'Más nuevos primero'),
+      () => { clipsUI.asc = !clipsUI.asc; clipsUI.pagina = 0; pintar(); }, 'chico'));
+  const paginador = vis.paginas > 1 ? h('div', { class: 'fila clips-paginas' },
+    Object.assign(boton('Anteriores', () => irPagina(clipsUI.pagina - 1), 'chico'), { disabled: clipsUI.pagina === 0 }),
+    h('span', { class: 'nota' }, `Página ${clipsUI.pagina + 1} de ${vis.paginas} · ${vis.total} clips`),
+    Object.assign(boton('Siguientes', () => irPagina(clipsUI.pagina + 1), 'chico'), { disabled: clipsUI.pagina >= vis.paginas - 1 })) : null;
+  const hechos = vis.pagina.map((x) => {
     const foto = miniaturas.get(x.archivo);
     const enviando = clipsEnviando === x.archivo;
     return h('div', { class: 'clip-fila' },
@@ -1015,7 +1050,9 @@ function listaDeClips() {
   return h('div', { class: 'ancho' },
     h('datalist', { id: 'contactos-clips' }, nombres.map((n) => h('option', { value: n }))),
     h('div', { class: 'fila', style: 'margin-bottom:8px' }, h('span', {}, 'Enviar a:'), destino, h('span', { class: 'nota' }, 'un contacto o grupo de WhatsApp'), boton('Actualizar', cargarClips, 'chico')),
-    hechos.length ? h('div', { class: 'clips-lista' }, hechos) : h('div', { class: 'vacio' }, 'Todavía no hay clips en la carpeta. Cuando guardes uno, aparece acá.'));
+    (clipsGuardados || []).length ? filtros : null,
+    hechos.length ? h('div', { class: 'clips-lista' }, hechos) : h('div', { class: 'vacio' }, (clipsGuardados || []).length ? 'No hay clips en esa carpeta.' : 'Todavía no hay clips en la carpeta. Cuando guardes uno, aparece acá.'),
+    paginador);
 }
 // Papelera: el primer toque pide confirmación en el mismo botón ("¿Seguro?" aparece flotando, sin mover nada de la fila);
 // el segundo manda el clip a la Papelera y el aviso trae un "Deshacer".
@@ -1785,7 +1822,7 @@ const secciones = {
     const i = todo.findIndex((n) => n && n.tagName === 'H2' && n.textContent === 'Video');
     const estado = todo.filter((n) => n && n.classList && n.classList.contains('campo') && /^Estado/.test(n.textContent));
     const botones = todo.find((n) => n && n.classList && n.classList.contains('fila') && !n.classList.contains('campo'));
-    const ultimos = todo.slice(todo.findIndex((n) => n && n.tagName === 'H2' && n.textContent === 'Últimos clips'), i);
+    const ultimos = todo.slice(todo.findIndex((n) => n && n.tagName === 'H2' && n.textContent === 'Tus clips'), i);
     return [
       h('h1', {}, 'Clips'),
       h('p', { class: 'bajada' }, cfg.clips.activo
@@ -1828,7 +1865,7 @@ const secciones = {
         boton('Guardar un clip ahora', async () => { try { avisarGuardado(await pedir('clips:accion', { accion: 'guardar' })); } catch (er) { avisarGuardado(er.message); } refrescarClips(); }, 'chico'),
         e.grabando ? boton('Parar grabación', async () => { try { avisarGuardado(await pedir('clips:accion', { accion: 'parar' })); } catch (er) { avisarGuardado(er.message); } refrescarClips(); }, 'chico') : [['Grabar pantalla', 'pantalla'], ['Grabar ventana', 'ventana'], ['Grabar recuadro', 'recuadro']].map(([t, modo]) => boton(t, async () => { try { avisarGuardado(await pedir('clips:accion', { accion: 'grabar', modo })); } catch (er) { avisarGuardado(er.message); } refrescarClips(); }, 'chico')),
         boton('Actualizar estado', refrescarClips, 'chico')),
-      h('h2', {}, 'Últimos clips'),
+      h('h2', {}, 'Tus clips'),
       listaDeClips(),
       h('h2', {}, 'Video'),
       campo('Pantalla que graba el botón "Pantalla"', (() => {
@@ -2669,12 +2706,14 @@ const secciones = {
       if (!c.activo) return null;
       const r = (e && e.red) || {};
       const partes = [campo('Usar Jarvis desde afuera (app de Android)', casilla(c, 'afuera', () => { guardar(); setTimeout(() => cargarCelular(false), 900); }, false),
-        'Con Tailscale integrado: una red privada y gratuita entre esta PC y tu celular, cifrada de punta a punta, sin abrir nada a internet ni instalar otra app. La primera vez hay que iniciar sesión en Tailscale (con Google, por ejemplo) en la PC y en el celular, con la misma cuenta.')];
+        'Con Tailscale integrado (gratis), esta PC tiene una dirección segura (https) para que la app del celular entre desde cualquier lado con sus datos, sin VPN ni instalar nada en el celular. Solo entran los celulares vinculados. La primera vez hay que iniciar sesión en Tailscale (con Google, por ejemplo) y habilitar "Funnel" con un click.')];
       if (!c.afuera) return partes;
       let cuerpo;
       if (r.disponible === false || r.estado === 'no-disponible') cuerpo = h('p', {}, 'Esta copia de Jarvis no trae Tailscale integrado (viene con el instalador de GitHub). Podés usar la app de Tailscale (más abajo).');
       else if (r.estado === 'NeedsLogin' && r.url) cuerpo = [h('p', {}, 'Falta iniciar sesión en Tailscale (una sola vez). Usá la misma cuenta que vas a usar en el celular.'), h('div', { class: 'fila' }, boton('Iniciar sesión en Tailscale', () => pedir('abrir:enlace', r.url), 'principal'))];
-      else if (r.estado === 'Running') cuerpo = [h('b', {}, 'Listo para usar desde afuera'), h('p', {}, `Esta PC en tu red de Tailscale: ${r.nombre || r.ip}. En el celular: menú de la app → "Usar desde afuera" (con la misma cuenta).`)];
+      else if (r.estado === 'Running' && r.funnel === 'listo') cuerpo = [h('b', {}, 'Listo para usar desde afuera'), h('p', {}, `El celular entra solo cuando no está en tu Wi-Fi, con sus datos (sin VPN ni otra app). Dirección: ${r.publica}. Abrí la app del celular una vez en casa para que la aprenda.`)];
+      else if (r.estado === 'Running' && r.funnel === 'falta') cuerpo = [h('p', {}, 'Falta un paso en tu cuenta de Tailscale (una sola vez): permitir que esta PC tenga una dirección para entrar desde afuera ("Funnel").'), r.funnelUrl ? h('div', { class: 'fila' }, boton('Habilitarlo en Tailscale', () => pedir('abrir:enlace', r.funnelUrl), 'principal')) : h('p', { class: 'nota' }, r.funnelTexto || ''), h('p', { class: 'nota' }, 'Después de habilitarlo, en unos segundos se pone solo en "Listo".')];
+      else if (r.estado === 'Running') cuerpo = [h('p', {}, 'Conectado a Tailscale. Preparando la dirección para entrar desde afuera…')];
       else if (r.estado === 'error') cuerpo = h('p', {}, `No pude conectar: ${r.texto || 'error sin detalle'}.`);
       else cuerpo = h('p', {}, 'Conectando con Tailscale…');
       partes.push(h('div', { class: `cel-ts ${r.estado === 'Running' ? 'ok' : ''}` }, h('span', { html: icono(r.estado === 'Running' ? 'tilde' : 'wifi', 20) }), h('div', {}, cuerpo),

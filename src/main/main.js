@@ -715,7 +715,7 @@ manejar('descargas:actualizar', () => descargas.actualizar());
 manejar('descargas:carpeta', async () => { const r = await shell.openPath(descargas.carpetaDestino()); if (r) throw new Error(r); return true; });
 manejar('descargas:abrir', async (ruta) => { if (!descargas.dentroDeCarpeta(ruta)) throw new Error('Ese archivo no está en Descargas.'); const r = await shell.openPath(ruta); if (r) throw new Error(r); return true; });
 manejar('descargas:mostrar', (ruta) => { if (!descargas.dentroDeCarpeta(ruta)) throw new Error('Ese archivo no está en Descargas.'); shell.showItemInFolder(ruta); return true; });
-manejar('clips:lista', () => clips.listar());
+manejar('clips:lista', () => clips.listar(Infinity)); // todos: la pantalla de Clips los muestra de a páginas
 manejar('clips:miniatura', (archivo) => clips.miniatura(archivo));
 manejar('clips:abrir', async (archivo) => {
   if (!clips.dentroDeCarpeta(archivo)) throw new Error('Ese video no está en la carpeta de clips.');
@@ -1165,7 +1165,7 @@ function estadoParaCelular() {
     aparatos: [...new Set((c.teles || []).map((t) => nombrePrincipal(t.nombre)).filter(Boolean))],
     conexion: { sin: !!conexion.estado().sin },
     // Para que la app de Android sepa cómo llegar a esta PC desde afuera (por la red de Tailscale).
-    afuera: red.ip() ? { ip: red.ip(), puerto: Number(c.celular.puerto) || celular.PUERTO } : null,
+    afuera: red.publica() ? { publica: red.publica() } : null,
   };
 }
 // Inicio del celular: lo que muestran los widgets que necesitan datos de la PC.
@@ -1206,6 +1206,15 @@ celular.configurar({
     catch (e) { historial.terminar(entrada, { respuesta: e.message, ok: false }); throw e; }
   },
   archivos: archivosParaCelular,
+  recortar: async (archivo, t) => {
+    const entrada = historial.empezar(`Recortar ${path.basename(archivo)} (desde el celular)`, 'celular');
+    try {
+      const r = await clips.recortar(archivo, { desde: t.desde, hasta: t.hasta, reemplazar: false });
+      const dicho = `Listo: el recorte (${Math.round(r.segundos)} s) quedó en la PC como "${path.basename(r.archivo)}".`;
+      historial.terminar(entrada, { respuesta: dicho, ok: true });
+      return dicho;
+    } catch (e) { historial.terminar(entrada, { respuesta: e.message, ok: false }); throw e; }
+  },
   enviarArchivo: async (archivo, contacto) => {
     const entrada = historial.empezar(`Mandar ${path.basename(archivo)} a ${contacto} (desde el celular)`, 'celular');
     try {

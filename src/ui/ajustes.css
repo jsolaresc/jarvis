@@ -789,3 +789,8 @@ ol.pasos > li::before, ol.pasos-lista > li::before, ol.pasos-qr > li::before { c
 
 /* Avisos: en la PC / en el celular */
 .casilla-texto { display: inline-flex; align-items: center; gap: 8px; margin-right: 20px; }
+
+/* Clips: filtros y páginas */
+.clips-filtros { gap: 12px; flex-wrap: wrap; margin: 4px 0 10px; }
+.clips-filtros select { margin-left: 6px; }
+.clips-paginas { justify-content: center; gap: 12px; margin-top: 12px; }

@@ -263,3 +263,12 @@ button.texto { border: 0; background: none; color: var(--ojo); font-weight: 600;
 .catalogo { display: grid; gap: 6px; max-height: 60vh; overflow-y: auto; }
 .w-opcion { display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 0 14px; border-radius: 12px; border: 1px solid var(--linea); background: transparent; text-align: left; font-weight: 600; }
 .w-opcion .w-ic { color: var(--ojo); }
+/* Hoja de archivo: reproducir lo de la PC (app de Android) y recortar */
+#ha-medio { position: relative; }
+.ha-play { position: absolute; left: 50%; top: 50%; translate: -50% -50%; min-height: 52px; padding: 0 22px; border-radius: 999px; border: 0; font-weight: 700; }
+.recorte { display: grid; gap: 10px; width: 100%; }
+.rc-barra { display: grid; grid-template-columns: 56px 1fr; align-items: center; gap: 10px; }
+.rc-barra input { accent-color: var(--ojo); padding: 0; border: 0; background: none; }
+.rc-texto { margin: 0; font-variant-numeric: tabular-nums; }
+.recorte .fila { display: flex; gap: 8px; flex-wrap: wrap; }
+.recorte .fila button { flex: 1; min-height: 48px; }

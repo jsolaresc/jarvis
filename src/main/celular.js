@@ -46,6 +46,7 @@ const puente = {
   enviarClip: async () => 'Listo.', // (archivo, contacto)
   archivos: () => [], // [{ archivo, nombre, tipo: 'clip'|'video'|'audio', carpeta, bytes, fecha }] (clips y descargas de la PC)
   enviarArchivo: async () => 'Listo.', // (archivo, contacto) por WhatsApp desde la PC
+  recortar: async () => 'Listo.', // (archivo, { desde, hasta }) un clip nuevo con ese tramo
   descargar: async () => ({ id: 0, texto: '' }), // ({ url, modo, calidad, para, carpeta }) con yt-dlp
   descarga: () => null, // id -> { estado, pct, nombre, archivo, error, … }
   guardarSubida: async () => 'Listo.', // (ruta, nombre) lo que mandó el celular, a la carpeta de Descargas de la PC
@@ -401,6 +402,16 @@ async function atender(req, res, { casa = false } = {}) {
       const contacto = String(b.contacto || '').trim().slice(0, 80);
       if (!contacto) throw conCodigo(400, 'Elegí a quién mandárselo.');
       json(res, 200, { texto: String(await puente.enviarArchivo(e.archivo, contacto) || 'Listo.') });
+      return;
+    }
+    // Recortar un clip de la PC (lo hace la PC con ffmpeg; queda como un clip nuevo al lado del original).
+    if (ruta === '/api/archivos/recortar' && metodo === 'POST') {
+      const b = await leerCuerpo(req);
+      const e = enlace(b.id);
+      if (!e || e.id !== yo.id) throw conCodigo(404, 'Ese archivo ya no está en la lista: actualizala.');
+      const desde = Number(b.desde); const hasta = Number(b.hasta);
+      if (!Number.isFinite(desde) || !Number.isFinite(hasta) || hasta - desde < 0.5) throw conCodigo(400, 'Elegí un tramo de al menos medio segundo.');
+      json(res, 200, { texto: String(await puente.recortar(e.archivo, { desde, hasta }) || 'Listo.') });
       return;
     }
     // Descargar con yt-dlp en la PC: para dejarlo en la PC o para que el celular se lo lleve.
