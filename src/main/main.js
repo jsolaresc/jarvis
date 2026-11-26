@@ -698,6 +698,7 @@ manejar('clips:estado', () => ({ ...clips.estado(), pantallas: listaDePantallas(
 
 // ---------- Descargas con yt-dlp ----------
 descargas.configurar({
+  alViejo: () => setTimeout(() => avisarSistema(), 200),
   avisar: (texto, tipo) => avisarClip(texto, tipo),
   alCambiar: (e) => { if (ajustes && !ajustes.isDestroyed()) ajustes.webContents.send('descargas', e); },
   ffmpeg: () => clips.asegurarFfmpeg(),
@@ -874,6 +875,33 @@ manejar('almacenamiento:liberar', async (id) => {
 });
 manejar('componentes:estado', () => componentes.estado());
 manejar('componentes:instalar', (id) => { componentes.instalar(id).catch(() => {}).finally(() => publicarEstado()); return true; });
+manejar('componentes:actualizar', async (id) => { try { return await componentes.actualizar(id); } finally { avisarSistema(); } });
+manejar('avisos:sistema', () => avisosDelSistema());
+// ---------- Avisos del sistema (Ajustes → Inicio): versión nueva de Jarvis, yt-dlp viejo, componentes con error ----------
+async function avisosDelSistema({ fuerza = false } = {}) {
+  const lista = [];
+  const a = actualizador.estado();
+  if (a.fase === 'lista') lista.push({ id: 'jarvis', tono: 'aviso', titulo: `Jarvis ${a.nueva} está listo para instalar`, texto: 'Se reinicia y queda actualizado en unos segundos. Tus datos no se tocan.', accion: { texto: `Reiniciar y actualizar`, canal: 'actualizacion:instalar' }, hoja: 'actualizaciones' });
+  else if (a.fase === 'bajando') lista.push({ id: 'jarvis', tono: 'info', titulo: `Bajando Jarvis ${a.nueva || 'nuevo'}… ${a.progreso || 0} %`, texto: 'Cuando termine, te aparece acá para instalarlo.', hoja: 'actualizaciones' });
+  let comps = [];
+  try { if (fuerza) await descargas.revisarVersion({ fuerza: true }); comps = await componentes.estado(); } catch {}
+  for (const c of comps) {
+    if (c.id === 'ytdlp' && c.listo && c.desactualizado && !c.actualizando) {
+      lista.push({ id: 'ytdlp', tono: 'aviso', titulo: 'yt-dlp está desactualizado', texto: c.ultima && c.version && c.ultima !== c.version ? `Tenés la ${c.version} y salió la ${c.ultima}. Sin actualizarlo, algunos videos no se pueden descargar.` : 'Una descarga falló como cuando está viejo. Actualizarlo suele arreglarlo.', accion: { texto: 'Actualizar yt-dlp', canal: 'componentes:actualizar', args: ['ytdlp'] }, hoja: 'componentes' });
+    } else if (c.id === 'ytdlp' && c.actualizando) lista.push({ id: 'ytdlp', tono: 'info', titulo: 'Actualizando yt-dlp…', texto: 'Tarda unos segundos.', hoja: 'componentes' });
+    else if (c.error && !c.bajando) lista.push({ id: `comp-${c.id}`, tono: 'mal', titulo: `${c.nombre}: no se pudo`, texto: c.error, hoja: 'componentes' });
+  }
+  return lista;
+}
+let ultimosAvisos = '';
+async function avisarSistema(opciones) {
+  const lista = await avisosDelSistema(opciones).catch(() => null);
+  if (!lista) return;
+  const firma = JSON.stringify(lista);
+  if (firma === ultimosAvisos) return;
+  ultimosAvisos = firma;
+  if (ajustes && !ajustes.isDestroyed()) ajustes.webContents.send('avisos-sistema', lista);
+}
 manejar('actualizacion:estado', () => actualizador.estado());
 manejar('actualizacion:buscar', () => actualizador.buscar());
 manejar('actualizacion:instalar', () => actualizador.instalarAhora());
@@ -1478,7 +1506,9 @@ app.whenReady().then(async () => {
   const pedidosAlInstalar = (instalacion && instalacion.componentes) || [];
   if (pedidosAlInstalar.length) arranque.tarea('componentes elegidos al instalar', D(6000), () => componentes.instalarVarios(pedidosAlInstalar));
   // Actualizaciones: solo en la versión instalada (se bajan de GitHub y se instalan al cerrar Jarvis).
-  if (!PRUEBA) arranque.tarea('buscar actualizaciones', D(30000), () => actualizador.iniciar({ avisar: (texto) => { if (notch && !notch.isDestroyed()) notch.webContents.send('decir', { texto, voz: false }); historial.anotar(texto); }, alCambiar: (e) => { if (ajustes && !ajustes.isDestroyed()) ajustes.webContents.send('actualizacion', e); } }));
+  if (!PRUEBA) arranque.tarea('buscar actualizaciones', D(30000), () => actualizador.iniciar({ avisar: (texto) => { if (notch && !notch.isDestroyed()) notch.webContents.send('decir', { texto, voz: false }); historial.anotar(texto); }, alCambiar: (e) => { if (ajustes && !ajustes.isDestroyed()) ajustes.webContents.send('actualizacion', e); avisarSistema(); } }));
+  // yt-dlp: se fija si salió una versión nueva al rato de arrancar y después dos veces por día.
+  if (!PRUEBA) arranque.tarea('revisar yt-dlp', D(90000), () => { avisarSistema({ fuerza: true }); setInterval(() => avisarSistema({ fuerza: true }), 12 * 3600000).unref(); });
   // La primera vez faltan los modelos de voz: se avisa (una burbuja) dónde tocar para bajarlos.
   if (!cerebro.puedeEscuchar() && !PRUEBA && !pedidosAlInstalar.includes('voz')) {
     setTimeout(() => { if (notch && !cerebro.puedeEscuchar() && !resumenDescarga().bajando) notch.webContents.send('decir', { texto: 'Para escucharte tengo que bajar mis modelos de voz (una sola vez). Pasá el mouse por acá arriba y tocá "Bajar".', voz: false }); }, 4000);

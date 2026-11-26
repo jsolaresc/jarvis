@@ -26,10 +26,16 @@ async function estado() {
   const salida = [];
   for (const c of LISTA) {
     let listo = false; let bajando = false; let error = '';
+    let extra = {};
     if (c.externo) {
-      try { listo = !!(ganchos.descargas && (await ganchos.descargas.buscarYtdlp())); } catch {}
+      try {
+        const v = ganchos.descargas ? await ganchos.descargas.revisarVersion() : { instalado: false };
+        listo = !!v.instalado;
+        if (listo) extra = { version: v.version, ultima: v.ultima, desactualizado: !!v.desactualizado, fallo: !!v.fallo, actualizable: true };
+      } catch {}
       bajando = enCurso.has(c.id);
       error = errores.get(c.id) || '';
+      if (actualizando.has(c.id)) extra.actualizando = true;
     } else {
       const est = modelos.estado();
       const ids = c.ids();
@@ -37,7 +43,7 @@ async function estado() {
       bajando = ids.some((id) => est[id] && est[id].bajando);
       error = ids.map((id) => est[id] && est[id].error).filter(Boolean)[0] || '';
     }
-    salida.push({ id: c.id, nombre: c.nombre, detalle: c.detalle, mb: c.mb, recomendado: !!c.recomendado, listo, bajando, error });
+    salida.push({ id: c.id, nombre: c.nombre, detalle: c.detalle, mb: c.mb, recomendado: !!c.recomendado, listo, bajando, error, ...extra });
   }
   return salida;
 }
@@ -59,6 +65,19 @@ function instalar(id) {
     return p;
   }
   return modelos.bajarVarios(c.ids()).then(() => (ganchos.preparar ? ganchos.preparar() : null));
+}
+
+// Actualizar un componente que ya está (por ahora, yt-dlp: cambia seguido porque los sitios cambian).
+const actualizando = new Map();
+function actualizar(id) {
+  if (id !== 'ytdlp') return Promise.reject(new Error('Ese componente se actualiza con Jarvis.'));
+  if (actualizando.has(id)) return actualizando.get(id);
+  errores.delete(id);
+  const p = ganchos.descargas.actualizar()
+    .catch((e) => { errores.set(id, `No pude actualizar yt-dlp: ${e.message}`); throw e; })
+    .finally(() => actualizando.delete(id));
+  actualizando.set(id, p);
+  return p;
 }
 
 // ---- Lo que eligió el instalador ----
@@ -102,4 +121,4 @@ async function instalarVarios(ids) {
   for (const id of orden) { try { await instalar(id); } catch {} }
 }
 
-module.exports = { LISTA, configurar, estado, instalar, instalarVarios, aplicarInstalacion, _pruebas: { leerArchivo } };
+module.exports = { LISTA, configurar, estado, instalar, actualizar, instalarVarios, aplicarInstalacion, _pruebas: { leerArchivo } };

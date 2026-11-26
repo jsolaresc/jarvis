@@ -12,7 +12,9 @@ let alCambiar = () => {}; // el estado cambió (Ajustes lo muestra)
 let ffmpegDe = async () => null; // () → ruta de ffmpeg (la herramienta de video de Jarvis)
 let enlaceActual = async () => ''; // () → link de lo que se está mirando (la pestaña del navegador)
 let portapapeles = () => '';
+let alViejo = () => {}; // una descarga falló porque yt-dlp parece viejo (el Inicio de Ajustes lo muestra)
 function configurar(f = {}) {
+  if (f.alViejo) alViejo = f.alViejo;
   if (f.avisar) avisar = f.avisar;
   if (f.alCambiar) alCambiar = f.alCambiar;
   if (f.ffmpeg) ffmpegDe = f.ffmpeg;
@@ -145,7 +147,7 @@ function explicar(texto) {
   if (/Sign in to confirm|login required|log in|cookies|private video|members-only|age-restricted|confirm your age/i.test(t)) return 'Ese video pide iniciar sesión. Si querés, en Ajustes → Descargas podés indicar tu archivo de cookies.';
   if (/Video unavailable|not available|removed|deleted|does not exist|404/i.test(t)) return 'El video no está disponible (borrado, privado o bloqueado en tu país).';
   if (/ffmpeg|ffprobe/i.test(t) && /not found|not installed/i.test(t)) return 'Falta ffmpeg para unir audio y video; probá de nuevo en un rato.';
-  if (/Unable to extract|extractor|nsig|signature|HTTP Error 403/i.test(t)) return 'yt-dlp no pudo leer ese video; seguramente está desactualizado. Probá "Actualizar yt-dlp" en Ajustes → Descargas.';
+  if (/Unable to extract|extractor|nsig|signature|HTTP Error 403/i.test(t)) { fallóPorViejo = true; ultima = { version: '', cuando: 0 }; alViejo(); return 'yt-dlp no pudo leer ese video; seguramente está desactualizado. Tocá "Actualizar" en el aviso de Inicio (o en Ajustes → Sistema → Componentes) y probá de nuevo.'; }
   if (/Unable to download|timed out|Temporary failure|Name or service|getaddrinfo|Connection/i.test(t)) return 'No pude conectarme (¿hay internet?).';
   const e = /ERROR:\s*(.+)/i.exec(t);
   return e ? e[1].slice(0, 200) : 'yt-dlp falló sin decir por qué.';
@@ -257,13 +259,67 @@ async function bajarYtdlp() {
   return destino;
 }
 
-// "yt-dlp -U": actualiza la copia que se puede actualizar sola (la de WinGet o scoop se actualiza con su instalador).
+// ---------- ¿Está al día? ----------
+// La última versión sale de los releases oficiales de yt-dlp en GitHub (se consulta como mucho cada 6 horas).
+// Además, si una descarga falla con el error típico de "estoy viejo", queda marcado aunque GitHub no conteste.
+let ultima = { version: '', cuando: 0 };
+let fallóPorViejo = false;
+const URL_ULTIMA = 'https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest';
+function pedirUltima() {
+  const prueba = process.env.JARVIS_YTDLP_ULTIMA; // pruebas
+  if (prueba !== undefined) return prueba === 'error' ? Promise.reject(new Error('sin red')) : Promise.resolve(prueba);
+  const https = require('https');
+  return new Promise((ok, mal) => {
+    const pedido = https.get(URL_ULTIMA, { headers: { 'User-Agent': 'Jarvis', Accept: 'application/vnd.github+json' }, timeout: 15000 }, (r) => {
+      let texto = ''; r.setEncoding('utf8');
+      r.on('data', (c) => { texto += c; if (texto.length > 2e6) r.destroy(); });
+      r.on('end', () => { try { if (r.statusCode !== 200) throw new Error(`GitHub contestó ${r.statusCode}.`); ok(String(JSON.parse(texto).tag_name || '').trim()); } catch (e) { mal(e); } });
+    });
+    pedido.on('timeout', () => pedido.destroy(new Error('GitHub no contestó.')));
+    pedido.on('error', mal);
+  });
+}
+// "2026.11.20" vs "2026.11.20.1": compara número por número.
+function masNueva(a, b) {
+  const pa = String(a || '').split(/[^\d]+/).filter(Boolean).map(Number); const pb = String(b || '').split(/[^\d]+/).filter(Boolean).map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) { const x = pa[i] || 0; const y = pb[i] || 0; if (x !== y) return x > y; }
+  return false;
+}
+async function revisarVersion({ fuerza = false } = {}) {
+  const ruta = await buscarYtdlp();
+  if (!ruta) return { instalado: false, version: '', ultima: '', desactualizado: false, fallo: false };
+  const v = (await version()) || '';
+  if (fuerza || !ultima.version || Date.now() - ultima.cuando > 6 * 3600000) {
+    try { const u = await pedirUltima(); if (u) ultima = { version: u, cuando: Date.now() }; } catch { if (!ultima.cuando) ultima.cuando = Date.now() - 5 * 3600000; } // reintenta en una hora
+  }
+  const viejo = !!(v && ultima.version && masNueva(ultima.version, v));
+  if (!viejo && ultima.version && v && fallóPorViejo) fallóPorViejo = false; // ya está en la última: el error era otra cosa (actualizar no lo arregla)
+  return { instalado: true, ruta, version: v, ultima: ultima.version, desactualizado: viejo || fallóPorViejo, fallo: fallóPorViejo };
+}
+
+// Actualizar: la copia de Jarvis se vuelve a bajar entera; una instalada por otro lado (WinGet, scoop, pip) primero prueba
+// "yt-dlp -U" y, si con eso no queda en la última, Jarvis baja la oficial a su carpeta y pasa a usar esa.
 async function actualizar() {
   const r = await buscarYtdlp();
   if (!r) throw new Error('No encuentro yt-dlp.');
-  return new Promise((ok) => {
-    execFile(r, ['-U'], { windowsHide: true, timeout: 120000 }, (e, salida, err) => ok(`${String(salida || '')}${String(err || '')}`.trim().split(/\r?\n/).slice(-4).join(' ') || (e ? e.message : 'Listo.')));
-  });
+  const antes = (await version()) || '';
+  let u = ultima.version;
+  try { u = (await pedirUltima()) || u; if (u) ultima = { version: u, cuando: Date.now() }; } catch {}
+  const propia = path.resolve(r) === path.resolve(RUTA_PROPIA());
+  if (!propia) {
+    await new Promise((ok) => { execFile(r, ['-U'], { windowsHide: true, timeout: 120000 }, () => ok()); });
+    encontrado = null;
+    const ahora = (await version()) || '';
+    if (ahora && (!u || !masNueva(u, ahora))) { fallóPorViejo = false; alCambiar(estado()); return ahora === antes ? `Ya estaba en la última (${ahora}).` : `Listo, yt-dlp pasó de ${antes || '?'} a ${ahora}.`; }
+    if (process.platform !== 'win32') throw new Error('No se pudo actualizar solo. Actualizalo con el programa con el que lo instalaste.');
+  } else if (u && antes && !masNueva(u, antes)) { fallóPorViejo = false; return `Ya estaba en la última (${antes}).`; }
+  await bajarYtdlp();
+  if (!propia) { const { guardarConfig } = require('./config'); const c = leerConfig(); guardarConfig({ ...c, descargas: { ...(c.descargas || {}), ytdlp: RUTA_PROPIA() } }); }
+  encontrado = null;
+  const nueva = (await version()) || u || '';
+  fallóPorViejo = false;
+  alCambiar(estado());
+  return `Listo, yt-dlp pasó de ${antes || '?'} a ${nueva || 'la última'}${propia ? '' : ' (bajé la oficial a la carpeta de Jarvis y uso esa)'}.`;
 }
 
-module.exports = { configurar, iniciar, encolar, buscar, cancelar, estado, buscarYtdlp, version, bajarYtdlp, actualizar, carpetaDestino, dentroDeCarpeta, enlaceDeLoQueMira, enlaceDeTexto, explicar, argumentos, CALIDADES, _pruebas: { nombreDe } };
+module.exports = { configurar, iniciar, encolar, buscar, cancelar, estado, buscarYtdlp, version, bajarYtdlp, actualizar, revisarVersion, masNueva, carpetaDestino, dentroDeCarpeta, enlaceDeLoQueMira, enlaceDeTexto, explicar, argumentos, CALIDADES, _pruebas: { nombreDe } };

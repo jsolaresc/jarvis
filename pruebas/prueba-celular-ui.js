@@ -66,7 +66,7 @@ async function hasta(fn, ms = 20000, que = '') {
 (async () => {
   const raiz = path.join(__dirname, '..');
   const electron = spawn('xvfb-run', ['-a', path.join(raiz, 'node_modules', '.bin', 'electron'), '.', '--no-sandbox', '--remote-debugging-port=9333'], {
-    cwd: raiz, env: { ...process.env, JARVIS_DATOS: DATOS, JARVIS_TAILSCALE: ts, JARVIS_YTDLP: YTDLP, JARVIS_RED: RED, JARVIS_FFMPEG: '/usr/local/bin/ffmpeg' }, stdio: ['ignore', 'pipe', 'pipe'],
+    cwd: raiz, env: { ...process.env, JARVIS_DATOS: DATOS, JARVIS_TAILSCALE: ts, JARVIS_YTDLP: YTDLP, JARVIS_YTDLP_ULTIMA: '2026.11.20', JARVIS_RED: RED, JARVIS_FFMPEG: '/usr/local/bin/ffmpeg' }, stdio: ['ignore', 'pipe', 'pipe'],
   });
   let log = '';
   electron.stdout.on('data', (d) => { log += d; });
@@ -524,6 +524,17 @@ async function hasta(fn, ms = 20000, que = '') {
     assert.deepStrictEqual(nombresClips, [...nombresClips].sort((a, b) => a.localeCompare(b, 'es', { numeric: true, sensitivity: 'base' })), 'ordenados por nombre');
     await ajustes.screenshot({ path: path.join(SALIDA, '18-pc-clips-filtros.png') });
     assert.deepStrictEqual(erroresAjustes, []);
+
+    // Inicio de Ajustes: el aviso de yt-dlp viejo, con su botón; y en Sistema → Componentes, "Actualizar".
+    await ajustes.click('#menu button[data-grupo="resumen"]');
+    await hasta(() => ajustes.locator('.aviso-sistema', { hasText: 'yt-dlp está desactualizado' }).count(), 10000, 'aviso de yt-dlp en Inicio');
+    assert.ok(await ajustes.locator('.aviso-sistema button', { hasText: 'Actualizar yt-dlp' }).count());
+    assert.ok(!(await ajustes.locator('#menu button[data-grupo="sistema"] .punto-menu').isHidden()), 'punto en Sistema');
+    await ajustes.screenshot({ path: path.join(SALIDA, '19-pc-inicio-avisos.png') });
+    await ajustes.locator('.aviso-sistema button', { hasText: 'Ver' }).first().click();
+    await hasta(() => ajustes.locator('.tarjeta-componente', { hasText: 'Desactualizado · 2026.11.01' }).count(), 10000, 'yt-dlp desactualizado en Componentes');
+    assert.ok(await ajustes.locator('.tarjeta-componente', { hasText: 'yt-dlp' }).getByRole('button', { name: 'Actualizar' }).count());
+    await ajustes.screenshot({ path: path.join(SALIDA, '20-pc-componentes-ytdlp.png') });
 
     // El 401 es esperado (el pedido después de desvincular), el 422 también (WhatsApp sin conectar en el sandbox) y el 403 (cfg:leer desde el celular).
     const inesperados = errores.filter((x) => !/status of (401|422|403)/.test(x));

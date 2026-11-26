@@ -131,6 +131,42 @@ prueba('una rutina sigue aunque un paso falle, y cuenta qué falló', async () =
   await assert.rejects(() => acciones.ejecutarRutina('no existe'), /No existe la rutina/);
 });
 
+prueba('yt-dlp: sabe si está viejo y lo avisa (también si una descarga falla por eso)', async () => {
+  const descargasM = require('../src/main/descargas');
+  assert.ok(descargasM.masNueva('2026.11.20', '2026.10.31'));
+  assert.ok(descargasM.masNueva('2026.11.20.1', '2026.11.20'));
+  assert.ok(!descargasM.masNueva('2026.11.20', '2026.11.20'));
+  assert.ok(!descargasM.masNueva('2026.01.02', '2026.11.20'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-ytdlp-'));
+  const falso = path.join(dir, 'yt-dlp');
+  fs.writeFileSync(falso, '#!/bin/sh\nif [ "$1" = "--version" ]; then echo 2026.01.01; fi\nexit 0\n', { mode: 0o755 });
+  const antes = [process.env.JARVIS_YTDLP, process.env.JARVIS_YTDLP_ULTIMA];
+  process.env.JARVIS_YTDLP = falso; process.env.JARVIS_YTDLP_ULTIMA = '2026.11.20';
+  try {
+    await descargasM.buscarYtdlp({ olvidar: true });
+    let v = await descargasM.revisarVersion({ fuerza: true });
+    assert.deepStrictEqual([v.version, v.ultima, v.desactualizado], ['2026.01.01', '2026.11.20', true]);
+    process.env.JARVIS_YTDLP_ULTIMA = '2026.01.01'; // al día…
+    v = await descargasM.revisarVersion({ fuerza: true });
+    assert.strictEqual(v.desactualizado, false);
+    process.env.JARVIS_YTDLP_ULTIMA = 'error'; // …GitHub no contesta, pero una descarga falló como cuando está viejo
+    assert.match(descargasM.explicar('ERROR: [youtube] abc: Unable to extract nsig'), /desactualizado/);
+    v = await descargasM.revisarVersion({ fuerza: true });
+    assert.ok(v.desactualizado && v.fallo);
+    process.env.JARVIS_YTDLP_ULTIMA = '2026.01.01'; // GitHub dice que ya es la última: el error era otra cosa, no se insiste
+    v = await descargasM.revisarVersion({ fuerza: true });
+    assert.strictEqual(v.desactualizado, false);
+    // Una copia que no se actualiza con "-U" (fuera de Windows) explica qué hacer.
+    process.env.JARVIS_YTDLP_ULTIMA = '2026.11.20';
+    await assert.rejects(descargasM.actualizar(), /instalaste/);
+  } finally {
+    [process.env.JARVIS_YTDLP, process.env.JARVIS_YTDLP_ULTIMA] = antes;
+    if (antes[0] === undefined) delete process.env.JARVIS_YTDLP;
+    if (antes[1] === undefined) delete process.env.JARVIS_YTDLP_ULTIMA;
+    await descargasM.buscarYtdlp({ olvidar: true });
+  }
+});
+
 prueba('los números argentinos se prueban con y sin el 9', () => {
   assert.deepStrictEqual(whatsapp.variantes('+54 9 11 2345-6789'), ['5491123456789', '541123456789']);
   assert.deepStrictEqual(whatsapp.variantes('11 2345 6789'), ['5491123456789', '541123456789']);

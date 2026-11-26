@@ -728,6 +728,30 @@ function buscadorDeAgenda() {
 }
 
 const compo = { lista: null, act: null, info: {}, tam: null }; // Componentes y Actualizaciones
+// Avisos del sistema para el Inicio: versión nueva de Jarvis, yt-dlp viejo, componentes con error.
+let avisosSistema = [];
+const avisoHaciendo = new Set();
+async function cargarAvisosSistema() {
+  avisosSistema = await pedir('avisos:sistema').catch(() => avisosSistema);
+  pintarPuntosDelMenu();
+  if (seccion === 'resumen' && !escribiendo()) pintar();
+}
+function bloqueAvisosSistema() {
+  if (!avisosSistema.length) return null;
+  const ICONO = { aviso: 'novedades', mal: 'info', info: 'actualizar' };
+  return h('section', { class: 'avisos-sistema', 'aria-label': 'Avisos' }, avisosSistema.map((a) => h('div', { class: `aviso-sistema ${a.tono}` },
+    h('span', { class: 'as-icono', html: icono(ICONO[a.tono] || 'info', 18) }),
+    h('div', { class: 'as-texto' }, h('b', {}, a.titulo), a.texto ? h('span', {}, a.texto) : null),
+    h('div', { class: 'as-acciones' },
+      a.accion ? boton(avisoHaciendo.has(a.id) ? 'Un momento…' : a.accion.texto, async (ev) => {
+        if (avisoHaciendo.has(a.id)) return;
+        avisoHaciendo.add(a.id); ev.target.disabled = true; pintar();
+        try { const r = await pedir(a.accion.canal, ...(a.accion.args || [])); if (typeof r === 'string') avisarGuardado(r); } catch (e) { avisarGuardado(e.message); }
+        avisoHaciendo.delete(a.id);
+        await cargarAvisosSistema(); if (seccion === 'resumen') pintar();
+      }, 'principal chico') : null,
+      a.hoja ? boton('Ver', () => irA(a.hoja), 'chico') : null))));
+}
 let relojCompo = null;
 async function cargarComponentes() {
   clearTimeout(relojCompo);
@@ -2637,8 +2661,8 @@ const secciones = {
         boton('Abrir la carpeta', () => pedir('descargas:carpeta').catch((er) => avisarGuardado(er.message)), 'chico'),
         e.ytdlp ? boton(descargasUI.actualizando === '…' ? 'Actualizando…' : 'Actualizar yt-dlp', async () => {
           descargasUI.actualizando = '…'; pintar();
-          try { descargasUI.actualizando = await pedir('descargas:actualizar'); } catch (er) { descargasUI.actualizando = er.message; }
-          await cargarDescargas();
+          try { descargasUI.actualizando = await pedir('componentes:actualizar', 'ytdlp'); } catch (er) { descargasUI.actualizando = er.message; }
+          await cargarDescargas(); cargarAvisosSistema();
         }, 'chico') : null),
       descargasUI.actualizando && descargasUI.actualizando !== '…' ? h('p', { class: 'ayuda' }, descargasUI.actualizando) : null,
       h('h2', {}, 'Avanzado'),
@@ -2886,7 +2910,13 @@ const secciones = {
     const filas = !lista ? [h('p', { class: 'bajada cargando' }, 'Revisando qué está instalado…')] : lista.map((c) => h('div', { class: 'tarjeta-componente' },
       h('div', { class: 'fila' },
         h('strong', {}, c.nombre),
-        h('span', { class: `nota ${c.listo ? 'bien' : c.error ? 'mal' : c.bajando ? 'aviso' : ''}` }, c.listo ? 'Instalado' : c.bajando ? 'Bajando…' : c.error ? 'No se pudo bajar' : `No instalado · ~${c.mb} MB`),
+        h('span', { class: `nota ${c.listo ? (c.desactualizado ? 'aviso' : 'bien') : c.error ? 'mal' : c.bajando ? 'aviso' : ''}` },
+          c.actualizando ? 'Actualizando…' : c.listo ? (c.desactualizado ? `Desactualizado${c.version ? ` · ${c.version}` : ''}${c.ultima && c.ultima !== c.version ? ` (salió la ${c.ultima})` : ''}` : `Instalado${c.version ? ` · ${c.version}` : ''}`) : c.bajando ? 'Bajando…' : c.error ? 'No se pudo bajar' : `No instalado · ~${c.mb} MB`),
+        c.listo && c.actualizable ? boton(c.actualizando ? 'Actualizando…' : 'Actualizar', async (ev) => {
+          ev.target.disabled = true; c.actualizando = true; pintar();
+          try { avisarGuardado(await pedir('componentes:actualizar', c.id)); } catch (e) { avisarGuardado(e.message); }
+          await cargarComponentes(); cargarAvisosSistema();
+        }, c.desactualizado ? 'principal chico' : 'chico') : null,
         c.listo || c.bajando ? null : boton(c.recomendado ? 'Bajar (recomendado)' : 'Bajar', async () => { try { await pedir('componentes:instalar', c.id); setTimeout(cargarComponentes, 400); } catch (e) { avisarGuardado(e.message); } }, c.recomendado ? 'principal chico' : 'chico')),
       h('p', { class: 'nota' }, c.detalle),
       c.error ? h('p', { class: 'nota mal' }, c.error) : null));
@@ -3165,6 +3195,7 @@ secciones.resumen = function resumen() {
   return [
     h('h1', {}, 'Inicio'),
     h('p', { class: 'bajada' }, 'Cómo está cada servicio y lo que falta configurar.'),
+    bloqueAvisosSistema(),
     h('div', { class: 'atajos-inicio' },
       [['nota', 'Notas', 'notas', notasLista ? `${notasLista.length} ${notasLista.length === 1 ? 'nota' : 'notas'}` : 'Lo que le pediste anotar'],
         ['clip', 'Clips', 'clips', cfg.clips.activo ? 'Grabando en segundo plano' : 'Repetición instantánea'],
@@ -3260,6 +3291,8 @@ function pendientes() {
   if (faltaVoz || (voces.voz && voces.voz.error)) p.asistente = 'Faltan los modelos de voz';
   else if (!Object.values(ia || {}).some((x) => x && x.configurado)) p.asistente = 'Sin inteligencia configurada';
   if (whatsapp.fase === 'error') p.cuentas = 'WhatsApp con error';
+  const importante = avisosSistema.filter((a) => a.tono !== 'info');
+  if (importante.length) { p.sistema = importante.map((a) => a.titulo).join(' · '); p.resumen = p.sistema; }
   return p;
 }
 function pintarPuntosDelMenu() {
@@ -3417,6 +3450,7 @@ function irA(hoja) {
   pintar();
   if (seccion === 'clips' || seccion === 'clips-ajustes') { nombresFilas = null; refrescarClips(); cargarClips(); }
   if (seccion === 'resumen' && !notasLista) cargarNotas();
+  if (seccion === 'resumen') cargarAvisosSistema();
   if (seccion === 'almacenamiento') { almacen = null; pintar(); cargarAlmacen(); }
   if (seccion === 'componentes') cargarComponentes();
   if (seccion === 'actualizaciones') cargarActualizacion();
@@ -3547,3 +3581,6 @@ new MutationObserver(() => etiquetarIconos(document.body)).observe(document.body
 // Cambios hechos desde el celular: se toman acá para no pisarlos al guardar en la PC.
 jarvis.escuchar('rutinas-celular', (lista) => { if (Array.isArray(lista)) rutinas = lista; if (seccion === 'rutinas' && !escribiendo()) pintar(); });
 jarvis.escuchar('agenda-celular', () => { agendaUI.datos = null; agendaUI.pidiendo = null; if (seccion === 'agenda' && !agendaUI.editor && !escribiendo()) pintar(); });
+
+jarvis.escuchar('avisos-sistema', (lista) => { if (Array.isArray(lista)) avisosSistema = lista; pintarPuntosDelMenu(); if (seccion === 'resumen' && !escribiendo()) pintar(); });
+cargarAvisosSistema();

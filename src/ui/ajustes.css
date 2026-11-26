@@ -794,3 +794,16 @@ ol.pasos > li::before, ol.pasos-lista > li::before, ol.pasos-qr > li::before { c
 .clips-filtros { gap: 12px; flex-wrap: wrap; margin: 4px 0 10px; }
 .clips-filtros select { margin-left: 6px; }
 .clips-paginas { justify-content: center; gap: 12px; margin-top: 12px; }
+
+/* Avisos del sistema en el Inicio (versión nueva de Jarvis, yt-dlp viejo…) */
+.avisos-sistema { display: grid; gap: 8px; margin: 0 0 18px; }
+.aviso-sistema { display: flex; gap: 12px; align-items: center; padding: 12px 14px; border-radius: var(--radio-g); background: var(--panel); border: 1px solid var(--linea); }
+.aviso-sistema.aviso { background: color-mix(in srgb, var(--aviso) 9%, var(--panel)); border-color: color-mix(in srgb, var(--aviso) 40%, var(--linea)); }
+.aviso-sistema.mal { background: color-mix(in srgb, var(--mal) 9%, var(--panel)); border-color: color-mix(in srgb, var(--mal) 40%, var(--linea)); }
+.aviso-sistema .as-icono { line-height: 0; color: var(--tenue); flex: none; }
+.aviso-sistema.aviso .as-icono { color: var(--aviso); }
+.aviso-sistema.mal .as-icono { color: var(--mal); }
+.aviso-sistema .as-texto { flex: 1; min-width: 0; display: grid; gap: 2px; font-size: var(--t-s); }
+.aviso-sistema .as-texto b { font-size: var(--t-m, 14px); }
+.aviso-sistema .as-texto span { color: var(--tenue); }
+.aviso-sistema .as-acciones { display: flex; gap: 6px; flex: none; flex-wrap: wrap; justify-content: flex-end; }
