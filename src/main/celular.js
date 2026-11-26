@@ -26,6 +26,7 @@ const ARCHIVO = () => path.join(DATOS, 'celular.json');
 const PUERTO = 47820;
 const PUERTO_CASA = 47821;
 const MAX_CUERPO = 64 * 1024;
+const MAX_CUERPO_PC = 512 * 1024; // /api/pc: las rutinas enteras pueden pesar más que un pedido común
 const VIDA_CODIGO = 5 * 60000;
 const MAX_SUBIDA = 2 * 1024 * 1024 * 1024; // lo que acepta WhatsApp como documento
 // Lo que se baja para el celular y lo que el celular sube quedan aparte (en datos/) y se borran solos: al llevárselo,
@@ -50,6 +51,7 @@ const puente = {
   descargar: async () => ({ id: 0, texto: '' }), // ({ url, modo, calidad, para, carpeta }) con yt-dlp
   descarga: () => null, // id -> { estado, pct, nombre, archivo, error, … }
   guardarSubida: async () => 'Listo.', // (ruta, nombre) lo que mandó el celular, a la carpeta de Descargas de la PC
+  pc: async () => { throw conCodigo(403, 'No disponible.'); }, // (canal, args, quien) lo mismo que Ajustes de la PC: notas, calendario, rutinas, historial
   inicio: async () => ({}), // datos de los widgets de Inicio: { clima, agenda, notas }
   avisos: () => [], // lo que el celular tiene que avisar: [{ id, cuando, titulo, texto, tipo }] (si el usuario lo quiere ahí)
   anotar: () => {}, // (texto, { error }) al Historial
@@ -195,11 +197,11 @@ function json(res, status, dato) {
   res.writeHead(status, { ...SEGURIDAD, 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Length': Buffer.byteLength(cuerpo) });
   res.end(cuerpo);
 }
-function leerCuerpo(req) {
+function leerCuerpo(req, max = MAX_CUERPO) {
   return new Promise((ok, mal) => {
-    if (Number(req.headers['content-length']) > MAX_CUERPO) { req.resume(); mal(conCodigo(413, 'Pedido demasiado grande.')); return; }
+    if (Number(req.headers['content-length']) > max) { req.resume(); mal(conCodigo(413, 'Pedido demasiado grande.')); return; }
     let n = 0; const partes = [];
-    req.on('data', (c) => { n += c.length; if (n > MAX_CUERPO) { mal(conCodigo(413, 'Pedido demasiado grande.')); req.destroy(); return; } partes.push(c); });
+    req.on('data', (c) => { n += c.length; if (n > max) { mal(conCodigo(413, 'Pedido demasiado grande.')); req.destroy(); return; } partes.push(c); });
     req.on('end', () => { try { ok(n ? JSON.parse(Buffer.concat(partes).toString('utf8')) : {}); } catch { mal(conCodigo(400, 'Pedido mal armado.')); } });
     req.on('error', mal);
   });
@@ -389,6 +391,15 @@ async function atender(req, res, { casa = false } = {}) {
       const b = await leerCuerpo(req);
       if (!ACCIONES.has(b.tipo)) throw conCodigo(400, 'Acción desconocida.');
       json(res, 200, { texto: String(await puente.accion(b, { id: yo.id, nombre: yo.nombre }) || 'Listo.') });
+      return;
+    }
+    // Notas, calendario, rutinas e historial: los mismos pedidos que usa Ajustes en la PC (la lista de permitidos vive en main.js).
+    if (ruta === '/api/pc' && metodo === 'POST') {
+      const b = await leerCuerpo(req, MAX_CUERPO_PC);
+      const canal = String(b.canal || '');
+      if (!/^[a-z-]+:[a-z-]+$/.test(canal)) throw conCodigo(400, 'Pedido desconocido.');
+      const dato = await puente.pc(canal, Array.isArray(b.args) ? b.args : [], { id: yo.id, nombre: yo.nombre });
+      json(res, 200, { dato: dato === undefined ? null : dato });
       return;
     }
     if (ruta === '/api/inicio' && metodo === 'GET') { json(res, 200, await puente.inicio(yo)); return; }

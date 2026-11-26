@@ -676,9 +676,11 @@ function aplicarConfig() {
   publicarEstado();
 }
 
-const manejar = (canal, fn) => ipcMain.handle(canal, async (_e, ...datos) => {
+// Cada canal queda anotado también acá, para que el celular pueda usar los mismos (solo los de PARA_CELULAR).
+const canales = new Map();
+const manejar = (canal, fn) => { canales.set(canal, fn); ipcMain.handle(canal, async (_e, ...datos) => {
   try { return { ok: true, dato: await fn(...datos) }; } catch (e) { return { ok: false, error: e.message }; }
-});
+}); };
 
 manejar('selector:datos', () => (seleccion ? seleccion.datos : { titulo: '', items: [] }));
 // Desde los botones del notch y de Ajustes: la misma acción que por voz.
@@ -763,6 +765,21 @@ manejar('cfg:guardar', (nueva) => {
 manejar('rutinas:leer', () => leerRutinas());
 manejar('rutinas:guardar', (nuevas) => { guardarRutinas(nuevas); if (notch) notch.webContents.send('rutinas', leerRutinas()); return leerRutinas(); });
 manejar('rutina:ejecutar', (id) => correrRutina(id, 'click'));
+// Lo que hace falta para armar una rutina en el celular (solo nombres: nada de claves ni rutas).
+manejar('rutinas:opciones', async () => {
+  const c = leerConfig();
+  const { nombrePrincipal } = require('./config');
+  const nombresDe = (l) => [...new Set((l || []).map((x) => nombrePrincipal(x.nombre)).filter(Boolean))];
+  const [salidas, juegos] = await Promise.all([pc.listarSalidas().catch(() => []), Promise.resolve().then(() => pc.listarJuegosSteam()).catch(() => [])]);
+  let programas = []; try { programas = pc.listarProgramas().map((p) => p.nombre); } catch {}
+  return {
+    programas: programas.slice(0, 400), juegos: (juegos || []).map((j) => ({ id: j.id, nombre: j.nombre })).slice(0, 400),
+    salidas: [...new Set([...nombresDe(c.salidasAudio), ...(salidas || []).map((x) => x.nombre)])],
+    teles: nombresDe(c.teles), casa: nombresDe(c.casa), contactos: nombresDe(c.contactos),
+    modos: (c.modos || []).map((m) => ({ id: m.id, nombre: m.nombre })),
+    servicios: ((c.streaming || {}).servicios || []).map((x) => ({ id: x.id, nombre: x.nombre })),
+  };
+});
 async function correrRutina(id, origen = 'click') {
   fase('pensando');
   const rutina = leerRutinas().find((x) => x.id === id);
@@ -1191,7 +1208,33 @@ red.configurar({
   alCambiar: () => { if (ajustes && !ajustes.isDestroyed()) ajustes.webContents.send('celular'); },
   anotar: (t) => historial.anotar(t),
 });
+// Lo mismo que se ve en Ajustes de la PC (notas, calendario, rutinas, historial), para el celular vinculado.
+// Nada de cuentas, claves ni ajustes de la PC: eso queda en la PC.
+const PARA_CELULAR = new Set([
+  'notas:leer', 'notas:crear', 'notas:guardar', 'notas:borrar', 'notas:borrar-avisadas', 'notas:captura',
+  'recordatorios:leer', 'recordatorios:borrar',
+  'calendario:estado', 'calendario:conocidos', 'calendario:rango', 'calendario:guardar-local', 'calendario:borrar-local', 'calendario:cambiar', 'calendario:actualizar',
+  'rutinas:leer', 'rutinas:guardar', 'rutinas:opciones', 'rutina:ejecutar',
+  'historial:leer', 'historial:borrar', 'historial:limpiar',
+]);
+async function pcParaCelular(canal, args, quien) {
+  if (!PARA_CELULAR.has(canal) || !canales.has(canal)) throw Object.assign(new Error('Eso no se puede hacer desde el celular.'), { status: 403 });
+  const datos = Array.isArray(args) ? args.slice(0, 4) : [];
+  if (canal === 'rutinas:guardar') {
+    const l = datos[0];
+    if (!Array.isArray(l) || l.length > 200 || !l.every((r) => r && typeof r === 'object' && typeof r.id === 'string' && Array.isArray(r.pasos) && r.pasos.length <= 60 && r.pasos.every((p) => p && typeof p === 'object' && typeof p.tipo === 'string')))
+      throw Object.assign(new Error('Esas rutinas no tienen el formato esperado.'), { status: 400 });
+  }
+  if (canal === 'rutina:ejecutar') return correrRutina(String(datos[0] || ''), 'celular');
+  const r = await canales.get(canal)(...datos);
+  const abierto = ajustes && !ajustes.isDestroyed();
+  if (canal === 'rutinas:guardar' && abierto) ajustes.webContents.send('rutinas-celular', leerRutinas());
+  if (/^calendario:(guardar-local|borrar-local|cambiar)$/.test(canal) && abierto) ajustes.webContents.send('agenda-celular');
+  if (/^(notas|rutinas|calendario:(guardar|borrar|cambiar))/.test(canal) && canal !== 'notas:leer' && canal !== 'notas:captura' && canal !== 'rutinas:leer' && canal !== 'rutinas:opciones') historial.anotar(`Celular (${quien && quien.nombre ? quien.nombre : 'vinculado'}): ${canal}`);
+  return r;
+}
 celular.configurar({
+  pc: pcParaCelular,
   inicio: inicioParaCelular,
   avisos: avisosParaCelular,
   texto: (texto, quien) => cerebro.textoRemoto(texto, { id: `cel:${quien.id}`, enVoz: !!leerConfig().celular.hablarEnPC, origen: 'celular' }),

@@ -98,6 +98,7 @@ async function hasta(fn, ms = 20000, que = '') {
     const p = await cel.newPage();
     p.on('console', (m) => { if (m.type() === 'error') errores.push(`celular: ${m.text()}`); });
     p.on('pageerror', (e) => errores.push(`celular: ${e.message}`));
+    p.on('response', async (r) => { if (r.url().endsWith('/api/pc') && r.status() >= 400) errores.push(`celular /api/pc ${r.status()}: ${r.request().postData()} → ${await r.text().catch(() => '')}`); });
     await p.goto(`http://127.0.0.1:${PUERTO}/#v=${codigo}`);
     await hasta(() => p.locator('#vincular:not([hidden])').count(), 5000, 'pantalla de vincular');
     assert.strictEqual((await p.inputValue('#codigo')).replace(/\D/g, ''), codigo, 'el QR trae el código');
@@ -150,7 +151,9 @@ async function hasta(fn, ms = 20000, que = '') {
     await p.screenshot({ path: path.join(SALIDA, '6-celular-inicio-editado.png'), fullPage: true });
 
     // Descargar: una para este celular (la PC la baja y el celular se la lleva) y un audio para la PC.
-    await p.click('#abajo button[data-hoja="descargar"]');
+    await p.click('#abajo button[data-hoja="mas"]');
+    await p.screenshot({ path: path.join(SALIDA, '6b-celular-mas.png') });
+    await p.click('.mas-item:has-text("Descargar")');
     await p.fill('#d-url', 'Mirá esto https://youtu.be/abc123 jaja');
     assert.strictEqual(await p.inputValue('#d-url'), 'https://youtu.be/abc123', 'deja solo el link');
     await p.click('.segmentado[data-campo="calidad"] [data-valor="720"]');
@@ -229,6 +232,72 @@ async function hasta(fn, ms = 20000, que = '') {
     const avisoWa = await p.textContent('#aviso');
     assert.match(avisoWa, /WhatsApp/);
     await p.screenshot({ path: path.join(SALIDA, '8-celular-mensaje.png') });
+
+    // ----- Más: notas, calendario, rutinas e historial, igual que en Ajustes de la PC -----
+    const pcPide = async (canal, ...a) => (await notch.evaluate(([c, x]) => window.jarvis.pedir(c, ...x), [canal, a])).dato;
+    await p.click('#abajo button[data-hoja="mas"]');
+    await p.click('.mas-item:has-text("Notas")');
+    await p.fill('#n-texto', 'Llamar al plomero');
+    const enUnaHora = new Date(Date.now() + 3600000); const d2 = (x) => String(x).padStart(2, '0');
+    await p.fill('#n-cuando', `${enUnaHora.getFullYear()}-${d2(enUnaHora.getMonth() + 1)}-${d2(enUnaHora.getDate())}T${d2(enUnaHora.getHours())}:${d2(enUnaHora.getMinutes())}`);
+    await p.click('#form-nota button[type="submit"]');
+    await hasta(() => p.locator('#lista-notas li .datos b', { hasText: 'Llamar al plomero' }).count(), 8000, 'nota en la lista');
+    assert.ok((await pcPide('notas:leer')).some((n) => n.texto === 'Llamar al plomero' && n.cuando), 'la nota con aviso quedó en la PC');
+    await p.locator('#lista-notas li .abrir', { hasText: 'Llamar al plomero' }).click();
+    await hasta(() => p.locator('#hoja-ed[open]').count(), 3000, 'editor de nota');
+    await p.fill('#ed-cuerpo textarea', 'Llamar al plomero mañana');
+    await p.screenshot({ path: path.join(SALIDA, '9a-celular-nota-editar.png') });
+    await p.click('#ed-botones button:has-text("Guardar")');
+    await hasta(async () => (await pcPide('notas:leer')).some((n) => n.texto === 'Llamar al plomero mañana'), 8000, 'nota cambiada en la PC');
+    await p.screenshot({ path: path.join(SALIDA, '9b-celular-notas.png'), fullPage: true });
+
+    await p.click('#abajo button[data-hoja="mas"]');
+    await p.click('.mas-item:has-text("Calendario")');
+    await p.click('#c-nuevo');
+    await p.fill('#ed-cuerpo input[aria-label="Nombre"]', 'Turno dentista');
+    await p.selectOption('#ed-cuerpo select', '30');
+    await p.screenshot({ path: path.join(SALIDA, '9c-celular-evento-nuevo.png') });
+    await p.click('#ed-botones button:has-text("Guardar")');
+    await hasta(() => p.locator('#agenda-cel .datos b', { hasText: 'Turno dentista' }).count(), 10000, 'evento en el calendario del celular');
+    const evs = (await pcPide('calendario:rango', { desde: Date.now() - 86400000, hasta: Date.now() + 3 * 86400000 })).eventos;
+    const ev = evs.find((x) => x.titulo === 'Turno dentista');
+    assert.ok(ev && ev.local && ev.avisos && ev.avisos[0].antes === 30, `evento en la PC: ${JSON.stringify(ev)}`);
+    assert.ok(await p.locator('#agenda-cel .datos b', { hasText: 'Llamar al plomero mañana' }).count(), 'el recordatorio también se ve en el calendario');
+    await p.screenshot({ path: path.join(SALIDA, '9d-celular-calendario.png'), fullPage: true });
+    await p.locator('#agenda-cel .abrir', { hasText: 'Turno dentista' }).click();
+    p.once('dialog', (d) => d.accept());
+    await p.click('#ed-botones button:has-text("Borrar")');
+    await hasta(async () => !(await pcPide('calendario:rango', { desde: Date.now() - 86400000, hasta: Date.now() + 3 * 86400000 })).eventos.some((x) => x.titulo === 'Turno dentista'), 8000, 'evento borrado');
+
+    await p.click('#abajo button[data-hoja="mas"]');
+    await p.click('.mas-item:has-text("Rutinas")');
+    await hasta(() => p.locator('#lista-rutinas li .abrir').count(), 8000, 'rutinas en el celular');
+    const cuantasAntes = (await pcPide('rutinas:leer')).length;
+    await p.click('#r-nueva');
+    await hasta(() => p.locator('#hoja-ed[open]').count(), 5000, 'editor de rutina');
+    await p.fill('#ed-cuerpo input[aria-label="Nombre"]', 'Llegué a casa');
+    await p.click('#ed-cuerpo button:has-text("Agregar paso")');
+    await p.selectOption('.paso-r select[aria-label^="Qué hace"]', 'decir');
+    await p.fill('.paso-r input[aria-label="Modo juego activado."]', 'Bienvenida a casa');
+    await p.click('#ed-cuerpo button:has-text("Agregar paso")');
+    await p.locator('.paso-r').nth(1).locator('select[aria-label^="Qué hace"]').selectOption('esperar');
+    await p.locator('.paso-r').nth(1).locator('input').fill('1');
+    await p.screenshot({ path: path.join(SALIDA, '9e-celular-rutina-editar.png'), fullPage: true });
+    await p.click('#ed-botones button:has-text("Guardar")');
+    await hasta(async () => (await pcPide('rutinas:leer')).length === cuantasAntes + 1, 8000, 'rutina nueva en la PC');
+    const nuevaR = (await pcPide('rutinas:leer')).find((r) => r.nombre === 'Llegué a casa');
+    assert.deepStrictEqual(nuevaR.pasos, [{ tipo: 'decir', texto: 'Bienvenida a casa' }, { tipo: 'esperar', segundos: 1 }]);
+    await p.screenshot({ path: path.join(SALIDA, '9f-celular-rutinas.png'), fullPage: true });
+    // Un canal que no está permitido para el celular se rechaza.
+    const prohibido = await p.evaluate(async () => { const r = await fetch('/api/pc', { method: 'POST', headers: { Authorization: `Bearer ${localStorage.getItem('jarvis.token')}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ canal: 'cfg:leer', args: [] }) }); return r.status; });
+    assert.strictEqual(prohibido, 403, 'cfg:leer no se puede desde el celular');
+
+    await p.click('#abajo button[data-hoja="mas"]');
+    await p.click('.mas-item:has-text("Historial")');
+    await hasta(() => p.locator('#lista-historial > li').count(), 8000, 'historial en el celular');
+    await p.click('#h-filtros [data-filtro="celular"]');
+    assert.ok(await p.locator('#lista-historial > li .datos b', { hasText: 'modo silencio' }).count(), 'muestra lo hecho desde el celular');
+    await p.screenshot({ path: path.join(SALIDA, '9g-celular-historial.png'), fullPage: true });
 
     // Historial de la PC: quedó "desde el celular".
     const hist = await notch.evaluate(() => window.jarvis.pedir('historial:leer'));
@@ -456,8 +525,8 @@ async function hasta(fn, ms = 20000, que = '') {
     await ajustes.screenshot({ path: path.join(SALIDA, '18-pc-clips-filtros.png') });
     assert.deepStrictEqual(erroresAjustes, []);
 
-    // El 401 es esperado (el pedido después de desvincular) y el 422 también (WhatsApp sin conectar en el sandbox).
-    const inesperados = errores.filter((x) => !/status of (401|422)/.test(x));
+    // El 401 es esperado (el pedido después de desvincular), el 422 también (WhatsApp sin conectar en el sandbox) y el 403 (cfg:leer desde el celular).
+    const inesperados = errores.filter((x) => !/status of (401|422|403)/.test(x));
     assert.deepStrictEqual(inesperados, [], `errores de consola:\n${errores.join('\n')}`);
     console.log('TODO BIEN. Capturas en', SALIDA);
   } catch (e) {

@@ -3543,3 +3543,7 @@ async function cargarDispositivosMultimedia() {
 // [E32] Botones de solo ícono: el "title" pasa a ser también su nombre accesible.
 function etiquetarIconos(raiz) { for (const b of raiz.querySelectorAll('button[title]:not([aria-label])')) if (!b.textContent.trim()) b.setAttribute('aria-label', b.title); }
 new MutationObserver(() => etiquetarIconos(document.body)).observe(document.body, { subtree: true, childList: true });
+
+// Cambios hechos desde el celular: se toman acá para no pisarlos al guardar en la PC.
+jarvis.escuchar('rutinas-celular', (lista) => { if (Array.isArray(lista)) rutinas = lista; if (seccion === 'rutinas' && !escribiendo()) pintar(); });
+jarvis.escuchar('agenda-celular', () => { agendaUI.datos = null; agendaUI.pidiendo = null; if (seccion === 'agenda' && !agendaUI.editor && !escribiendo()) pintar(); });

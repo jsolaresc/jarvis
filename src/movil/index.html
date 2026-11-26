@@ -71,8 +71,67 @@
       </div>
     </section>
 
+    <section id="s-mas" class="hoja" aria-label="Más" hidden>
+      <h2>Más cosas de tu PC</h2>
+      <div id="mas-lista" class="mas-lista"></div>
+    </section>
+
+    <section id="s-notas" class="hoja" aria-label="Notas" hidden>
+      <div class="fila-titulo"><h2>Notas</h2><button type="button" class="texto volver-mas">Más</button></div>
+      <form id="form-nota" autocomplete="off">
+        <textarea id="n-texto" rows="2" maxlength="2000" placeholder="Anotá algo (o un recordatorio)" aria-label="Nueva nota"></textarea>
+        <label for="n-cuando">Avisarme (opcional)</label>
+        <input id="n-cuando" type="datetime-local">
+        <button type="submit" class="principal">Anotar</button>
+      </form>
+      <div class="fila-titulo">
+        <div id="n-filtros" class="fichas chicas" role="radiogroup" aria-label="Mostrar">
+          <button type="button" role="radio" data-filtro="todas" aria-checked="true" class="on">Todas</button>
+          <button type="button" role="radio" data-filtro="aviso" aria-checked="false">Con aviso</button>
+          <button type="button" role="radio" data-filtro="sueltas" aria-checked="false">Sin aviso</button>
+        </div>
+        <button type="button" id="n-actualizar" class="icono" aria-label="Actualizar las notas"></button>
+      </div>
+      <input id="n-buscar" type="search" placeholder="Buscar en tus notas" aria-label="Buscar en tus notas">
+      <ul id="lista-notas" class="lista"></ul>
+      <button type="button" id="n-borrar-avisadas" class="texto peligro" hidden>Borrar las que ya avisaron</button>
+    </section>
+
+    <section id="s-calendario" class="hoja" aria-label="Calendario" hidden>
+      <div class="fila-titulo"><h2>Calendario</h2><button type="button" class="texto volver-mas">Más</button></div>
+      <div class="fila">
+        <button type="button" id="c-nuevo" class="principal">Nuevo evento</button>
+        <button type="button" id="c-actualizar" class="icono" aria-label="Actualizar el calendario"></button>
+      </div>
+      <p id="c-estado" class="tenue"></p>
+      <div id="agenda-cel" class="agenda-cel"></div>
+      <button type="button" id="c-mas" class="texto">Ver más adelante</button>
+    </section>
+
+    <section id="s-rutinas" class="hoja" aria-label="Rutinas" hidden>
+      <div class="fila-titulo"><h2>Rutinas</h2><button type="button" class="texto volver-mas">Más</button></div>
+      <p class="tenue">Tocá el botón para hacerla en la PC, o la rutina para cambiarla.</p>
+      <ul id="lista-rutinas" class="lista"></ul>
+      <button type="button" id="r-nueva" class="principal ancho">Nueva rutina</button>
+    </section>
+
+    <section id="s-historial" class="hoja" aria-label="Historial" hidden>
+      <div class="fila-titulo"><h2>Historial</h2><button type="button" class="texto volver-mas">Más</button></div>
+      <div class="fila-titulo">
+        <div id="h-filtros" class="fichas chicas" role="radiogroup" aria-label="Mostrar">
+          <button type="button" role="radio" data-filtro="todos" aria-checked="true" class="on">Todo</button>
+          <button type="button" role="radio" data-filtro="error" aria-checked="false">Con error</button>
+          <button type="button" role="radio" data-filtro="celular" aria-checked="false">Desde el celular</button>
+        </div>
+        <button type="button" id="h-actualizar" class="icono" aria-label="Actualizar el historial"></button>
+      </div>
+      <input id="h-buscar" type="search" placeholder="Buscar en el historial" aria-label="Buscar en el historial">
+      <ul id="lista-historial" class="lista historial"></ul>
+      <button type="button" id="h-limpiar" class="texto peligro">Borrar todo el historial</button>
+    </section>
+
     <section id="s-descargar" class="hoja" aria-label="Descargar" hidden>
-      <h2>Descargar un video</h2>
+      <div class="fila-titulo"><h2>Descargar un video</h2><button type="button" class="texto volver-mas">Más</button></div>
       <p class="tenue">Lo baja tu PC con yt-dlp (tiene que estar prendida). Desde YouTube también podés tocar Compartir → Jarvis.</p>
       <form id="form-descarga" autocomplete="off">
         <label for="d-url">Link</label>
@@ -144,9 +203,9 @@
   <nav id="abajo" hidden>
     <button type="button" data-hoja="inicio" aria-current="page"><span class="i" data-i="casa"></span>Inicio</button>
     <button type="button" data-hoja="charla"><span class="i" data-i="charla"></span>Charla</button>
-    <button type="button" data-hoja="descargar"><span class="i" data-i="bajar"></span>Descargar</button>
     <button type="button" data-hoja="archivos"><span class="i" data-i="carpeta"></span>Archivos</button>
     <button type="button" data-hoja="mensaje"><span class="i" data-i="whatsapp"></span>Mensaje</button>
+    <button type="button" data-hoja="mas"><span class="i" data-i="modos"></span>Más</button>
   </nav>
 
   <div id="menu" role="menu" hidden>
@@ -183,7 +242,19 @@
     </div>
   </dialog>
 
+  <!-- Editar una nota, un evento o una rutina -->
+  <dialog id="hoja-ed" aria-labelledby="ed-titulo">
+    <form method="dialog" class="ha-cuerpo" id="ed-form" autocomplete="off">
+      <h2 id="ed-titulo"></h2>
+      <div id="ed-cuerpo"></div>
+      <p id="ed-error" class="error" role="alert"></p>
+      <div id="ed-botones" class="ed-botones"></div>
+    </form>
+  </dialog>
+
   <datalist id="contactos"></datalist>
+  <datalist id="dl-programas"></datalist>
+  <datalist id="dl-juegos"></datalist>
   <script type="module" src="/app.js"></script>
 </body>
 </html>
