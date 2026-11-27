@@ -57,6 +57,7 @@ const puente = {
   abrirEnPC: async () => 'No disponible.', // (ruta) abre un archivo de esas carpetas en la PC
   guardadoEnPC: () => {}, // (ruta, quien) para avisar en el notch
   remoto: async () => { throw conCodigo(403, 'No disponible.'); }, // ({ tipo, ... }) mouse, teclado, música, bloquear, suspender
+  hablarEnPC: async () => { throw conCodigo(403, 'No disponible.'); }, // (buffer, tipo, quien) lo que se dijo en el celular suena en la PC
   despertarPC: () => null, // datos para prender la PC por la red (Wake-on-LAN): { mac, broadcast } // ({ enCasa }, quien) el celular avisa si está en la Wi-Fi de casa (rutinas "al llegar a casa") // (res, { video, audio, calidad }, quien) deja res abierta con el video en vivo
   pc: async () => { throw conCodigo(403, 'No disponible.'); }, // (canal, args, quien) lo mismo que Ajustes de la PC: notas, calendario, rutinas, historial
   inicio: async () => ({}), // datos de los widgets de Inicio: { clima, agenda, notas }
@@ -527,6 +528,19 @@ async function atender(req, res, { casa = false } = {}) {
     if (ruta === '/api/remoto' && metodo === 'POST') {
       const b = await leerCuerpo(req);
       json(res, 200, { texto: (await puente.remoto(b, { id: yo.id, nombre: yo.nombre })) || '' });
+      return;
+    }
+    // Hablar por los parlantes de la PC: un audio corto (hasta 4 MB, ~2 minutos) que suena al llegar.
+    if (ruta === '/api/hablar' && metodo === 'POST') {
+      const partes = []; let n = 0;
+      await new Promise((ok, mal) => {
+        req.on('data', (d) => { n += d.length; if (n > 4 * 1024 * 1024) { req.destroy(); mal(conCodigo(413, 'Ese audio es muy largo.')); return; } partes.push(d); });
+        req.on('end', ok); req.on('error', mal);
+      });
+      if (!n) throw conCodigo(400, 'No llegó el audio.');
+      const tipo = /^audio\/[a-z0-9.+-]+(;\s*codecs=[a-z0-9.,]+)?$/i.test(req.headers['content-type'] || '') ? req.headers['content-type'] : 'audio/webm';
+      await puente.hablarEnPC(Buffer.concat(partes), tipo, { id: yo.id, nombre: yo.nombre });
+      json(res, 200, { texto: 'Listo, sonó en la PC.' });
       return;
     }
     if (ruta === '/api/despertar' && metodo === 'GET') { json(res, 200, puente.despertarPC() || {}); return; }

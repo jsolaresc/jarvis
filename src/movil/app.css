@@ -276,7 +276,7 @@ select { width: 100%; min-height: 46px; border-radius: 12px; border: 1px solid v
 .lista li.pasada { opacity: .6; }
 .lista li > button.chico, button.chico { flex: none; min-height: 38px; padding: 0 14px; border-radius: 999px; font-weight: 600; font-size: 14px; border: 1px solid var(--ojo); }
 button.ancho { width: 100%; min-height: 48px; margin-top: 14px; border-radius: 12px; border: 1px solid var(--linea); background: transparent; font-weight: 600; }
-button.ancho.principal { border-color: var(--ojo); }
+button.ancho.principal { border-color: var(--ojo); color: var(--ojo); }
 #s-notas input[type="search"], #s-historial input[type="search"] { margin: 10px 0 4px; }
 #form-nota { margin-bottom: 14px; }
 #n-borrar-avisadas, #h-limpiar { margin-top: 12px; }
@@ -409,3 +409,58 @@ body.arrastrando * { -webkit-user-select: none; user-select: none; }
 .w-opcion.peligro { color: var(--mal, #ff6b6b); }
 .wo-texto { display: grid; gap: 2px; text-align: left; }
 .wo-texto small { color: var(--tenue); font-size: 12px; }
+
+/* Archivos de la PC */
+.pcc-arriba { align-items: center; margin: 6px 0 8px; }
+.pcc-camino { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; min-width: 0; font-size: var(--t-s); }
+.pcc-camino span { color: var(--tenue); }
+.pcc-camino button { padding: 6px 2px; min-height: 36px; max-width: 46vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pcc-camino button:last-child { color: var(--texto); font-weight: 600; }
+#pcc-subir { margin: 0 0 6px; }
+.pcc-vista { display: block; max-width: 100%; max-height: 50vh; margin: 4px auto 8px; border-radius: 10px; }
+
+/* Control de la PC */
+.touchpad { height: 42vh; min-height: 220px; border-radius: 18px; background: var(--superficie); border: 1px solid var(--linea); display: grid; place-items: center; padding: 18px; text-align: center; touch-action: none; user-select: none; -webkit-user-select: none; margin: 8px 0 10px; }
+.touchpad span { font-size: var(--t-s); max-width: 26ch; }
+.fila-teclado { display: flex; gap: 8px; margin: 12px 0 8px; }
+.fila-teclado input { flex: 1; min-width: 0; }
+.teclas { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; margin-bottom: 8px; }
+.teclas button { min-height: 44px; }
+.teclas .icono-texto { display: grid; place-items: center; }
+
+/* Cámara: hablar y vigilar */
+#cam-hablar.grabando { background: var(--mal); color: #fff; transform: scale(1.12); }
+#cam-vigilar[aria-pressed="true"] { background: var(--ojo); color: #071019; }
+
+/* Ajustes del celular */
+.grupo-ajustes { margin: 0 0 18px; }
+.grupo-ajustes h3 { margin: 18px 0 4px; font-size: var(--t-s); text-transform: uppercase; letter-spacing: .06em; color: var(--tenue); }
+.ajuste { padding: 4px 0 8px; border-bottom: 1px solid var(--linea); }
+.ajuste .tenue { margin: 2px 0 0 32px; font-size: var(--t-s); }
+.ajuste-fila { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--linea); }
+.ajuste-fila .datos { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.ajuste-fila .datos span { font-size: var(--t-s); color: var(--tenue); overflow-wrap: anywhere; }
+.acerca { margin-top: 18px; font-size: var(--t-s); }
+.bloqueo { position: fixed; inset: 0; z-index: 100; background: var(--fondo); display: grid; place-content: center; justify-items: center; gap: 16px; }
+.bloqueo .ic { color: var(--ojo); }
+
+/* Charla: lo que quedó esperando a la PC */
+#mensajes li.cola { align-self: flex-start; color: var(--tenue); background: var(--superficie); font-size: var(--t-s); }
+
+/* Widget Estado de la PC */
+.w-pc { display: grid; gap: 8px; width: 100%; height: 100%; align-content: center; border: 0; background: none; padding: 0; color: inherit; text-align: left; }
+.w-pc .pc-fila { display: grid; grid-template-columns: 34px 1fr auto; align-items: center; gap: 8px; font-size: var(--t-s); }
+.w-pc .pc-fila i { height: 6px; border-radius: 3px; background: var(--linea); overflow: hidden; }
+.w-pc .pc-fila b { display: block; height: 100%; background: var(--ojo); border-radius: 3px; transition: width .4s; }
+.w-pc .pc-fila b.alto { background: var(--mal); }
+.w-pc .pc-fila small { color: var(--tenue); white-space: nowrap; }
+.tam-1 .w-pc .pc-fila { grid-template-columns: 30px 1fr; }
+.tam-1 .w-pc .pc-fila small { display: none; }
+
+/* Rutinas: disparadores */
+.disparadores { display: grid; gap: 10px; }
+.disparador { padding: 10px; border-radius: 12px; background: var(--superficie); display: grid; gap: 8px; }
+.disparador .fila { display: flex; align-items: center; justify-content: space-between; }
+.dias { display: flex; gap: 6px; }
+.dias button { width: 38px; height: 38px; min-height: 0; padding: 0; border-radius: 50%; }
+.dias button.on { background: var(--ojo); color: #071019; border-color: var(--ojo); }

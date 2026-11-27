@@ -30,6 +30,7 @@ function proceso() {
 let reloj = null;
 // Si en 3 minutos nadie lo usa, se cierra (no queda nada abierto de más).
 function correr(linea) {
+  if (process.env.JARVIS_REMOTO_LOG) { require('fs').appendFileSync(process.env.JARVIS_REMOTO_LOG, `${linea}\n`); return; } // pruebas
   const p = proceso();
   p.stdin.write(`${linea}\n`);
   clearTimeout(reloj);

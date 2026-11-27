@@ -1266,7 +1266,7 @@ function estadoParaCelular() {
     conexion: { sin: !!conexion.estado().sin },
     // Para que la app de Android sepa cómo llegar a esta PC desde afuera (por la red de Tailscale).
     afuera: red.publica() ? { publica: red.publica() } : null,
-    camara: { permitida: !!c.celular.camara, mirando: camara.estado().mirando.length },
+    camara: { permitida: !!c.celular.camara, mirando: camara.estado().mirando.length, vigilando: camara.estado().vigilando },
     despertar: datosParaDespertar(), // para prender la PC por la red estando en casa
   };
 }
@@ -1301,7 +1301,7 @@ const PARA_CELULAR = new Set([
   'calendario:estado', 'calendario:conocidos', 'calendario:rango', 'calendario:guardar-local', 'calendario:borrar-local', 'calendario:cambiar', 'calendario:actualizar',
   'rutinas:leer', 'rutinas:guardar', 'rutinas:opciones', 'rutina:ejecutar',
   'historial:leer', 'historial:borrar', 'historial:limpiar', 'historial:repetir', 'historial:aRutina',
-  'pc:estado',
+  'pc:estado', 'camara:vigilar',
 ]);
 async function pcParaCelular(canal, args, quien) {
   if (!PARA_CELULAR.has(canal) || !canales.has(canal)) throw Object.assign(new Error('Eso no se puede hacer desde el celular.'), { status: 403 });
@@ -1325,6 +1325,46 @@ camara.configurar({
   ajustes: () => { const c = leerConfig(); return { permitido: !!(c.celular && c.celular.camara), camara: (c.camara || {}).dispositivo || '', microfono: (c.voz || {}).microfono || '' }; },
   avisar: (texto) => { if (!texto) return; historial.terminar(historial.empezar('Cámara de seguridad', 'celular'), { respuesta: texto }); if (notch && !notch.isDestroyed()) notch.webContents.send('decir', { texto, voz: false }); },
 });
+// Vigilar: si la webcam ve movimiento, avisa al celular al instante y guarda un video en los clips ("Cámara de seguridad").
+let ultimoAvisoMovimiento = 0;
+camara.configurar({
+  alMovimiento: (info) => {
+    if (info.error) { avisarAlCelular('Cámara de seguridad', `No pude vigilar: ${info.error}`, 'camara'); return; }
+    if (Date.now() - ultimoAvisoMovimiento < 60000) return; // un aviso por minuto, como mucho
+    ultimoAvisoMovimiento = Date.now();
+    const texto = `Hay movimiento frente a la cámara (${new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}).`;
+    historial.terminar(historial.empezar('Cámara de seguridad: movimiento', 'aviso'), { respuesta: texto });
+    avisarAlCelular('Cámara de seguridad', texto, 'movimiento');
+  },
+  alGrabado: (datos, info) => {
+    try {
+      const dir = path.join(leerConfig().clips.carpeta, 'Cámara de seguridad');
+      fs.mkdirSync(dir, { recursive: true });
+      const d = new Date(info.desde || Date.now());
+      const dos = (n) => String(n).padStart(2, '0');
+      const archivo = path.join(dir, `Movimiento ${d.getFullYear()}-${dos(d.getMonth() + 1)}-${dos(d.getDate())} ${dos(d.getHours())}.${dos(d.getMinutes())}.${dos(d.getSeconds())}.webm`);
+      fs.writeFileSync(archivo, datos);
+      avisarAlCelular('Cámara de seguridad', `Grabé ${info.segundos || ''} s de lo que pasó: está en Archivos → En la PC.`.replace('  ', ' '), 'grabado');
+    } catch (e) { console.error('[camara] no pude guardar el video:', e.message); }
+  },
+});
+function aplicarVigilancia() {
+  const c = leerConfig();
+  const v = (c.celular || {}).vigilar || {};
+  return camara.vigilar(v.activo && c.celular.camara ? v : null).catch((e) => { console.error('[camara] vigilar:', e.message); });
+}
+manejar('camara:vigilar', async (o = {}) => {
+  const c = leerConfig();
+  if (o.activo && !c.celular.camara) throw Object.assign(new Error('Primero prendé la cámara de seguridad en la PC: Ajustes → Dispositivos → Celular.'), { status: 403 });
+  c.celular.vigilar = { activo: !!o.activo, sensibilidad: ['baja', 'media', 'alta'].includes(o.sensibilidad) ? o.sensibilidad : ((c.celular.vigilar || {}).sensibilidad || 'media'), grabar: o.grabar !== false };
+  guardarConfig(c);
+  await camara.vigilar(c.celular.vigilar.activo ? c.celular.vigilar : null);
+  historial.terminar(historial.empezar(c.celular.vigilar.activo ? 'Vigilar con la cámara' : 'Dejar de vigilar con la cámara', 'celular'), { respuesta: 'Listo.' });
+  if (notch && !notch.isDestroyed()) notch.webContents.send('decir', { texto: c.celular.vigilar.activo ? 'La cámara de seguridad está vigilando.' : 'La cámara dejó de vigilar.', voz: false });
+  return camara.estado();
+});
+// Avisos "al instante" para el celular: la app (o su servicio en segundo plano) los recibe por /api/novedades.
+function avisarAlCelular(titulo, texto, tipo = 'aviso') { try { celular.publicar('aviso', { titulo, texto, tipo, id: `a${Date.now().toString(36)}` }); } catch {} }
 const presencia = new Map(); // celular → { enCasa, cuando }
 // Carpetas de la PC que el celular puede ver (Ajustes → Celular). Sin elegir: Descargas, Escritorio, Documentos, Imágenes y los clips.
 function carpetasCompartidas() {
@@ -1369,6 +1409,11 @@ celular.configurar({
     return r;
   },
   despertarPC: datosParaDespertar,
+  hablarEnPC: async (datos, tipo, quien) => {
+    await camara.sonar(datos, tipo);
+    historial.terminar(historial.empezar(`Hablar por los parlantes (desde ${quien && quien.nombre ? quien.nombre : 'el celular'})`, 'celular'), { respuesta: 'Listo.' });
+    if (notch && !notch.isDestroyed()) notch.webContents.send('decir', { texto: `${quien && quien.nombre ? quien.nombre : 'El celular'} habla por los parlantes.`, voz: false });
+  },
   presencia: async ({ enCasa }, quien) => {
     const antes = presencia.get(quien.id);
     presencia.set(quien.id, { enCasa: !!enCasa, cuando: Date.now() });
@@ -1485,6 +1530,7 @@ app.whenReady().then(async () => {
   const interfaz = await servidor.iniciarInterfaz();
   urlBase = interfaz.url;
   camara.configurar({ urlBase });
+  if (!PRUEBA || process.env.JARVIS_VIGILAR) setTimeout(() => aplicarVigilancia(), 15000);
 
   // Micrófono y cámara: solo para las páginas de Jarvis.
   const propio = (url) => typeof url === 'string' && url.startsWith(urlBase);
@@ -1631,6 +1677,7 @@ app.whenReady().then(async () => {
     correr: async (id, motivo) => {
       const r = leerRutinas().find((x) => x.id === id);
       if (notch && !notch.isDestroyed() && r) notch.webContents.send('decir', { texto: `Hago "${require('./config').nombrePrincipal(r.nombre)}": ${motivo}.`, voz: false });
+      if (r) avisarAlCelular('Rutina', `Hice "${require('./config').nombrePrincipal(r.nombre)}" sola: ${motivo}.`, 'rutina');
       return correrRutina(id, 'aviso', motivo);
     },
   });

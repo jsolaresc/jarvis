@@ -8,6 +8,9 @@ let lista = null;
 let urlBase = '';
 let avisar = () => {}; // (texto) cuando alguien empieza o deja de mirar
 let ajustesDe = () => ({}); // () => { permitido, camara, microfono }
+let alMovimiento = () => {}; // (info) cuando la vigilancia ve algo
+let alGrabado = () => {}; // (buffer, info) el video de lo que pasó
+let vigilando = null; // { sensibilidad } mientras la PC vigila sola
 const mirando = new Map(); // id -> { res, quien, desde, empezo }
 const MAX = 3;
 
@@ -15,11 +18,13 @@ function configurar(f = {}) {
   if (f.urlBase) urlBase = f.urlBase;
   if (f.avisar) avisar = f.avisar;
   if (f.ajustes) ajustesDe = f.ajustes;
+  if (f.alMovimiento) alMovimiento = f.alMovimiento;
+  if (f.alGrabado) alGrabado = f.alGrabado;
 }
 async function asegurarVentana() {
   if (ventana && !ventana.isDestroyed()) return lista;
   ventana = new BrowserWindow({ show: false, width: 320, height: 240, webPreferences: { preload: path.join(__dirname, 'preload.js'), backgroundThrottling: false } });
-  ventana.on('closed', () => { ventana = null; lista = null; for (const id of [...mirando.keys()]) terminar(id); });
+  ventana.on('closed', () => { ventana = null; lista = null; for (const id of [...mirando.keys()]) terminar(id); if (vigilando) setTimeout(() => { if (vigilando) vigilar(vigilando).catch(() => {}); }, 5000); });
   lista = new Promise((ok) => { ipcMain.once('camara:hola', ok); setTimeout(ok, 6000); });
   await ventana.loadURL(`${urlBase}/camara.html`);
   return lista;
@@ -32,7 +37,7 @@ function terminar(id, error) {
   try { if (error && !m.res.headersSent) { m.res.writeHead(503, { 'Content-Type': 'application/json; charset=utf-8' }); m.res.end(JSON.stringify({ error })); } else m.res.end(); } catch {}
   if (ventana && !ventana.isDestroyed()) ventana.webContents.send('camara:parar', id);
   if (m.empezo) avisar(mirando.size ? null : `Dejaron de mirar la cámara de seguridad (${m.quien}).`, mirando.size);
-  if (!mirando.size && ventana && !ventana.isDestroyed()) setTimeout(() => { if (!mirando.size && ventana && !ventana.isDestroyed()) ventana.destroy(); }, 20000);
+  if (!mirando.size && ventana && !ventana.isDestroyed()) setTimeout(() => { if (!mirando.size && !vigilando && ventana && !ventana.isDestroyed()) ventana.destroy(); }, 20000);
 }
 ipcMain.on('camara:trozo', (_e, id, datos) => {
   const m = mirando.get(id);
@@ -48,6 +53,9 @@ ipcMain.on('camara:lista', (_e, id, info) => {
   m.res.flushHeaders && m.res.flushHeaders();
   avisar(`${m.quien} está mirando la cámara de seguridad${m.audio ? ' (con micrófono)' : ''}.`, mirando.size);
 });
+ipcMain.on('camara:movimiento', (_e, info) => { if (vigilando) alMovimiento(info || {}); });
+ipcMain.on('camara:grabado', (_e, datos, info) => { try { alGrabado(Buffer.from(datos), info || {}); } catch {} });
+ipcMain.on('camara:vigilancia', (_e, info) => { if (vigilando && info && info.error) { vigilando.error = info.error; alMovimiento({ error: info.error }); } });
 ipcMain.on('camara:error', (_e, id, texto) => terminar(id, texto));
 ipcMain.on('camara:fin', (_e, id) => terminar(id));
 
@@ -65,7 +73,27 @@ async function mirar(res, { video = true, audio = true, calidad = 'normal' } = {
   res.on('close', () => terminar(id));
   ventana.webContents.send('camara:empezar', { id, video, audio, calidad, camara: a.camara, microfono: a.microfono });
 }
-const estado = () => ({ mirando: [...mirando.values()].filter((m) => m.empezo).map((m) => ({ quien: m.quien, desde: m.desde, audio: m.audio })) });
+// Vigilar: la PC mira sola la webcam; si ve movimiento avisa y graba hasta que se calme (para ver qué pasó).
+async function vigilar(o = null) {
+  if (!o || o.activo === false) {
+    vigilando = null;
+    if (ventana && !ventana.isDestroyed()) { ventana.webContents.send('camara:vigilar', { activo: false }); if (!mirando.size) setTimeout(() => { if (!mirando.size && !vigilando && ventana && !ventana.isDestroyed()) ventana.destroy(); }, 3000); }
+    return estado();
+  }
+  const a = ajustesDe();
+  if (!a.permitido) throw Object.assign(new Error('Primero prendé la cámara de seguridad en la PC: Ajustes → Dispositivos → Celular.'), { status: 403 });
+  vigilando = { sensibilidad: ['baja', 'media', 'alta'].includes(o.sensibilidad) ? o.sensibilidad : 'media', grabar: o.grabar !== false, desde: Date.now() };
+  await asegurarVentana();
+  ventana.webContents.send('camara:vigilar', { activo: true, sensibilidad: vigilando.sensibilidad, grabar: vigilando.grabar, camara: a.camara, microfono: a.microfono });
+  return estado();
+}
+// Hablar por los parlantes de la PC desde el celular (un audio corto que se reproduce acá).
+async function sonar(datos, tipo = 'audio/webm') {
+  await asegurarVentana();
+  ventana.webContents.send('camara:sonar', datos, tipo);
+  if (!mirando.size && !vigilando) setTimeout(() => { if (!mirando.size && !vigilando && ventana && !ventana.isDestroyed()) ventana.destroy(); }, 60000);
+}
+const estado = () => ({ vigilando: vigilando ? { sensibilidad: vigilando.sensibilidad, grabar: vigilando.grabar, desde: vigilando.desde, error: vigilando.error || '' } : null, mirando: [...mirando.values()].filter((m) => m.empezo).map((m) => ({ quien: m.quien, desde: m.desde, audio: m.audio })) });
 function cortarTodo() { for (const id of [...mirando.keys()]) terminar(id); }
 
-module.exports = { configurar, mirar, estado, cortarTodo };
+module.exports = { configurar, mirar, estado, cortarTodo, vigilar, sonar };

@@ -172,8 +172,18 @@
       <div class="segmentado grande" role="tablist" aria-label="Dónde están">
         <button type="button" role="tab" data-donde="pc" aria-selected="true">En la PC</button>
         <button type="button" role="tab" data-donde="celular" aria-selected="false">En este celular</button>
+        <button type="button" role="tab" data-donde="carpetas" aria-selected="false">Carpetas</button>
       </div>
-      <div class="fila-titulo">
+      <div id="pcc" hidden>
+        <div class="fila-titulo pcc-arriba">
+          <nav id="pcc-camino" class="pcc-camino" aria-label="Dónde estás"></nav>
+          <button type="button" id="pcc-actualizar" class="icono" aria-label="Actualizar"></button>
+        </div>
+        <button type="button" id="pcc-subir" class="ancho principal">Subir desde el celular</button>
+        <input type="file" id="pcc-archivo" multiple hidden>
+        <ul id="lista-pcc" class="lista"></ul>
+      </div>
+      <div class="fila-titulo" id="filtros-fila">
         <div id="filtros" class="fichas chicas" role="radiogroup" aria-label="Mostrar">
           <button type="button" role="radio" data-filtro="todo" aria-checked="true" class="on">Todo</button>
           <button type="button" role="radio" data-filtro="clip" aria-checked="false">Clips</button>
@@ -184,6 +194,29 @@
       </div>
       <p id="espacio" class="tenue"></p>
       <ul id="lista-archivos" class="lista"></ul>
+    </section>
+
+    <section id="s-ajustes" class="hoja" aria-label="Ajustes" hidden>
+      <div class="fila-titulo"><h2>Ajustes</h2><button type="button" class="texto volver-mas">Más</button></div>
+      <div id="ajustes-cuerpo"></div>
+    </section>
+
+    <section id="s-control" class="hoja" aria-label="Control de la PC" hidden>
+      <div class="fila-titulo"><h2>Control de la PC</h2><button type="button" class="texto volver-mas">Más</button></div>
+      <div id="tp" class="touchpad" role="application" aria-label="Touchpad: deslizá para mover el mouse, tocá para hacer clic, con dos dedos para desplazar"><span class="tenue">Deslizá para mover · tocá para clic · dos dedos para desplazar · mantené para arrastrar</span></div>
+      <div class="botonera dos">
+        <button type="button" data-rem='{"tipo":"clic"}'>Clic</button>
+        <button type="button" data-rem='{"tipo":"clic","boton":"derecho"}'>Clic derecho</button>
+      </div>
+      <form id="form-teclado" class="fila-teclado" autocomplete="off">
+        <input id="teclado" type="text" placeholder="Escribir en la PC" aria-label="Escribir en la PC" autocapitalize="off" autocorrect="off" spellcheck="false">
+        <button type="submit" class="principal">Escribir</button>
+      </form>
+      <div class="teclas" id="teclas"></div>
+      <h3>Música y volumen</h3>
+      <div class="teclas" id="teclas-media"></div>
+      <h3>Encendido</h3>
+      <div class="teclas" id="teclas-energia"></div>
     </section>
 
     <section id="s-mensaje" class="hoja" aria-label="Mensaje" hidden>
@@ -210,8 +243,7 @@
 
   <div id="menu" role="menu" hidden>
     <p id="menu-yo" class="tenue"></p>
-    <button type="button" role="menuitem" id="m-actualizar" hidden>Buscar actualizaciones</button>
-    <button type="button" role="menuitem" id="m-avisos" hidden>Avisos en este celular: sí</button>
+    <button type="button" role="menuitem" id="m-ajustes">Ajustes</button>
     <button type="button" role="menuitem" id="m-borrar">Borrar la charla</button>
     <button type="button" role="menuitem" id="m-desvincular" class="peligro">Desvincular este celular</button>
   </div>

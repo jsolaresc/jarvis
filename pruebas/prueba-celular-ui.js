@@ -46,8 +46,12 @@ setTimeout(() => console.log(JSON.stringify({ estado: 'Running', ip: '100.101.10
 process.stdin.on('end', () => process.exit(0)); process.stdin.resume();
 `);
 fs.chmodSync(RED, 0o755);
+const COMPARTIDA = path.join(DATOS, 'Compartida');
+fs.mkdirSync(path.join(COMPARTIDA, 'Fotos'), { recursive: true });
+fs.writeFileSync(path.join(COMPARTIDA, 'presupuesto.pdf'), Buffer.alloc(3000, 5));
+const REMOTO_LOG = path.join(DATOS, 'remoto.log');
 fs.writeFileSync(path.join(DATOS, 'config.json'), JSON.stringify({
-  nombre: 'Jarvis', usuario: 'Sofía', celular: { activo: true, puerto: PUERTO, https: 443, hablarEnPC: false },
+  nombre: 'Jarvis', usuario: 'Sofía', celular: { activo: true, puerto: PUERTO, https: 443, hablarEnPC: false, carpetas: [{ id: 'comp', nombre: 'Compartida', ruta: COMPARTIDA }] },
   clips: { carpeta: CLIPS },
   contactos: [{ nombre: 'Tomi', numero: '5491100000000' }, { nombre: 'Mamá', numero: '5491100000001' }],
 }));
@@ -69,7 +73,7 @@ async function hasta(fn, ms = 20000, que = '') {
 (async () => {
   const raiz = path.join(__dirname, '..');
   const electron = spawn('xvfb-run', ['-a', path.join(raiz, 'node_modules', '.bin', 'electron'), '.', '--no-sandbox', '--remote-debugging-port=9333'], {
-    cwd: raiz, env: { ...process.env, JARVIS_DATOS: DATOS, JARVIS_TAILSCALE: ts, JARVIS_YTDLP: YTDLP, JARVIS_YTDLP_ULTIMA: '2026.11.20', JARVIS_MEDIOS_FALSOS: '1', JARVIS_RED: RED, JARVIS_FFMPEG: '/usr/local/bin/ffmpeg' }, stdio: ['ignore', 'pipe', 'pipe'],
+    cwd: raiz, env: { ...process.env, JARVIS_DATOS: DATOS, JARVIS_TAILSCALE: ts, JARVIS_YTDLP: YTDLP, JARVIS_YTDLP_ULTIMA: '2026.11.20', JARVIS_MEDIOS_FALSOS: '1', JARVIS_RED: RED, JARVIS_FFMPEG: '/usr/local/bin/ffmpeg', JARVIS_REMOTO_LOG: REMOTO_LOG }, stdio: ['ignore', 'pipe', 'pipe'],
   });
   let log = '';
   electron.stdout.on('data', (d) => { log += d; });
@@ -423,6 +427,11 @@ async function hasta(fn, ms = 20000, que = '') {
         programarAvisos: async (o) => { A.avisos = o.avisos; return { programados: o.avisos.length }; },
         pedirPermisoAvisos: async () => {},
         salir: async () => { A.salio++; },
+        despertar: async (o) => { A.despertado = o; },
+        huella: async () => { A.huellas = (A.huellas || 0) + 1; return { ok: true }; },
+        avisosAlInstante: async (o) => { A.alInstante = o; },
+        atajoPendiente: async () => ({}),
+        subirArchivo: async () => {},
       };
       window.atrasFalso = () => oyentes.atras && oyentes.atras();
       Object.assign(plugin, {
@@ -548,6 +557,55 @@ async function hasta(fn, ms = 20000, que = '') {
     await pA.screenshot({ path: path.join(SALIDA, '17-android-desde-afuera.png') });
     enCasa = true;
     await notch.evaluate((c) => window.jarvis.pedir('cfg:guardar', c), { ...cfgAntes, celular: { ...cfgAntes.celular, afuera: false }, modo: 'normal' });
+
+    // Ajustes del celular (desde el menú ⋮): avisos al instante y huella opcional.
+    await pA.click('#boton-menu');
+    await pA.click('#m-ajustes');
+    await hasta(() => pA.locator('#s-ajustes:not([hidden]) .grupo-ajustes').count(), 5000, 'android: Ajustes');
+    assert.ok(await pA.locator('.grupo-ajustes h3:text-is("Seguridad")').count(), 'sección Seguridad');
+    await pA.locator('.ajuste label:has-text("Avisos al instante") input').check();
+    await hasta(() => pA.evaluate(() => window.androidFalso.alInstante && window.androidFalso.alInstante.activo), 3000, 'android: avisos al instante');
+    await pA.locator('.ajuste label:has-text("Pedir la huella") input').check();
+    await hasta(() => pA.evaluate(() => localStorage.getItem('jarvis.huella') === 'true'), 3000, 'android: huella prendida');
+    await pA.screenshot({ path: path.join(SALIDA, '24-android-ajustes.png'), fullPage: true });
+    await pA.locator('.ajuste label:has-text("Pedir la huella") input').uncheck();
+    // Control de la PC: tocar el touchpad hace clic; Bloquear; Prender la PC (Wake-on-LAN).
+    await pA.click('#abajo button[data-hoja="mas"]');
+    await pA.click('.mas-item:has-text("Control de la PC")');
+    await hasta(() => pA.locator('#s-control:not([hidden]) #tp').count(), 3000, 'android: control');
+    const caja = await pA.locator('#tp').boundingBox();
+    await pA.mouse.move(caja.x + 60, caja.y + 60); await pA.mouse.down(); await pA.mouse.move(caja.x + 140, caja.y + 90, { steps: 6 }); await pA.mouse.up();
+    await pA.mouse.click(caja.x + 100, caja.y + 100);
+    await pA.click('#teclas-energia button:has-text("Bloquear")');
+    await pA.fill('#teclado', 'hola');
+    await pA.click('#form-teclado button');
+    await hasta(() => { const l = fs.existsSync(REMOTO_LOG) ? fs.readFileSync(REMOTO_LOG, 'utf8') : ''; return /mouse_event\(1, \d+, \d+/.test(l) && /mouse_event\(2, 0/.test(l) && /LockWorkStation/.test(l) && /SendWait\('hola'\)/.test(l); }, 8000, 'la PC recibió mover, clic, bloquear y escribir');
+    // (La PC de prueba no está en una red privada: se le da al celular lo que habría aprendido en casa.)
+    await pA.evaluate(() => localStorage.setItem('jarvis.despertar', JSON.stringify({ mac: '02:fc:00:00:00:01', broadcast: '192.168.77.255' })));
+    await pA.click('#teclas-energia button:has-text("Prender la PC")');
+    await hasta(() => pA.evaluate(() => window.androidFalso.despertado && window.androidFalso.despertado.mac), 3000, 'android: Wake-on-LAN con la MAC de la PC');
+    await pA.screenshot({ path: path.join(SALIDA, '25-android-control.png'), fullPage: true });
+    // Archivos de la PC: entrar a la carpeta, subir un archivo y bajar otro.
+    await pA.click('#abajo button[data-hoja="mas"]');
+    await pA.click('.mas-item:has-text("Archivos de la PC")');
+    await hasta(() => pA.locator('#lista-pcc button:has-text("Compartida")').count(), 8000, 'android: carpetas compartidas');
+    await pA.click('#lista-pcc button:has-text("Compartida")');
+    await hasta(() => pA.locator('#lista-pcc button:has-text("presupuesto.pdf")').count(), 8000, 'android: archivos de la carpeta');
+    assert.strictEqual(await pA.locator('#lista-pcc li').first().textContent().then((t) => /Fotos/.test(t)), true, 'carpetas primero');
+    await pA.setInputFiles('#pcc-archivo', { name: 'foto del celu.jpg', mimeType: 'image/jpeg', buffer: Buffer.alloc(5000, 1) });
+    await hasta(() => fs.existsSync(path.join(COMPARTIDA, 'foto del celu.jpg')) && fs.statSync(path.join(COMPARTIDA, 'foto del celu.jpg')).size === 5000, 10000, 'subido a la PC');
+    await pA.click('#lista-pcc button:has-text("presupuesto.pdf")');
+    await pA.click('#ed-botones button:has-text("Bajar al celular")');
+    await hasta(() => pA.evaluate(() => window.androidFalso.archivos.some((a) => a.nombre === 'presupuesto.pdf' && a.bytes === 3000)), 10000, 'android: bajado de la PC');
+    await pA.screenshot({ path: path.join(SALIDA, '26-android-archivos-pc.png'), fullPage: true });
+    // Rutina con "Cuándo se hace sola" en el celular.
+    await pA.click('#abajo button[data-hoja="mas"]');
+    await pA.click('.mas-item:has-text("Rutinas")');
+    await pA.click('#r-nueva');
+    await pA.selectOption('.disparadores select', 'hora');
+    assert.ok(await pA.locator('.disparador .dias button').count() === 7, 'días de la semana');
+    await pA.screenshot({ path: path.join(SALIDA, '27-android-rutina-disparador.png'), fullPage: true });
+    await pA.click('#ed-botones button:has-text("Cerrar")');
 
     // Se lo desvincula desde la PC (así queda un solo celular para lo que sigue).
     const estCel = await notch.evaluate(() => window.jarvis.pedir('celular:estado', false));
