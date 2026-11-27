@@ -69,7 +69,7 @@ async function hasta(fn, ms = 20000, que = '') {
 (async () => {
   const raiz = path.join(__dirname, '..');
   const electron = spawn('xvfb-run', ['-a', path.join(raiz, 'node_modules', '.bin', 'electron'), '.', '--no-sandbox', '--remote-debugging-port=9333'], {
-    cwd: raiz, env: { ...process.env, JARVIS_DATOS: DATOS, JARVIS_TAILSCALE: ts, JARVIS_YTDLP: YTDLP, JARVIS_YTDLP_ULTIMA: '2026.11.20', JARVIS_RED: RED, JARVIS_FFMPEG: '/usr/local/bin/ffmpeg' }, stdio: ['ignore', 'pipe', 'pipe'],
+    cwd: raiz, env: { ...process.env, JARVIS_DATOS: DATOS, JARVIS_TAILSCALE: ts, JARVIS_YTDLP: YTDLP, JARVIS_YTDLP_ULTIMA: '2026.11.20', JARVIS_MEDIOS_FALSOS: '1', JARVIS_RED: RED, JARVIS_FFMPEG: '/usr/local/bin/ffmpeg' }, stdio: ['ignore', 'pipe', 'pipe'],
   });
   let log = '';
   electron.stdout.on('data', (d) => { log += d; });
@@ -99,6 +99,7 @@ async function hasta(fn, ms = 20000, que = '') {
     const cel = await navegador.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, locale: 'es-AR',
       userAgent: 'Mozilla/5.0 (Linux; Android 14; moto g84 5G Build/U1TC34) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Mobile Safari/537.36' });
     const p = await cel.newPage();
+    await p.emulateMedia({ reducedMotion: "reduce" }); // sin el "temblor" de editar: Playwright espera que los botones estén quietos
     p.on('console', (m) => { if (m.type() === 'error') errores.push(`celular: ${m.text()}`); });
     p.on('pageerror', (e) => errores.push(`celular: ${e.message}`));
     p.on('response', async (r) => { if (r.url().endsWith('/api/pc') && r.status() >= 400) errores.push(`celular /api/pc ${r.status()}: ${r.request().postData()} → ${await r.text().catch(() => '')}`); });
@@ -147,10 +148,57 @@ async function hasta(fn, ms = 20000, que = '') {
     await esperar(300);
     // (la segunda pregunta, el nombre del botón)
     await hasta(() => p.locator('#widgets .widget').count().then((n) => n === antes + 1), 5000, 'atajo sumado');
-    await p.locator('#widgets .widget').first().locator('button[aria-label^="Quitar"]').click();
-    await p.click('#editar-inicio');
+    await p.locator('#widgets .widget').last().locator('button[aria-label^="Sacar"]').click();
     assert.strictEqual(await p.locator('#widgets .widget').count(), antes, 'uno más y uno menos');
+    // Deshacer lo saca de vuelta, y la cruz otra vez.
+    await p.click('#aviso button:has-text("Deshacer")');
+    assert.strictEqual(await p.locator('#widgets .widget').count(), antes + 1, 'deshacer');
+    await p.locator('#widgets .widget').last().locator('button[aria-label^="Sacar"]').click();
+    await p.screenshot({ path: path.join(SALIDA, '6a-celular-inicio-editando.png'), fullPage: true });
+    // Tocar un widget (editando): tamaño y color.
+    await p.locator('#widgets .wt-reloj').click();
+    await hasta(() => p.locator('#hoja-widgets[open] .wa-tam').count(), 3000, 'ajustes del widget');
+    await p.screenshot({ path: path.join(SALIDA, '6c-celular-widget-ajustes.png') });
+    await p.click('#hoja-widgets .wa-tam:has-text("Grande")');
+    assert.ok(await p.locator('#widgets .wt-reloj.tam-2.alto-2').count(), 'reloj grande');
+    await p.click('#hoja-widgets .wa-tam:has-text("Chico")');
+    await p.click('#hw-cerrar');
+    // Agrandar desde la esquina: el reloj (chico) pasa a ancho.
+    const asa = await p.locator('#widgets .wt-reloj .w-asa').boundingBox();
+    const grilla = await p.locator('#widgets').boundingBox();
+    await p.mouse.move(asa.x + asa.width / 2, asa.y + asa.height / 2);
+    await p.mouse.down();
+    for (let i = 1; i <= 8; i++) await p.mouse.move(asa.x + ((grilla.x + grilla.width - 10) - asa.x) * (i / 8), asa.y + asa.height / 2);
+    await p.mouse.up();
+    await hasta(() => p.locator('#widgets .wt-reloj.tam-2').count(), 3000, 'reloj ancho por la esquina');
+    // Arrastrar: el reloj va al final.
+    const orden = async () => JSON.parse(await p.evaluate(() => localStorage.getItem('jarvis.inicio'))).map((w) => w.tipo);
+    const r1 = await p.locator('#widgets .wt-reloj').boundingBox();
+    const ult = await p.locator('#widgets .widget').last().boundingBox();
+    const c0 = { x: r1.x + r1.width / 2, y: r1.y + r1.height / 2 };
+    await p.mouse.move(c0.x, c0.y);
+    await p.mouse.down();
+    await esperar(350);
+    // Hasta abajo de la pantalla: desplaza sola mientras se mantiene ahí.
+    for (let i = 1; i <= 10; i++) await p.mouse.move(c0.x, c0.y + (800 - c0.y) * (i / 10));
+    await esperar(2500);
+    const ult2 = await p.locator('#widgets .widget:not(.agarrado)').last().boundingBox();
+    for (let i = 1; i <= 10; i++) await p.mouse.move(c0.x + (ult2.x + ult2.width - 20 - c0.x) * (i / 10), 800 + (ult2.y + ult2.height - 10 - 800) * (i / 10));
+    void ult;
+    await p.screenshot({ path: path.join(SALIDA, '6d-celular-arrastrando.png') });
+    await p.mouse.up();
+    await hasta(async () => (await orden()).slice(-1)[0] === 'reloj', 3000, `reloj al final (${(await orden()).join(',')})`);
+    await p.click('#editar-inicio');
     assert.strictEqual(JSON.parse(await p.evaluate(() => localStorage.getItem('jarvis.inicio'))).length, antes);
+    // Mantener apretado fuera de edición entra a editar.
+    const cl = await p.locator('#widgets .wt-clima').boundingBox();
+    await p.mouse.move(cl.x + 20, cl.y + 20); await p.mouse.down(); await esperar(600); await p.mouse.up();
+    assert.ok(await p.locator('#widgets.editando').count(), 'mantener apretado → editar');
+    await p.click('#editar-inicio');
+    // Hablale a Jarvis desde el widget (escrito).
+    await p.fill('.wt-hablar input', '¿qué hora es?');
+    await p.press('.wt-hablar input', 'Enter');
+    await hasta(async () => /\d/.test(await p.textContent('#aviso').catch(() => '')), 15000, 'respuesta en el widget');
     await p.screenshot({ path: path.join(SALIDA, '6-celular-inicio-editado.png'), fullPage: true });
 
     // Descargar: una para este celular (la PC la baja y el celular se la lleva) y un audio para la PC.
@@ -235,6 +283,23 @@ async function hasta(fn, ms = 20000, que = '') {
     const avisoWa = await p.textContent('#aviso');
     assert.match(avisoWa, /WhatsApp/);
     await p.screenshot({ path: path.join(SALIDA, '8-celular-mensaje.png') });
+
+    // ----- Cámara de seguridad: apagada en la PC → lo dice; prendida → video en vivo -----
+    await p.click('#abajo button[data-hoja="mas"]');
+    await p.click('.mas-item:has-text("Cámara de seguridad")');
+    let txtCam = '';
+    await hasta(async () => /apagada/i.test(txtCam = await p.textContent('#cam-estado')), 10000, 'cámara apagada').catch((e) => { throw new Error(e.message + ': ' + txtCam); });
+    await p.click('#cam-cerrar');
+    const cfgCam = (await notch.evaluate(() => window.jarvis.pedir('cfg:leer'))).dato;
+    cfgCam.celular.camara = true;
+    await notch.evaluate((c) => window.jarvis.pedir('cfg:guardar', c), cfgCam);
+    await p.click('.mas-item:has-text("Cámara de seguridad")');
+    await hasta(() => p.locator('#cam-estado.vivo').count(), 25000, `cámara en vivo (${await p.textContent('#cam-estado')})`);
+    await hasta(() => p.evaluate(() => { const v = document.querySelector('#cam-video-el'); return v.buffered.length && v.buffered.end(0) > 1 && v.videoWidth > 0; }), 15000, 'llegan cuadros de video');
+    await p.screenshot({ path: path.join(SALIDA, '8c-celular-camara.png') });
+    const histCam = (await notch.evaluate(() => window.jarvis.pedir('historial:leer'))).dato;
+    assert.ok(histCam.some((x) => /mirando la cámara de seguridad/.test(`${x.dicho} ${x.respuesta}`)), 'queda en el Historial de la PC');
+    await p.click('#cam-cerrar');
 
     // ----- Más: notas, calendario, rutinas e historial, igual que en Ajustes de la PC -----
     const pcPide = async (canal, ...a) => (await notch.evaluate(([c, x]) => window.jarvis.pedir(c, ...x), [canal, a])).dato;

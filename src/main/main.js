@@ -1276,13 +1276,14 @@ async function pcParaCelular(canal, args, quien) {
   const abierto = ajustes && !ajustes.isDestroyed();
   if (canal === 'rutinas:guardar' && abierto) ajustes.webContents.send('rutinas-celular', leerRutinas());
   if (/^calendario:(guardar-local|borrar-local|cambiar)$/.test(canal) && abierto) ajustes.webContents.send('agenda-celular');
-  if (/^(notas|rutinas|calendario:(guardar|borrar|cambiar))/.test(canal) && canal !== 'notas:leer' && canal !== 'notas:captura' && canal !== 'rutinas:leer' && canal !== 'rutinas:opciones') historial.anotar(`Celular (${quien && quien.nombre ? quien.nombre : 'vinculado'}): ${canal}`);
+  const HECHO = { 'notas:crear': 'Anotó una nota', 'notas:guardar': 'Cambió una nota', 'notas:borrar': 'Borró una nota', 'notas:borrar-avisadas': 'Borró las notas avisadas', 'calendario:guardar-local': 'Guardó un evento', 'calendario:borrar-local': 'Borró un evento', 'calendario:cambiar': 'Cambió el aviso de un evento', 'rutinas:guardar': 'Cambió las rutinas' };
+  if (HECHO[canal]) historial.terminar(historial.empezar(`${HECHO[canal]} (desde ${quien && quien.nombre ? quien.nombre : 'el celular'})`, 'celular'), { respuesta: 'Listo.' });
   return r;
 }
 // Cámara de seguridad: el notch avisa mientras alguien mira desde el celular.
 camara.configurar({
   ajustes: () => { const c = leerConfig(); return { permitido: !!(c.celular && c.celular.camara), camara: (c.camara || {}).dispositivo || '', microfono: (c.voz || {}).microfono || '' }; },
-  avisar: (texto) => { if (!texto) return; historial.anotar(texto); if (notch && !notch.isDestroyed()) notch.webContents.send('decir', { texto, voz: false }); },
+  avisar: (texto) => { if (!texto) return; historial.terminar(historial.empezar('Cámara de seguridad', 'celular'), { respuesta: texto }); if (notch && !notch.isDestroyed()) notch.webContents.send('decir', { texto, voz: false }); },
 });
 celular.configurar({
   camara: (res, opciones, quien) => camara.mirar(res, opciones, quien && quien.nombre ? `"${quien.nombre}"` : 'Un celular'),

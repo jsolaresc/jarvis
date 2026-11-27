@@ -242,6 +242,23 @@
     </div>
   </dialog>
 
+  <!-- Cámara de seguridad: la webcam y el micrófono de la PC en vivo -->
+  <dialog id="hoja-camara" aria-label="Cámara de seguridad">
+    <div id="cam-caja" class="cam-caja">
+      <video id="cam-video-el" playsinline></video>
+      <div class="cam-arriba">
+        <span id="cam-estado" class="cam-estado" role="status"></span>
+        <button type="button" id="cam-cerrar" class="icono" aria-label="Cerrar la cámara"></button>
+      </div>
+      <div class="cam-abajo">
+        <button type="button" id="cam-sonido" class="icono"></button>
+        <button type="button" id="cam-video" class="icono"></button>
+        <button type="button" id="cam-calidad" class="cam-calidad"></button>
+        <button type="button" id="cam-completa" class="icono" aria-label="Pantalla completa"></button>
+      </div>
+    </div>
+  </dialog>
+
   <!-- Editar una nota, un evento o una rutina -->
   <dialog id="hoja-ed" aria-labelledby="ed-titulo">
     <form method="dialog" class="ha-cuerpo" id="ed-form" autocomplete="off">

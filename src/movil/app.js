@@ -34,6 +34,12 @@ const ICONOS = {
   nota: '<path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5M9 13h7M9 17h5"/>',
   modos: '<rect x="3" y="4" width="7" height="7" rx="1.5"/><rect x="14" y="4" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
   mas: '<path d="M12 5v14M5 12h14"/>',
+  mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/>',
+  ojo: '<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/>',
+  expandir: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
+  ajustes: '<circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/>',
+  agarrar: '<circle cx="9" cy="6" r="1.2" fill="currentColor"/><circle cx="15" cy="6" r="1.2" fill="currentColor"/><circle cx="9" cy="12" r="1.2" fill="currentColor"/><circle cx="15" cy="12" r="1.2" fill="currentColor"/><circle cx="9" cy="18" r="1.2" fill="currentColor"/><circle cx="15" cy="18" r="1.2" fill="currentColor"/>',
+  esquina: '<path d="M20 10v10H10M20 20L13 13"/>',
   cerrar: '<path d="M6 6l12 12M18 6L6 18"/>',
   arriba: '<path d="M12 19V5M6 11l6-6 6 6"/>',
   abajo: '<path d="M12 5v14M6 13l6 6 6-6"/>',
@@ -803,24 +809,28 @@ function nombrePorDefecto() {
 // ---------- Inicio: widgets (como el panel del notch de la PC, en una grilla de 2 columnas) ----------
 // Cada celular tiene el suyo (se guarda en el celular). tam: 1 = media fila, 2 = fila entera. alto: 1 o 2.
 const COLORES_W = ['', '#6EE787', '#FFC857', '#FF8FA3', '#C3A6FF', '#6EA8FE', '#FF9F5A', '#FFFFFF'];
+// tams: anchos posibles (1 = media fila, 2 = fila entera); altos: 1 o 2 filas. grupo y detalle: para el catálogo.
 const TIPOS_W = {
-  reloj: { nombre: 'Reloj', icono: 'reloj', tams: [1, 2], unico: true },
-  clima: { nombre: 'Clima', icono: 'sol', tams: [1, 2], altos: [1, 2], unico: true },
-  agenda: { nombre: 'Próximos eventos', icono: 'calendario', tams: [2], altos: [1, 2], unico: true },
-  notas: { nombre: 'Recordatorios y notas', icono: 'nota', tams: [2], altos: [1, 2], unico: true },
-  nota: { nombre: 'Nota rápida', icono: 'nota', tams: [2], unico: true },
-  rutinas: { nombre: 'Rutinas', icono: 'rayo', tams: [2], unico: true },
-  rutina: { nombre: 'Una rutina', icono: 'estrella', tams: [1, 2], datos: 'rutina' },
-  modos: { nombre: 'Modos', icono: 'modos', tams: [2], unico: true },
-  modo: { nombre: 'Botón de un modo', icono: 'modos', tams: [1, 2], datos: 'modo' },
-  musica: { nombre: 'Música en la PC', icono: 'musica', tams: [2], altos: [1, 2], unico: true },
-  volumen: { nombre: 'Volumen de la PC', icono: 'parlante', tams: [2], unico: true },
-  'clip-guardar': { nombre: 'Guardar clip', icono: 'clip', tams: [1, 2], unico: true },
-  captura: { nombre: 'Captura de pantalla', icono: 'camara', tams: [1, 2], unico: true },
-  frase: { nombre: 'Atajo de voz', icono: 'charla', tams: [1, 2], datos: 'frase' },
+  hablar: { nombre: 'Hablale a Jarvis', detalle: 'Escribí o hablá, y la respuesta aparece ahí', grupo: 'Jarvis', icono: 'mic', tams: [2], altos: [1, 2], unico: true, opciones: ['voz'] },
+  reloj: { nombre: 'Reloj', detalle: 'La hora y el día', grupo: 'Información', icono: 'reloj', tams: [1, 2], altos: [1, 2], unico: true },
+  clima: { nombre: 'Clima', detalle: 'El de tu ciudad (la de la PC)', grupo: 'Información', icono: 'sol', tams: [1, 2], altos: [1, 2], unico: true },
+  agenda: { nombre: 'Próximos eventos', detalle: 'Tu calendario', grupo: 'Información', icono: 'calendario', tams: [1, 2], altos: [1, 2], unico: true },
+  notas: { nombre: 'Recordatorios y notas', detalle: 'Lo que le pediste anotar', grupo: 'Información', icono: 'nota', tams: [1, 2], altos: [1, 2], unico: true },
+  nota: { nombre: 'Nota rápida', detalle: 'Anotar algo de un toque', grupo: 'Jarvis', icono: 'nota', tams: [2], altos: [1], unico: true },
+  camara: { nombre: 'Cámara de seguridad', detalle: 'Ver la webcam y escuchar el micrófono de la PC', grupo: 'PC', icono: 'camara', tams: [1, 2], altos: [1, 2], unico: true },
+  rutinas: { nombre: 'Rutinas', detalle: 'Todas, de a un toque', grupo: 'Jarvis', icono: 'rayo', tams: [2], altos: [1, 2], unico: true },
+  rutina: { nombre: 'Una rutina', detalle: 'Un botón para una rutina', grupo: 'Jarvis', icono: 'estrella', tams: [1, 2], altos: [1, 2], datos: 'rutina' },
+  modos: { nombre: 'Modos', detalle: 'Cambiar el modo de Jarvis', grupo: 'Jarvis', icono: 'modos', tams: [2], altos: [1], unico: true },
+  modo: { nombre: 'Botón de un modo', detalle: 'Un modo de un toque', grupo: 'Jarvis', icono: 'modos', tams: [1, 2], altos: [1, 2], datos: 'modo' },
+  musica: { nombre: 'Música en la PC', detalle: 'Qué suena, pausa y a qué aparato', grupo: 'PC', icono: 'musica', tams: [2], altos: [1, 2], unico: true },
+  volumen: { nombre: 'Volumen de la PC', detalle: 'Subir, bajar o silenciar', grupo: 'PC', icono: 'parlante', tams: [2], altos: [1], unico: true },
+  'clip-guardar': { nombre: 'Guardar clip', detalle: 'Los últimos segundos de la pantalla', grupo: 'PC', icono: 'clip', tams: [1, 2], altos: [1, 2], unico: true },
+  captura: { nombre: 'Captura de pantalla', detalle: 'Una foto de la pantalla de la PC', grupo: 'PC', icono: 'camara', tams: [1, 2], altos: [1, 2], unico: true },
+  frase: { nombre: 'Atajo de voz', detalle: 'Un botón que le dice algo a Jarvis', grupo: 'Jarvis', icono: 'charla', tams: [1, 2], altos: [1, 2], datos: 'frase' },
 };
+const NOMBRE_TAM = (t, a) => (t === 2 ? (a === 2 ? 'Grande' : 'Ancho') : (a === 2 ? 'Alto' : 'Chico'));
 const INICIO_DE_SIEMPRE = [
-  { tipo: 'reloj', tam: 1 }, { tipo: 'clima', tam: 1 }, { tipo: 'agenda', tam: 2 }, { tipo: 'rutinas', tam: 2 },
+  { tipo: 'hablar', tam: 2 }, { tipo: 'reloj', tam: 1 }, { tipo: 'clima', tam: 1 }, { tipo: 'agenda', tam: 2 }, { tipo: 'rutinas', tam: 2 },
   { tipo: 'modos', tam: 2 }, { tipo: 'musica', tam: 2 }, { tipo: 'clip-guardar', tam: 1 }, { tipo: 'captura', tam: 1 }, { tipo: 'notas', tam: 2 },
 ];
 const idW = () => `w${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
@@ -925,40 +935,404 @@ function contenidoW(w) {
     case 'clip-guardar': return boton('clip', 'Guardar clip', (b) => accion({ tipo: 'clip', accion: 'guardar' }, b));
     case 'captura': return boton('camara', 'Captura', (b) => accion({ tipo: 'clip', accion: 'captura' }, b));
     case 'frase': return boton('charla', w.nombre || w.texto || 'Atajo', () => decirAJarvis(w.texto || ''));
+    case 'hablar': return contenidoHablar(w);
+    case 'camara': return contenidoCamara(w);
     default: return h('span');
   }
 }
 
+// ---------- Voz: hablarle a Jarvis desde el celular ----------
+// En la app de Android, el reconocimiento de voz de Android (plugin JarvisVoz); en el navegador, el de Chrome si existe.
+const VOZ = NATIVO ? (CAP.registerPlugin ? CAP.registerPlugin('JarvisVoz') : (CAP.Plugins || {}).JarvisVoz) : null;
+const ReconocerWeb = window.SpeechRecognition || window.webkitSpeechRecognition;
+const puedeEscuchar = () => !!(VOZ || ReconocerWeb);
+let escuchandoAhora = null; // { cortar }
+async function escucharVoz({ alParcial = () => {}, alEstado = () => {} } = {}) {
+  if (escuchandoAhora) { escuchandoAhora.cortar(); return ''; }
+  if (VOZ) {
+    const oyentes = await Promise.all([VOZ.addListener('vozParcial', (d) => alParcial(d.texto || '')), VOZ.addListener('vozEstado', (d) => alEstado(d.estado))]).catch(() => []);
+    escuchandoAhora = { cortar: () => VOZ.dejarDeEscuchar().catch(() => {}) };
+    alEstado('escuchando');
+    try { const r = await VOZ.escuchar({ idioma: 'es-AR' }); return (r && r.texto) || ''; }
+    catch (e) { if (/not implemented|UNIMPLEMENTED/i.test(e.message || '')) throw new Error('Para hablarle, actualizá la app (menú → Buscar actualizaciones).'); throw e; }
+    finally { escuchandoAhora = null; oyentes.forEach((o) => o && o.remove && o.remove()); alEstado('fin'); }
+  }
+  if (!ReconocerWeb) throw new Error('Este navegador no reconoce la voz.');
+  return new Promise((ok, mal) => {
+    const r = new ReconocerWeb();
+    r.lang = 'es-AR'; r.interimResults = true; r.maxAlternatives = 1;
+    let final = '';
+    r.onresult = (ev) => { let t = ''; for (const x of ev.results) t += x[0].transcript; alParcial(t); if (ev.results[ev.results.length - 1].isFinal) final = t; };
+    r.onerror = (ev) => { escuchandoAhora = null; alEstado('fin'); mal(new Error(ev.error === 'no-speech' ? 'No te escuché.' : ev.error === 'not-allowed' ? 'Sin permiso para usar el micrófono.' : `No pude escuchar (${ev.error}).`)); };
+    r.onend = () => { escuchandoAhora = null; alEstado('fin'); ok(final); };
+    escuchandoAhora = { cortar: () => r.stop() };
+    alEstado('escuchando');
+    r.start();
+  });
+}
+function leerEnVozAlta(texto) {
+  const t = String(texto || '').slice(0, 600);
+  if (!t) return;
+  if (VOZ) { VOZ.hablar({ texto: t }).catch(() => {}); return; }
+  try { const u = new SpeechSynthesisUtterance(t); u.lang = 'es-AR'; speechSynthesis.cancel(); speechSynthesis.speak(u); } catch {}
+}
+// Botón de micrófono reutilizable (widget y Charla): escucha, muestra lo que entiende en el campo y lo manda.
+function botonMic(campo, alTerminar) {
+  const b = h('button', { type: 'button', class: 'icono mic', 'aria-label': 'Hablarle a Jarvis', html: svg('mic', 22) });
+  b.hidden = !puedeEscuchar();
+  b.addEventListener('click', async () => {
+    if (escuchandoAhora) { escuchandoAhora.cortar(); return; }
+    const antes = campo.value;
+    try {
+      const texto = await escucharVoz({
+        alParcial: (t) => { campo.value = t; campo.dispatchEvent(new Event('input')); },
+        alEstado: (e) => { b.classList.toggle('escuchando', e === 'escuchando' || e === 'hablando'); b.setAttribute('aria-label', e === 'escuchando' || e === 'hablando' ? 'Escuchando… tocá para terminar' : 'Hablarle a Jarvis'); },
+      });
+      if (texto.trim()) { campo.value = ''; campo.dispatchEvent(new Event('input')); alTerminar(texto.trim()); } else campo.value = antes;
+    } catch (e) { campo.value = antes; aviso(e.message, { tipo: 'mal', ms: 5000 }); }
+  });
+  return b;
+}
+// También en la Charla.
+{
+  const f = $('#form-texto');
+  f.insertBefore(botonMic(campoTexto, (t) => mandarTexto(t)), $('#enviar'));
+}
+
+// ---------- Cámara de seguridad ----------
+// La PC manda WebM en vivo (VP8 + Opus); acá se arma con Media Source y se mantiene pegado al "en vivo".
+const hojaCam = $('#hoja-camara');
+let camara = null; // { ctrl, ms, url, desde, reloj }
+const camOpciones = guardado.leer('camara.opciones', { video: true, audio: true, calidad: 'normal' });
+function pintarCamaraControles() {
+  $('#cam-sonido').innerHTML = svg(camOpciones.audio ? 'parlante' : 'mudo', 22);
+  $('#cam-sonido').setAttribute('aria-pressed', String(camOpciones.audio));
+  $('#cam-sonido').setAttribute('aria-label', camOpciones.audio ? 'Escuchando el micrófono. Tocá para cortar el sonido' : 'Sin sonido. Tocá para escuchar el micrófono');
+  $('#cam-video').innerHTML = svg(camOpciones.video ? 'ojo' : 'auriculares', 22);
+  $('#cam-video').setAttribute('aria-label', camOpciones.video ? 'Viendo la cámara. Tocá para solo escuchar' : 'Solo escuchando. Tocá para ver la cámara');
+  $('#cam-calidad').textContent = camOpciones.calidad === 'alta' ? 'HD' : 'SD';
+  $('#cam-calidad').setAttribute('aria-label', camOpciones.calidad === 'alta' ? 'Calidad alta (usa más datos)' : 'Calidad normal');
+}
+function cerrarCamara() {
+  if (!camara) return;
+  try { camara.ctrl.abort(); } catch {}
+  clearInterval(camara.reloj);
+  const v = $('#cam-video-el'); v.pause(); v.removeAttribute('src'); v.load();
+  URL.revokeObjectURL(camara.url);
+  camara = null;
+}
+async function abrirCamara() {
+  pintarCamaraControles();
+  if (!hojaCam.open) hojaCam.showModal();
+  cerrarCamara();
+  const est = $('#cam-estado');
+  est.textContent = 'Conectando con la cámara…'; est.className = 'cam-estado';
+  const v = $('#cam-video-el');
+  v.classList.toggle('solo-audio', !camOpciones.video);
+  const ctrl = new AbortController();
+  const ms = new MediaSource();
+  const url = URL.createObjectURL(ms);
+  camara = { ctrl, ms, url, desde: 0, reloj: null };
+  const mio = camara;
+  v.src = url;
+  v.muted = !camOpciones.audio;
+  try {
+    await new Promise((ok) => ms.addEventListener('sourceopen', ok, { once: true }));
+    const q = `video=${camOpciones.video ? 1 : 0}&audio=${camOpciones.audio ? 1 : 0}&calidad=${camOpciones.calidad}`;
+    const r = await fetch(u(`/api/camara/vivo?${q}`), { headers: { Authorization: `Bearer ${guardado.token}` }, signal: ctrl.signal, cache: 'no-store' });
+    if (!r.ok) { let m = 'No pude abrir la cámara.'; try { m = (await r.json()).error || m; } catch {} throw new Error(m); }
+    const codec = r.headers.get('X-Jarvis-Codec') || (camOpciones.video ? 'video/webm;codecs=vp8,opus' : 'audio/webm;codecs=opus');
+    const tipo = codec.replace(/;codecs=([^;]+)/, '; codecs="$1"');
+    if (!MediaSource.isTypeSupported(tipo)) throw new Error('Este celular no puede reproducir el video de la cámara.');
+    const sb = ms.addSourceBuffer(tipo);
+    sb.mode = 'sequence';
+    const cola = [];
+    const seguir = () => {
+      if (sb.updating || !cola.length || ms.readyState !== 'open') return;
+      try { sb.appendBuffer(cola.shift()); } catch (e) { if (e.name === 'QuotaExceededError') { try { sb.remove(0, Math.max(0, v.currentTime - 5)); } catch {} } }
+    };
+    sb.addEventListener('updateend', () => {
+      // Pegado al vivo: si se atrasa más de 1,5 s, salta al final. Lo viejo se borra para no llenar la memoria.
+      if (v.buffered.length) {
+        const fin = v.buffered.end(v.buffered.length - 1);
+        if (fin - v.currentTime > 1.5) v.currentTime = Math.max(0, fin - 0.4);
+        if (v.currentTime > 30 && !sb.updating) { try { sb.remove(0, v.currentTime - 20); return; } catch {} }
+      }
+      seguir();
+    });
+    const lector = r.body.getReader();
+    let primero = true;
+    for (;;) {
+      const { value, done } = await lector.read();
+      if (done || camara !== mio) break;
+      cola.push(value); seguir();
+      if (primero) {
+        primero = false;
+        v.play().catch(() => { v.muted = true; v.play().catch(() => {}); });
+        mio.desde = Date.now();
+        est.className = 'cam-estado vivo';
+        const pintarTiempo = () => { const s = Math.round((Date.now() - mio.desde) / 1000); est.textContent = `En vivo · ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}${camOpciones.video ? '' : ' · solo sonido'}`; };
+        pintarTiempo(); mio.reloj = setInterval(pintarTiempo, 1000);
+      }
+    }
+    if (camara === mio) { est.textContent = 'La PC cortó la transmisión.'; est.className = 'cam-estado mal'; }
+  } catch (e) {
+    if (camara !== mio || e.name === 'AbortError') return;
+    est.textContent = e instanceof TypeError ? 'Tu PC no responde.' : e.message; est.className = 'cam-estado mal';
+  }
+}
+$('#cam-cerrar').addEventListener('click', () => { cerrarCamara(); hojaCam.close(); });
+hojaCam.addEventListener('close', cerrarCamara);
+$('#cam-sonido').addEventListener('click', () => {
+  camOpciones.audio = !camOpciones.audio; guardado.escribir('camara.opciones', camOpciones); pintarCamaraControles();
+  if (!camOpciones.audio && !camOpciones.video) { camOpciones.video = true; pintarCamaraControles(); }
+  abrirCamara();
+});
+$('#cam-video').addEventListener('click', () => { camOpciones.video = !camOpciones.video; if (!camOpciones.video) camOpciones.audio = true; guardado.escribir('camara.opciones', camOpciones); abrirCamara(); });
+$('#cam-calidad').addEventListener('click', () => { camOpciones.calidad = camOpciones.calidad === 'alta' ? 'normal' : 'alta'; guardado.escribir('camara.opciones', camOpciones); abrirCamara(); });
+$('#cam-completa').addEventListener('click', () => { const v = $('#cam-caja'); (document.fullscreenElement ? document.exitFullscreen() : v.requestFullscreen()).catch(() => {}); });
+$('#cam-completa').innerHTML = svg('expandir', 22);
+$('#cam-cerrar').innerHTML = svg('cerrar', 22);
+
+// ---------- Widgets: editar como en el inicio del celular ----------
+// Mantener apretado un widget (o tocar Editar): se pueden arrastrar para ordenarlos, agrandarlos desde la esquina,
+// tocarlos para elegir tamaño y color, y sacarlos con la cruz (con Deshacer).
 let editando = false;
+let quitadoReciente = null;
+const vibrar = (ms = 12) => { try { navigator.vibrate && navigator.vibrate(ms); } catch {} };
+function contenidoHablar(w) {
+  const campo = h('input', { type: 'text', placeholder: 'Preguntale o pedile algo…', maxlength: '2000', 'aria-label': 'Escribile a Jarvis', enterkeyhint: 'send' });
+  const salida = h('div', { class: 'h-salida', 'aria-live': 'polite' });
+  const ultima = guardado.leer('hablar.ultima', null);
+  const pintarSalida = (x) => {
+    if (!x) { salida.replaceChildren(h('span', { class: 'tenue' }, puedeEscuchar() ? 'Tocá el micrófono y hablá, o escribí.' : 'Escribí lo que quieras pedirle.')); return; }
+    salida.replaceChildren(h('small', { class: 'tenue' }, `Vos: ${x.pedido}`), x.pensando ? h('span', { class: 'pensando-mini' }, h('i'), h('i'), h('i')) : h('p', { class: x.error ? 'mal' : '' }, x.respuesta));
+  };
+  pintarSalida(ultima);
+  const mandar = async (texto) => {
+    const t = String(texto || '').trim(); if (!t) return;
+    campo.value = '';
+    pintarSalida({ pedido: t, pensando: true });
+    sumar('vos', t);
+    try {
+      const r = await api('/api/texto', { metodo: 'POST', cuerpo: { texto: t }, espera: 120000 });
+      const x = { pedido: t, respuesta: r.texto || 'Listo.' };
+      sumar('jarvis', x.respuesta); guardado.escribir('hablar.ultima', x); pintarSalida(x);
+      if (w.alto !== 2) aviso(x.respuesta, { ms: Math.min(12000, 3000 + x.respuesta.length * 50) });
+      if (w.voz) leerEnVozAlta(x.respuesta);
+      refrescar({ silencioso: true }); ultimoInicio = 0; cargarInicio(true);
+    } catch (e) {
+      if (e instanceof NoVinculado) return;
+      const x = { pedido: t, respuesta: e instanceof SinPC ? 'Tu PC no responde.' : e.message, error: true };
+      pintarSalida(x); aviso(x.respuesta, { tipo: 'mal' });
+    }
+  };
+  campo.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); mandar(campo.value); } });
+  return h('div', { class: 'w-hablar' },
+    w.alto === 2 ? salida : null,
+    h('div', { class: 'h-fila' }, campo, botonMic(campo, mandar),
+      h('button', { type: 'button', class: 'icono principal', 'aria-label': 'Mandar', html: svg('enviar', 20), onclick: () => mandar(campo.value) })));
+}
+function contenidoCamara(w) {
+  const permitida = !(estado && estado.camara && estado.camara.permitida === false);
+  const grande = w.alto === 2 || w.tam === 2;
+  return h('button', { type: 'button', class: 'w-camara', onclick: () => abrirCamara() },
+    h('span', { class: 'cam-icono', html: svg('camara', grande ? 30 : 24) }),
+    h('span', {}, h('b', {}, 'Cámara de seguridad'), h('small', {}, permitida ? (grande ? 'Ver la webcam y escuchar el micrófono de la PC' : 'Ver en vivo') : 'Apagada en la PC')),
+    estado && estado.camara && estado.camara.mirando ? h('span', { class: 'cam-punto', 'aria-label': 'Alguien está mirando' }) : null);
+}
 function pintarInicio() {
   const caja = $('#widgets');
   if (!caja) return;
+  if (arrastre) return; // no se repinta en medio de un arrastre
   const hora = new Date().getHours();
   $('#saludo').textContent = `${hora < 6 ? 'Buenas noches' : hora < 13 ? 'Buen día' : hora < 20 ? 'Buenas tardes' : 'Buenas noches'}${estado && estado.usuario ? `, ${estado.usuario}` : ''}`;
+  if (editando && caja.contains(document.activeElement) && document.activeElement.tagName === 'INPUT') return;
+  if (!editando && caja.contains(document.activeElement) && document.activeElement.tagName === 'INPUT') {
+    // No pisar lo que se está escribiendo en "Hablale a Jarvis" o en la nota rápida.
+    return;
+  }
   caja.classList.toggle('editando', editando);
-  caja.replaceChildren(...widgets.map((w, i) => {
+  caja.replaceChildren(...widgets.map((w) => {
     const t = TIPOS_W[w.tipo];
     const el = h('div', { class: `widget wt-${w.tipo} tam-${w.tam} alto-${w.alto}`, style: w.color ? `--c:${w.color}` : '', 'data-id': w.id }, contenidoW(w));
     if (editando) {
-      const mover = (d) => { const j = i + d; if (j < 0 || j >= widgets.length) return; [widgets[i], widgets[j]] = [widgets[j], widgets[i]]; guardarWidgets(); pintarInicio(); };
-      const cambiar = (k, lista) => { const p = lista.indexOf(w[k]); w[k] = lista[(p + 1) % lista.length]; guardarWidgets(); pintarInicio(); };
-      el.append(h('div', { class: 'w-editar' },
-        h('span', { class: 'w-nombre' }, t.nombre),
-        h('div', { class: 'w-botones' },
-          h('button', { type: 'button', class: 'icono', 'aria-label': `Subir ${t.nombre}`, html: svg('arriba', 18), disabled: i === 0, onclick: () => mover(-1) }),
-          h('button', { type: 'button', class: 'icono', 'aria-label': `Bajar ${t.nombre}`, html: svg('abajo', 18), disabled: i === widgets.length - 1, onclick: () => mover(1) }),
-          t.tams.length > 1 ? h('button', { type: 'button', class: 'icono', 'aria-label': `Ancho de ${t.nombre}`, html: svg('ancho', 18), onclick: () => cambiar('tam', t.tams) }) : null,
-          (t.altos || []).length > 1 ? h('button', { type: 'button', class: 'icono', 'aria-label': `Alto de ${t.nombre}`, html: svg('alto', 18), onclick: () => cambiar('alto', t.altos) }) : null,
-          h('button', { type: 'button', class: 'icono', 'aria-label': `Color de ${t.nombre}`, html: svg('pintar', 18), onclick: () => cambiar('color', COLORES_W) }),
-          h('button', { type: 'button', class: 'icono peligro', 'aria-label': `Quitar ${t.nombre}`, html: svg('cerrar', 18), onclick: () => { widgets.splice(i, 1); guardarWidgets(); pintarInicio(); } }))));
+      el.setAttribute('role', 'button'); el.setAttribute('tabindex', '0');
+      el.setAttribute('aria-label', `${t.nombre}, ${NOMBRE_TAM(w.tam, w.alto).toLowerCase()}. Tocá para cambiarlo; arrastralo para moverlo.`);
+      el.append(h('button', { type: 'button', class: 'w-quitar', 'aria-label': `Sacar ${t.nombre}`, html: svg('cerrar', 14), onclick: (ev) => { ev.stopPropagation(); quitarWidget(w.id); } }));
+      if (puedeCrecer(w)) el.append(h('span', { class: 'w-asa', 'aria-hidden': 'true', html: svg('esquina', 16) }));
     }
     return el;
   }));
-  if (!widgets.length && !editando) caja.append(h('p', { class: 'tenue' }, 'Inicio vacío. Tocá Editar para sumar widgets.'));
+  if (!widgets.length) caja.append(h('button', { type: 'button', class: 'w-vacio', onclick: () => { if (!editando) empezarEdicion(); catalogo(); } }, h('span', { html: svg('mas', 24) }), h('span', {}, 'Agregá tu primer widget')));
 }
+const puedeCrecer = (w) => { const t = TIPOS_W[w.tipo]; return t.tams.length > 1 || (t.altos || [1]).length > 1; };
+function quitarWidget(id) {
+  const i = widgets.findIndex((x) => x.id === id);
+  if (i < 0) return;
+  const [w] = widgets.splice(i, 1);
+  quitadoReciente = { w, i };
+  guardarWidgets(); pintarInicio(); vibrar();
+  aviso(`Saqué "${TIPOS_W[w.tipo].nombre}".`, { ms: 6000, accion: { texto: 'Deshacer', hacer: () => { if (!quitadoReciente) return; widgets.splice(Math.min(quitadoReciente.i, widgets.length), 0, quitadoReciente.w); quitadoReciente = null; guardarWidgets(); pintarInicio(); $('#aviso').hidden = true; } } });
+}
+function empezarEdicion() { editando = true; $('#editando').hidden = false; $('#editar-inicio').textContent = 'Listo'; vibrar(20); pintarInicio(); }
 function terminarEdicion() { editando = false; $('#editando').hidden = true; $('#editar-inicio').textContent = 'Editar'; pintarInicio(); }
-$('#editar-inicio').addEventListener('click', () => { if (editando) { terminarEdicion(); return; } editando = true; $('#editando').hidden = false; $('#editar-inicio').textContent = 'Listo'; pintarInicio(); });
+$('#editar-inicio').addEventListener('click', () => { if (editando) terminarEdicion(); else empezarEdicion(); });
 $('#restaurar-inicio').addEventListener('click', () => { if (!confirm('¿Volver al inicio de siempre? Se pierden los cambios.')) return; widgets = INICIO_DE_SIEMPRE.map(normalizarW); guardarWidgets(); pintarInicio(); });
+
+// Arrastrar (mover) y la esquina (agrandar). Con el dedo: mantener apretado ~0,4 s fuera de edición entra a editar y ya agarra.
+let arrastre = null;
+function scrollerDe(el) { for (let p = el.parentElement; p; p = p.parentElement) { const st = getComputedStyle(p); if (/(auto|scroll)/.test(st.overflowY) && p.scrollHeight > p.clientHeight) return p; } return document.scrollingElement; }
+function flip(caja, cambio) {
+  const antes = new Map([...caja.children].map((c) => [c, c.getBoundingClientRect()]));
+  cambio();
+  for (const c of caja.children) {
+    if (arrastre && c === arrastre.el) continue;
+    const a = antes.get(c); if (!a) continue;
+    const d = c.getBoundingClientRect();
+    const dx = a.left - d.left; const dy = a.top - d.top;
+    if (!dx && !dy) continue;
+    c.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'none' }], { duration: 180, easing: 'cubic-bezier(.2,.8,.2,1)' });
+  }
+}
+function moverArrastre(x, y) {
+  const a = arrastre;
+  a.x = x; a.y = y;
+  if (a.modo === 'mover') {
+    const natural = { left: a.el.getBoundingClientRect().left - a.tx, top: a.el.getBoundingClientRect().top - a.ty };
+    a.tx = x - a.offX - natural.left; a.ty = y - a.offY - natural.top;
+    a.el.style.transform = `translate(${a.tx}px, ${a.ty}px) scale(1.04)`;
+    // ¿Sobre qué widget está el dedo? Se ubica antes o después según de qué lado.
+    a.el.style.pointerEvents = 'none';
+    const debajo = document.elementFromPoint(x, y);
+    a.el.style.pointerEvents = '';
+    const otro = debajo && debajo.closest('.widget');
+    if (otro && otro !== a.el && otro.parentElement === a.caja) {
+      const r = otro.getBoundingClientRect();
+      const despues = (y > r.top + r.height * 0.5 && x > r.left) || (x > r.left + r.width * 0.5 && y > r.top);
+      const de = widgets.findIndex((w) => w.id === a.el.dataset.id);
+      let a2 = widgets.findIndex((w) => w.id === otro.dataset.id) + (despues ? 1 : 0);
+      if (a2 > de) a2 -= 1;
+      if (a2 !== de && a2 >= 0) {
+        flip(a.caja, () => {
+          const [w] = widgets.splice(de, 1); widgets.splice(a2, 0, w);
+          const ref = a.caja.children[a2 >= de ? a2 + 1 : a2];
+          a.caja.insertBefore(a.el, a2 >= de ? (a.caja.children[a2 + 1] || null) : a.caja.children[a2]);
+          void ref;
+        });
+        a.cambio = true; vibrar(8);
+        const nat2 = { left: a.el.getBoundingClientRect().left - a.tx, top: a.el.getBoundingClientRect().top - a.ty };
+        a.tx = x - a.offX - nat2.left; a.ty = y - a.offY - nat2.top;
+        a.el.style.transform = `translate(${a.tx}px, ${a.ty}px) scale(1.04)`;
+      }
+    }
+  } else {
+    // Agrandar: ancho por la mitad de la grilla, alto por filas.
+    const w = widgets.find((z) => z.id === a.el.dataset.id); const t = TIPOS_W[w.tipo];
+    const g = a.caja.getBoundingClientRect(); const r = a.el.getBoundingClientRect();
+    const tam = x > g.left + g.width * 0.62 ? 2 : (x < g.left + g.width * 0.45 ? 1 : (r.right > g.left + g.width * 0.75 ? 2 : 1));
+    const fila = a.alturaFila;
+    const alto = y - r.top > fila * 1.45 ? 2 : 1;
+    const nt = t.tams.includes(tam) ? tam : w.tam; const na = (t.altos || [1]).includes(alto) ? alto : w.alto;
+    if (nt !== w.tam || na !== w.alto) {
+      flip(a.caja, () => { w.tam = nt; w.alto = na; a.el.className = a.el.className.replace(/tam-\d/, `tam-${nt}`).replace(/alto-\d/, `alto-${na}`); });
+      a.cambio = true; vibrar(8);
+    }
+  }
+  // Cerca de los bordes de la pantalla, desplaza.
+  const borde = 70; const vh = window.innerHeight;
+  a.velocidad = y < borde ? -Math.ceil((borde - y) / 6) : y > vh - borde - 70 ? Math.ceil((y - (vh - borde - 70)) / 6) : 0;
+}
+function bucleScroll() {
+  if (!arrastre) return;
+  if (arrastre.velocidad) { arrastre.scroller.scrollTop += arrastre.velocidad; moverArrastre(arrastre.x, arrastre.y); }
+  requestAnimationFrame(bucleScroll);
+}
+function soltarArrastre() {
+  const a = arrastre; if (!a) return;
+  arrastre = null;
+  a.el.classList.remove('agarrado'); a.el.style.transform = ''; a.el.style.zIndex = '';
+  document.body.classList.remove('arrastrando');
+  if (a.cambio) { guardarWidgets(); }
+  if (a.modo === 'agrandar' || a.cambio) pintarInicio();
+  return a;
+}
+function empezarArrastre(el, modo, x, y) {
+  const caja = $('#widgets');
+  const r = el.getBoundingClientRect();
+  const filas = getComputedStyle(caja).gridAutoRows.match(/(\d+(\.\d+)?)px/);
+  arrastre = { el, caja, modo, offX: x - r.left, offY: y - r.top, tx: 0, ty: 0, x, y, cambio: false, velocidad: 0, scroller: scrollerDe(caja), alturaFila: filas ? Number(filas[1]) : r.height };
+  if (modo === 'mover') { el.classList.add('agarrado'); el.style.zIndex = '20'; el.style.transform = 'scale(1.04)'; }
+  document.body.classList.add('arrastrando');
+  vibrar(15);
+  requestAnimationFrame(bucleScroll);
+}
+{
+  const caja = $('#widgets');
+  let espera = null;
+  let inicio = null;
+  caja.addEventListener('pointerdown', (e) => {
+    const el = e.target.closest('.widget');
+    if (!el || e.button > 0) return;
+    const enAsa = e.target.closest('.w-asa');
+    if (e.target.closest('.w-quitar')) return;
+    inicio = { x: e.clientX, y: e.clientY, el, id: e.pointerId, tocado: false };
+    if (editando && enAsa) { e.preventDefault(); empezarArrastre(el, 'agrandar', e.clientX, e.clientY); return; }
+    // Fuera de edición no se roba el toque a los botones del widget salvo que se mantenga apretado.
+    clearTimeout(espera);
+    espera = setTimeout(() => {
+      if (!inicio) return;
+      if (!editando) { empezarEdicion(); const nuevo = [...caja.children].find((c) => c.dataset.id === el.dataset.id); if (nuevo) inicio.el = nuevo; }
+      empezarArrastre(inicio.el, 'mover', inicio.x, inicio.y);
+    }, editando ? 160 : 420);
+  });
+  window.addEventListener('pointermove', (e) => {
+    if (arrastre) { e.preventDefault(); moverArrastre(e.clientX, e.clientY); return; }
+    if (inicio && Math.hypot(e.clientX - inicio.x, e.clientY - inicio.y) > 9) { clearTimeout(espera); inicio = null; }
+  }, { passive: false });
+  // En el celular, una vez agarrado el widget, la pantalla no tiene que desplazarse con el dedo.
+  window.addEventListener('touchmove', (e) => { if (arrastre) e.preventDefault(); }, { passive: false });
+  const fin = (e) => {
+    clearTimeout(espera);
+    const a = soltarArrastre();
+    const toque = inicio && !a && editando && e.type === 'pointerup' && Math.hypot(e.clientX - inicio.x, e.clientY - inicio.y) < 9;
+    const el = inicio && inicio.el;
+    inicio = null;
+    if (toque && el && !e.target.closest('.w-quitar, .w-asa')) ajustesWidget(el.dataset.id);
+  };
+  window.addEventListener('pointerup', fin);
+  window.addEventListener('pointercancel', fin);
+  caja.addEventListener('contextmenu', (e) => { if (e.target.closest('.widget')) e.preventDefault(); });
+  caja.addEventListener('keydown', (e) => { if (editando && (e.key === 'Enter' || e.key === ' ') && e.target.classList.contains('widget')) { e.preventDefault(); ajustesWidget(e.target.dataset.id); } });
+}
+
+// Ajustes de un widget: tamaño, color, orden (para quien no arrastra), opciones propias y sacarlo.
+function ajustesWidget(id) {
+  const w = widgets.find((x) => x.id === id); if (!w) return;
+  const t = TIPOS_W[w.tipo];
+  const tamanos = [];
+  for (const a of (t.altos || [1])) for (const tm of t.tams) tamanos.push([tm, a]);
+  tamanos.sort((x, y) => x[0] * x[1] - y[0] * y[1]);
+  const aplicar = () => { guardarWidgets(); pintarInicio(); ajustesWidget(id); };
+  const i = widgets.indexOf(w);
+  $('#hw-titulo').textContent = t.nombre;
+  $('#catalogo').replaceChildren(...[
+    tamanos.length > 1 ? h('div', { class: 'wa-grupo' }, h('span', { class: 'wa-et' }, 'Tamaño'),
+      h('div', { class: 'wa-tamanos', role: 'radiogroup', 'aria-label': 'Tamaño' }, tamanos.map(([tm, a]) => h('button', { type: 'button', role: 'radio', 'aria-checked': String(w.tam === tm && w.alto === a), class: `wa-tam${w.tam === tm && w.alto === a ? ' on' : ''}`, onclick: () => { w.tam = tm; w.alto = a; aplicar(); } },
+        h('span', { class: `wa-dibujo t${tm} a${a}` }, h('i')), h('span', {}, NOMBRE_TAM(tm, a)))))) : null,
+    h('div', { class: 'wa-grupo' }, h('span', { class: 'wa-et' }, 'Color'),
+      h('div', { class: 'wa-colores', role: 'radiogroup', 'aria-label': 'Color' }, COLORES_W.map((c) => h('button', { type: 'button', role: 'radio', 'aria-checked': String(w.color === c), 'aria-label': c ? `Color ${c}` : 'Color de siempre', class: `wa-color${w.color === c ? ' on' : ''}`, style: `--c:${c || 'var(--ojo)'}`, onclick: () => { w.color = c; aplicar(); } })))),
+    (t.opciones || []).includes('voz') ? h('label', { class: 'wa-opcion' }, Object.assign(h('input', { type: 'checkbox', onchange: (ev) => { w.voz = ev.target.checked; guardarWidgets(); } }), { checked: !!w.voz }), h('span', {}, 'Leer la respuesta en voz alta en el celular')) : null,
+    w.tipo === 'frase' ? h('button', { type: 'button', class: 'w-opcion', onclick: () => { const tx = (prompt('¿Qué le dice a Jarvis?', w.texto || '') || '').trim(); if (!tx) return; w.texto = tx.slice(0, 300); w.nombre = ((prompt('Nombre del botón', w.nombre || tx.slice(0, 24)) || w.nombre || tx).trim()).slice(0, 30); aplicar(); } }, h('span', { class: 'w-ic', html: svg('charla', 20) }), h('span', {}, `Cambiar el atajo ("${w.texto || ''}")`)) : null,
+    h('div', { class: 'wa-grupo' }, h('span', { class: 'wa-et' }, 'Lugar'),
+      h('div', { class: 'wa-orden' },
+        h('button', { type: 'button', disabled: i === 0, onclick: () => { widgets.splice(i, 1); widgets.unshift(w); aplicar(); } }, 'Primero'),
+        h('button', { type: 'button', disabled: i === 0, onclick: () => { [widgets[i - 1], widgets[i]] = [widgets[i], widgets[i - 1]]; aplicar(); } }, h('span', { html: svg('arriba', 16) }), 'Subir'),
+        h('button', { type: 'button', disabled: i === widgets.length - 1, onclick: () => { [widgets[i + 1], widgets[i]] = [widgets[i], widgets[i + 1]]; aplicar(); } }, h('span', { html: svg('abajo', 16) }), 'Bajar'))),
+    h('button', { type: 'button', class: 'w-opcion peligro', onclick: () => { hojaW.close(); quitarWidget(id); } }, h('span', { class: 'w-ic', html: svg('cerrar', 20) }), h('span', {}, 'Sacar del inicio'))].filter(Boolean));
+  if (!hojaW.open) hojaW.showModal();
+}
+
 const hojaW = $('#hoja-widgets');
 // Una lista de opciones en la hoja de abajo (aparatos para la música, etc.).
 function abrirLista(titulo, opciones) {
@@ -978,34 +1352,48 @@ function elegirAparato() {
   ]);
 }
 $('#hw-cerrar').addEventListener('click', () => hojaW.close());
-function sumarWidget(w) { widgets.push(normalizarW(w)); guardarWidgets(); hojaW.close(); pintarInicio(); cargarInicio(true); setTimeout(() => { const ult = $('#widgets').lastElementChild; if (ult) ult.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 50); }
+function sumarWidget(w) {
+  const t = TIPOS_W[w.tipo];
+  widgets.push(normalizarW({ ...w, tam: w.tam || t.tams[t.tams.length - 1] }));
+  guardarWidgets(); hojaW.close(); pintarInicio(); cargarInicio(true); vibrar();
+  setTimeout(() => { const ult = $('#widgets').lastElementChild; if (ult) { ult.scrollIntoView({ behavior: 'smooth', block: 'center' }); ult.animate([{ boxShadow: '0 0 0 3px var(--ojo)' }, { boxShadow: '0 0 0 0 transparent' }], { duration: 900 }); } }, 50);
+}
 function catalogo() {
   const e = estado || {};
-  const opcion = (ic, nombre, fn) => h('button', { type: 'button', class: 'w-opcion', onclick: fn }, h('span', { class: 'w-ic', html: svg(ic, 20) }), h('span', {}, nombre));
+  const opcion = (ic, nombre, fn, detalle) => h('button', { type: 'button', class: 'w-opcion', onclick: fn }, h('span', { class: 'w-ic', html: svg(ic, 20) }), h('span', { class: 'wo-texto' }, h('span', {}, nombre), detalle ? h('small', {}, detalle) : null));
   $('#hw-titulo').textContent = 'Agregar un widget';
-  $('#catalogo').replaceChildren(...Object.entries(TIPOS_W).filter(([k, t]) => !(t.unico && widgets.some((w) => w.tipo === k))).map(([k, t]) => opcion(t.icono, t.nombre, () => {
-    if (t.datos === 'rutina') {
-      $('#hw-titulo').textContent = '¿Qué rutina?';
-      $('#catalogo').replaceChildren(...((e.rutinas || []).length ? e.rutinas.map((r) => opcion(r.icono || 'estrella', r.nombre, () => sumarWidget({ tipo: 'rutina', tam: 1, rutina: r.id }))) : [h('p', { class: 'tenue' }, 'No tenés rutinas: se arman en la PC.')]));
-      return;
-    }
-    if (t.datos === 'modo') {
-      $('#hw-titulo').textContent = '¿Qué modo?';
-      $('#catalogo').replaceChildren(...(e.modos || []).map((m) => opcion('modos', m.nombre, () => sumarWidget({ tipo: 'modo', tam: 1, modo: m.id }))));
-      return;
-    }
-    if (t.datos === 'frase') {
-      const texto = (prompt('¿Qué le decís a Jarvis con este botón? (por ejemplo: "poné música")') || '').trim();
-      if (!texto) return;
-      const nombre = (prompt('Nombre del botón', texto.slice(0, 24)) || texto).trim().slice(0, 30);
-      sumarWidget({ tipo: 'frase', tam: 1, texto: texto.slice(0, 300), nombre });
-      return;
-    }
-    sumarWidget({ tipo: k, tam: t.tams[t.tams.length - 1] });
-  })));
+  const disponibles = Object.entries(TIPOS_W).filter(([k, t]) => !(t.unico && widgets.some((w) => w.tipo === k)));
+  const grupos = ['Jarvis', 'Información', 'PC'];
+  $('#catalogo').replaceChildren(...grupos.map((g) => {
+    const items = disponibles.filter(([, t]) => t.grupo === g);
+    if (!items.length) return null;
+    return h('div', { class: 'cat-grupo' }, h('span', { class: 'wa-et' }, g), ...items.map(([k, t]) => opcion(t.icono, t.nombre, () => {
+      if (t.datos === 'rutina') {
+        $('#hw-titulo').textContent = '¿Qué rutina?';
+        $('#catalogo').replaceChildren(...((e.rutinas || []).length ? e.rutinas.map((r) => opcion(r.icono || 'estrella', r.nombre, () => sumarWidget({ tipo: 'rutina', tam: 1, rutina: r.id }))) : [h('p', { class: 'tenue' }, 'No tenés rutinas: armalas en Más → Rutinas.')]));
+        return;
+      }
+      if (t.datos === 'modo') {
+        $('#hw-titulo').textContent = '¿Qué modo?';
+        $('#catalogo').replaceChildren(...(e.modos || []).map((m) => opcion('modos', m.nombre, () => sumarWidget({ tipo: 'modo', tam: 1, modo: m.id }))));
+        return;
+      }
+      if (t.datos === 'frase') {
+        const texto = (prompt('¿Qué le decís a Jarvis con este botón? (por ejemplo: "poné música")') || '').trim();
+        if (!texto) return;
+        const nombre = (prompt('Nombre del botón', texto.slice(0, 24)) || texto).trim().slice(0, 30);
+        sumarWidget({ tipo: 'frase', tam: 1, texto: texto.slice(0, 300), nombre });
+        return;
+      }
+      sumarWidget({ tipo: k });
+    }, t.detalle)));
+  }).filter(Boolean), ...(disponibles.length ? [] : [h('p', { class: 'tenue' }, 'Ya tenés todos.')]));
   hojaW.showModal();
 }
 $('#sumar-widget').addEventListener('click', catalogo);
+// Una sola vez: los que ya tenían el inicio armado reciben "Hablale a Jarvis" arriba de todo.
+if (!guardado.leer('inicio.hablar', false)) { guardado.escribir('inicio.hablar', true); if (!widgets.some((w) => w.tipo === 'hablar')) { widgets.unshift(normalizarW({ tipo: 'hablar', tam: 2 })); guardarWidgets(); } }
+
 
 // ---------- Avisos del celular (app de Android) ----------
 // La PC dice qué avisar en las próximas 48 h (recordatorios y eventos, si en Ajustes → Celular se eligió el celular);
@@ -1125,8 +1513,9 @@ $('#mas-lista').replaceChildren(...[
   ['calendario', 'calendario', 'Calendario', 'Tus eventos: verlos, crearlos y cambiarlos'],
   ['rutinas', 'rayo', 'Rutinas', 'Hacerlas, cambiarlas o armar nuevas'],
   ['historial', 'reloj', 'Historial', 'Lo que pediste y qué hizo Jarvis'],
+  ['@camara', 'camara', 'Cámara de seguridad', 'Ver la webcam y escuchar el micrófono de la PC'],
   ['descargar', 'bajar', 'Descargar', 'Videos y audios de YouTube, Instagram…'],
-].map(([hoja, ic, t, sub]) => h('button', { type: 'button', class: 'mas-item', onclick: () => irA(hoja) },
+].map(([hoja, ic, t, sub]) => h('button', { type: 'button', class: 'mas-item', onclick: () => (hoja === '@camara' ? abrirCamara() : irA(hoja)) },
   h('span', { class: 'ic', html: svg(ic) }), h('span', { class: 'datos' }, h('b', {}, t), h('span', {}, sub)))));
 document.querySelectorAll('.volver-mas').forEach((b) => b.addEventListener('click', () => irA('mas')));
 ['#n-actualizar', '#c-actualizar', '#h-actualizar'].forEach((s) => { $(s).innerHTML = svg('actualizar', 20); });
