@@ -2,6 +2,27 @@
 
 Cada Release de GitHub toma de acá la sección de su versión. Al subir de versión, sumar la sección nueva arriba de todo.
 
+## 1.1.13
+
+**Celular**
+- **Archivos de la PC, como un explorador de archivos común**:
+  - Arriba, la flecha para volver, el nombre de la carpeta y el camino (cada parte se toca).
+  - La lupa busca. En ⋮ están el orden, qué mostrar, lista o cuadrícula, elegir varios y "Agregar esta carpeta a Inicio".
+  - Mantener apretado un archivo empieza a elegir varios, y la barra de arriba pasa a Compartir, WhatsApp y Bajar.
+  - El botón para subir queda abajo a la derecha, y el botón Atrás del celular sube de carpeta.
+- **Widgets nuevos en Inicio**:
+  - **Prender la PC**: si está prendida, en grande trae Bloquear, Suspender y Apagar.
+  - **Escritorio de la PC**.
+  - **Mouse de la PC**: en grande, un touchpad ahí mismo.
+  - **Archivos de la PC**: una carpeta fija muestra sus archivos más nuevos.
+  - Los cuatro se suman solos a tu Inicio, una vez, y se pueden sacar con Editar.
+- Si la PC no responde y el celular sabe prenderla, el aviso trae "Prender la PC".
+- Arreglado: los botones principales de las hojas ("Mandar", "Bajar al celular") se veían ilegibles.
+- En Carpetas ya no aparecen los botones de clips arriba.
+
+**PC**
+- Clips: los filtros (carpeta, orden, favoritos) quedan en una sola línea y a la misma altura, y los botones de grabar entran en una fila.
+
 ## 1.1.12
 
 **Celular**

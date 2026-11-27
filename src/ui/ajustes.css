@@ -969,3 +969,13 @@ body.con-cine #menu, body.con-cine .cabeza-app { visibility: hidden; }
 .colores { display: flex; gap: 5px; }
 .colores .color { width: 24px; height: 24px; border-radius: 50%; border: 2px solid var(--linea); background: var(--c); padding: 0; cursor: pointer; }
 .colores .color.elegido { border-color: var(--acento, #8be8ff); box-shadow: 0 0 0 2px var(--fondo) inset; }
+
+/* Filas con etiqueta + selector + botones: todo en la misma línea y a la misma altura */
+.fila { align-items: center; }
+.fila > label.nota { display: inline-flex; align-items: center; gap: 8px; margin: 0; }
+.fila > label.nota select { margin: 0; }
+.clips-filtros { gap: 10px 14px; }
+.clips-filtros select, .clips-filtros .boton.chico { height: 34px; }
+.clips-filtros .boton.chico { display: inline-flex; align-items: center; gap: 6px; }
+.cc-tiles { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)) !important; }
+.fila > label.nota { white-space: nowrap; }

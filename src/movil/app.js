@@ -1,6 +1,11 @@
 // Jarvis en el celular. Todo lo que hace pasa por /api de la PC con el token de este celular.
 const $ = (s) => document.querySelector(s);
 const ICONOS = {
+  atras: '<path d="M15 5l-7 7 7 7"/>',
+  buscar: '<circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/>',
+  compartir: '<circle cx="18" cy="5.5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="18.5" r="2.5"/><path d="M8.2 10.8l7.6-4M8.2 13.2l7.6 4"/>',
+  subir: '<path d="M12 16V4M7 9l5-5 5 5"/><path d="M5 20h14"/>',
+  mouse: '<rect x="6" y="3" width="12" height="18" rx="6"/><path d="M12 3v6"/>',
   lista: '<path d="M8 6h12M8 12h12M8 18h12"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/>',
   cuadricula: '<rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/>',
   cafe: '<path d="M4 9h12v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5z"/><path d="M16 10h1.5a2.5 2.5 0 0 1 0 5H16M8 3.5c-.6.8-.6 1.7 0 2.5M12 3.5c-.6.8-.6 1.7 0 2.5"/>',
@@ -240,7 +245,9 @@ async function refrescar({ silencioso = false } = {}) {
       $('#estado-pc').textContent = 'Tu PC no responde';
       $('#arriba').classList.add('sin-pc');
       fase('dormido');
-      if (!silencioso) aviso(textoSinPC(), { tipo: 'mal', ms: 0, accion: { texto: 'Reintentar', hacer: () => refrescar() } });
+      const puedePrender = NATIVO && guardado.leer('despertar', null);
+      if (!silencioso) aviso(textoSinPC(), { tipo: 'mal', ms: 0, accion: puedePrender ? { texto: 'Prender la PC', hacer: () => prenderPC() } : { texto: 'Reintentar', hacer: () => refrescar() } });
+      if (hojaActual === 'inicio') pintarInicio();
     }
   }
 }
@@ -451,7 +458,7 @@ async function traer(d) {
   try {
     await local.guardarDesde(d.bajar, { nombre: d.archivo || d.nombre, tipo: d.modo === 'audio' ? 'audio' : 'video', bytes: d.bytes }, (f) => { trayendo.set(d.id, f); pintarDescargas(); });
     await api('/api/descargas/recibido', { metodo: 'POST', cuerpo: { id: d.id } }).catch(() => {});
-    aviso(`Listo: "${d.nombre || d.archivo}" quedó en el celular (Archivos → En este celular).`, { tipo: 'bien', ms: 5000 });
+    aviso(`Listo: "${d.nombre || d.archivo}" quedó en el celular (Archivos → En el celular).`, { tipo: 'bien', ms: 5000 });
     fase('ok', 1400);
   } catch (e) {
     aviso(`No pude traerlo al celular: ${e.message}`, { tipo: 'mal', ms: 7000 });
@@ -494,6 +501,8 @@ async function cargarArchivos() {
 async function pintarArchivos() {
   document.querySelectorAll('[data-donde]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.donde === donde)));
   const enCarpetas = donde === 'carpetas';
+  // En el explorador no van los botones de clips: es otra cosa.
+  document.querySelector('#s-archivos > .botonera').hidden = enCarpetas; $('#clips-estado').hidden = enCarpetas;
   $('#pcc').hidden = !enCarpetas; $('#filtros-fila').hidden = enCarpetas; $('#lista-archivos').hidden = enCarpetas; $('#espacio').hidden = enCarpetas;
   if (enCarpetas) { pintarCarpetaPC(); return; }
   document.querySelectorAll('[data-filtro]').forEach((b) => { b.setAttribute('aria-checked', String(b.dataset.filtro === filtro)); b.classList.toggle('on', b.dataset.filtro === filtro); });
@@ -502,7 +511,7 @@ async function pintarArchivos() {
   const ul = $('#lista-archivos');
   const vacio = ul.dataset.error && donde === 'pc' ? ul.dataset.error
     : donde === 'pc' ? (filtro === 'todo' ? 'No hay clips ni descargas en la PC.' : 'No hay nada de este tipo en la PC.')
-      : 'Todavía no guardaste nada en este celular. Descargá algo eligiendo "En este celular", o abrí un archivo de la PC y tocá "Pasar al celular".';
+      : 'Todavía no guardaste nada en este celular. Descargá algo eligiendo "En el celular", o abrí un archivo de la PC y tocá "Pasar al celular".';
   ul.replaceChildren(...(lista.length ? lista.map((a) => h('li', {},
     h('button', { type: 'button', class: 'abrir', 'aria-label': `Abrir ${sinExt(a.nombre)}`, onclick: () => abrirArchivo(a) },
       a.miniatura ? h('span', { class: 'mini' }, h('img', { src: medio(a.miniatura), alt: '', loading: 'lazy', onerror: (e) => e.target.replaceWith(h('span', { html: svg(a.tipo === 'audio' ? 'musica' : 'clip', 26) })) }))
@@ -555,7 +564,7 @@ async function abrirArchivo(a) {
   }
   $('#ha-medio').className = a.tipo === 'audio' ? 'audio' : '';
   $('#ha-nombre').textContent = sinExt(a.nombre);
-  $('#ha-datos').textContent = [TIPO[a.tipo], enCel ? 'En este celular' : `En la PC${a.carpeta ? ` (${a.carpeta})` : ''}`, tam(a.bytes)].filter(Boolean).join('. ');
+  $('#ha-datos').textContent = [TIPO[a.tipo], enCel ? 'En el celular' : `En la PC${a.carpeta ? ` (${a.carpeta})` : ''}`, tam(a.bytes)].filter(Boolean).join('. ');
   $('#ha-progreso').hidden = true;
   if (!$('#ha-para').value && estado && estado.enviarA) $('#ha-para').value = estado.enviarA;
   const acciones = [];
@@ -870,11 +879,15 @@ const TIPOS_W = {
   'clip-guardar': { nombre: 'Guardar clip', detalle: 'Los últimos segundos de la pantalla', grupo: 'PC', icono: 'clip', tams: [1, 2], altos: [1, 2], unico: true },
   captura: { nombre: 'Captura de pantalla', detalle: 'Una foto de la pantalla de la PC', grupo: 'PC', icono: 'camara', tams: [1, 2], altos: [1, 2], unico: true },
   pc: { nombre: 'Estado de la PC', detalle: 'Procesador, memoria y placa de video', grupo: 'PC', icono: 'pc', tams: [1, 2], altos: [1, 2], unico: true },
+  prender: { nombre: 'Prender la PC', detalle: 'Prenderla por la Wi-Fi de casa, o ver que está prendida', grupo: 'PC', icono: 'apagar', tams: [1, 2], altos: [1, 2], unico: true },
+  escritorio: { nombre: 'Escritorio de la PC', detalle: 'Ver la pantalla y manejarla tocando', grupo: 'PC', icono: 'tele', tams: [1, 2], altos: [1, 2], unico: true },
+  mouse: { nombre: 'Mouse de la PC', detalle: 'Un touchpad en Inicio (grande) o un atajo al control', grupo: 'PC', icono: 'mouse', tams: [1, 2], altos: [1, 2], unico: true },
+  carpeta: { nombre: 'Archivos de la PC', detalle: 'Las carpetas de la PC; para una carpeta fija, ⋮ → "Agregar a Inicio" adentro de ella', grupo: 'PC', icono: 'carpeta', tams: [1, 2], altos: [1, 2] },
   frase: { nombre: 'Atajo de voz', detalle: 'Un botón que le dice algo a Jarvis', grupo: 'Jarvis', icono: 'charla', tams: [1, 2], altos: [1, 2], datos: 'frase' },
 };
 const NOMBRE_TAM = (t, a) => (t === 2 ? (a === 2 ? 'Grande' : 'Ancho') : (a === 2 ? 'Alto' : 'Chico'));
 const INICIO_DE_SIEMPRE = [
-  { tipo: 'hablar', tam: 2 }, { tipo: 'reloj', tam: 1 }, { tipo: 'clima', tam: 1 }, { tipo: 'agenda', tam: 2 }, { tipo: 'rutinas', tam: 2 },
+  { tipo: 'hablar', tam: 2 }, { tipo: 'prender', tam: 1 }, { tipo: 'escritorio', tam: 1 }, { tipo: 'mouse', tam: 1 }, { tipo: 'carpeta', tam: 1 }, { tipo: 'reloj', tam: 1 }, { tipo: 'clima', tam: 1 }, { tipo: 'agenda', tam: 2 }, { tipo: 'rutinas', tam: 2 },
   { tipo: 'modos', tam: 2 }, { tipo: 'musica', tam: 2 }, { tipo: 'clip-guardar', tam: 1 }, { tipo: 'captura', tam: 1 }, { tipo: 'notas', tam: 2 },
 ];
 const idW = () => `w${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
@@ -886,6 +899,13 @@ function normalizarW(w) {
   return { ...w, id: w.id || idW(), tam, alto, color: COLORES_W.includes(w.color) ? w.color : '' };
 }
 let widgets = (guardado.leer('inicio', null) || INICIO_DE_SIEMPRE).map(normalizarW).filter(Boolean);
+// Una sola vez: a quien ya tenía su Inicio armado se le suman los atajos nuevos de la PC (después del primero), para que no
+// queden escondidos en Más. Se pueden sacar con Editar.
+if (!guardado.leer('inicio.v2', false)) {
+  const nuevos = ['prender', 'escritorio', 'mouse', 'carpeta'].filter((t) => !widgets.some((w) => w.tipo === t)).map((tipo) => normalizarW({ tipo, tam: 1 }));
+  if (nuevos.length && guardado.leer('inicio', null)) { widgets.splice(Math.min(1, widgets.length), 0, ...nuevos); guardado.escribir('inicio', widgets); }
+  guardado.escribir('inicio.v2', true);
+}
 const guardarWidgets = () => guardado.escribir('inicio', widgets);
 let datosInicio = guardado.leer('inicio.datos', { clima: null, agenda: [], notas: [] });
 let pidiendoInicio = false; let ultimoInicio = 0;
@@ -911,6 +931,34 @@ const cuandoNota = (t) => { const d = new Date(t); const hoy = d.toDateString() 
 const ICONO_CIELO = (c, dia) => (c === 0 || c === 1 ? (dia ? 'sol' : 'luna') : c <= 3 ? 'nube' : c >= 51 && c <= 82 ? 'lluvia' : c >= 95 ? 'rayo' : 'nube');
 let volumenLocal = guardado.leer('volumen', 50);
 
+// Widget de una carpeta de la PC: con tamaño grande muestra sus archivos más nuevos (con miniatura).
+const archivosW = new Map(); // clave carpeta → { t, lista }
+function contenidoCarpetaW(w, boton) {
+  const abrirCarpeta = () => { irACarpetas(); if (w.c) entrarPC(w.c, w.r || ''); };
+  if (!w.c) return boton('carpeta', 'Archivos de la PC', () => { irACarpetas(); if (pcc.c) entrarPC(''); });
+  if (!(w.tam === 2 && w.alto === 2)) return boton('carpeta', w.nombre || 'Carpeta', abrirCarpeta);
+  const clave = `${w.c}|${w.r || ''}`;
+  const caja = h('div', { class: 'w-carpeta' });
+  const pintarCaja = () => {
+    const d = archivosW.get(clave);
+    const archivos = d && d.lista ? d.lista.filter((x) => !x.dir).sort((a, b) => b.fecha - a.fecha).slice(0, 6) : null;
+    caja.replaceChildren(
+      h('button', { type: 'button', class: 'w-carpeta-titulo', onclick: abrirCarpeta }, h('span', { class: 'w-ic', html: svg('carpeta', 18) }), h('b', {}, w.nombre || 'Carpeta'), h('span', { class: 'tenue' }, 'Abrir')),
+      archivos ? (archivos.length ? h('div', { class: 'w-carpeta-grilla' }, ...archivos.map((x) => {
+        const rel = unir(w.r || '', x.nombre); const k = `${w.c}|${rel}|${x.fecha}|${x.bytes}`;
+        const ic = h('span', { class: 'ic mini', html: svg(ICONO_EXT(x.nombre), 22) });
+        if (TIPO_EXT(x.nombre) !== 'otro') { Object.assign(ic.dataset, { mini: k, c: w.c, r: rel }); if (minis.has(k)) ponerMini(ic, minis.get(k)); else if (observadorMinis) setTimeout(() => observadorMinis.observe(ic), 0); }
+        return h('button', { type: 'button', title: x.nombre, 'aria-label': x.nombre, onclick: async () => { irACarpetas(); entrarPC(w.c, w.r || ''); await cargarCarpetaPC(); abrirDePC(x); } }, ic);
+      })) : h('p', { class: 'tenue' }, 'Vacía.')) : h('p', { class: 'tenue' }, 'Cargando…'));
+  };
+  pintarCaja();
+  const d = archivosW.get(clave);
+  if (!d || Date.now() - d.t > 60000) {
+    archivosW.set(clave, { t: Date.now(), lista: d ? d.lista : null });
+    api(`/api/pc-archivos/lista?c=${encodeURIComponent(w.c)}&r=${encodeURIComponent(w.r || '')}`).then((r) => { archivosW.set(clave, { t: Date.now(), lista: r.entradas || [] }); pintarCaja(); }).catch(() => {});
+  }
+  return caja;
+}
 function contenidoW(w) {
   const e = estado || {};
   const boton = (ic, texto, fn, extra = {}) => h('button', { type: 'button', class: 'w-boton', onclick: (ev) => fn(ev.currentTarget), ...extra }, h('span', { class: 'w-ic', html: svg(ic, w.alto === 2 ? 30 : 22) }), h('span', {}, texto));
@@ -982,6 +1030,25 @@ function contenidoW(w) {
     case 'hablar': return contenidoHablar(w);
     case 'camara': return contenidoCamara(w);
     case 'pc': setTimeout(refrescarWidgetPc, 50); return contenidoPc(w);
+    case 'prender': {
+      if (conectado) {
+        if (w.alto !== 2) return boton('apagar', 'PC prendida', () => irA('control'), { 'aria-label': 'La PC está prendida: abrir el control' });
+        return h('div', { class: 'w-energia' }, h('b', {}, 'PC prendida'),
+          h('div', { class: 'w-energia-botones' }, ...[['bloquear', 'Bloquear'], ['suspender', 'Suspender'], ['apagar', 'Apagar']].map(([t, n]) => h('button', { type: 'button', onclick: () => { if (t !== 'bloquear' && !confirm(t === 'apagar' ? '¿Apagar la PC? Se apaga en 20 segundos.' : '¿Suspender la PC?')) return; remoto({ tipo: t }, { avisar: true }); } }, n))));
+      }
+      return boton('apagar', NATIVO ? 'Prender la PC' : 'La PC no responde', (b) => { if (NATIVO) prenderPC(b); else refrescar(); }, { class: 'w-boton w-prender' });
+    }
+    case 'escritorio': return boton('tele', w.tam === 2 ? 'Ver la pantalla de la PC' : 'Escritorio', () => abrirEscritorio());
+    case 'mouse': {
+      if (!(w.tam === 2 && w.alto === 2)) return boton('mouse', 'Mouse y teclado', () => irA('control'));
+      const tp = h('div', { class: 'w-touchpad', role: 'application', 'aria-label': 'Touchpad de la PC' }, h('span', { class: 'tenue' }, 'Touchpad de la PC'));
+      if (!editando) armarTouchpad(tp);
+      return h('div', { class: 'w-mouse' }, tp, h('div', { class: 'w-mouse-botones' },
+        h('button', { type: 'button', onclick: () => { vibrar(); remoto({ tipo: 'clic' }); } }, 'Clic'),
+        h('button', { type: 'button', onclick: () => { vibrar(); remoto({ tipo: 'clic', boton: 'derecho' }); } }, 'Clic der.'),
+        h('button', { type: 'button', 'aria-label': 'Teclado y más', html: svg('expandir', 18), onclick: () => irA('control') })));
+    }
+    case 'carpeta': return contenidoCarpetaW(w, boton);
     default: return h('span');
   }
 }
@@ -1472,6 +1539,12 @@ function atras() {
   if (dialogo) { dialogo.close(); return; }
   if (!menu.hidden) { menu.hidden = true; return; }
   if (editando) { terminarEdicion(); return; }
+  // En el explorador de la PC, "atrás" sube de carpeta (y suelta la selección o la búsqueda primero).
+  if (hojaActual === 'archivos' && donde === 'carpetas') {
+    if (pcc.elegidos) { pcc.elegidos = null; pintarCarpetaPC(); return; }
+    if (pcc.buscando) { pcc.buscando = false; pcc.buscar = ''; $('#pcc-buscar').value = ''; pintarCarpetaPC(); return; }
+    if (pcc.c) { $('#pcc-atras').click(); return; }
+  }
   if (!$('#app').hidden && hojaActual !== 'inicio') { irA('inicio'); return; }
   nativo.salir();
 }
@@ -2011,7 +2084,7 @@ async function cargarCarpetaPC() {
   }
   pintarCarpetaPC();
 }
-function entrarPC(c, r = '') { pcc.c = c; pcc.r = r; pcc.lista = null; pcc.elegidos = null; pcc.buscar = ''; $('#pcc-buscar').value = ''; guardado.escribir('pcc.c', c); guardado.escribir('pcc.r', r); pintarCarpetaPC(); cargarCarpetaPC(); }
+function entrarPC(c, r = '') { pcc.c = c; pcc.r = r; pcc.lista = null; pcc.elegidos = null; pcc.buscar = ''; pcc.buscando = false; $('#pcc-buscar').value = ''; window.scrollTo(0, 0); guardado.escribir('pcc.c', c); guardado.escribir('pcc.r', r); pintarCarpetaPC(); cargarCarpetaPC(); }
 const ICONO_EXT = (n) => (/\.(mp4|mkv|webm|mov|avi)$/i.test(n) ? 'clip' : /\.(mp3|m4a|wav|flac|ogg|opus|aac)$/i.test(n) ? 'musica' : /\.(jpe?g|png|gif|webp|heic|bmp)$/i.test(n) ? 'camara' : 'nota');
 // Tipo de archivo por la extensión (para los filtros y el ícono).
 const TIPO_EXT = (n) => (/\.(jpe?g|png|gif|webp|heic|heif|bmp|avif|tiff?)$/i.test(n) ? 'foto' : /\.(mp4|mkv|webm|mov|avi|m4v|wmv|flv)$/i.test(n) ? 'video'
@@ -2049,30 +2122,37 @@ function entradasVisibles() {
   const orden = { nuevos: (a, b) => b.fecha - a.fecha, viejos: (a, b) => a.fecha - b.fecha, nombre: (a, b) => a.nombre.localeCompare(b.nombre, 'es', { numeric: true, sensitivity: 'base' }), pesados: (a, b) => b.bytes - a.bytes }[pcc.orden] || ((a, b) => b.fecha - a.fecha);
   return todas.filter(sirve).sort((a, b) => (b.dir - a.dir) || orden(a, b));
 }
+const NOMBRE_TIPO = { todo: 'Todo', foto: 'Fotos', video: 'Videos', audio: 'Audio', doc: 'Documentos' };
+const NOMBRE_ORDEN = { nuevos: 'Más nuevos', viejos: 'Más viejos', nombre: 'Nombre', pesados: 'Más pesados' };
 function pintarCarpetaPC() {
   const ul = $('#lista-pcc');
-  const camino = $('#pcc-camino');
   const carpeta = (pcc.carpetas || []).find((x) => x.id === pcc.c);
   const partes = pcc.r ? pcc.r.split('/') : [];
-  camino.replaceChildren(
-    h('button', { type: 'button', class: 'texto', onclick: () => entrarPC('') }, 'Carpetas'),
-    ...(carpeta ? [h('span', {}, '›'), h('button', { type: 'button', class: 'texto', onclick: () => entrarPC(carpeta.id) }, carpeta.nombre)] : []),
-    ...partes.flatMap((p, i) => [h('span', {}, '›'), h('button', { type: 'button', class: 'texto', onclick: () => entrarPC(pcc.c, partes.slice(0, i + 1).join('/')) }, p)]));
   const adentro = !!pcc.c && !pcc.error;
+  // Barra de arriba: volver, nombre de la carpeta y, abajo chiquito, el camino (cada parte se puede tocar).
+  $('#pcc-nombre').textContent = partes.length ? partes[partes.length - 1] : carpeta ? carpeta.nombre : 'Carpetas de la PC';
+  $('#pcc-atras').hidden = !pcc.c;
+  const camino = [h('button', { type: 'button', onclick: () => entrarPC('') }, 'PC'),
+    ...(carpeta ? [h('span', {}, '›'), h('button', { type: 'button', onclick: () => entrarPC(carpeta.id) }, carpeta.nombre)] : []),
+    ...partes.slice(0, -1).flatMap((p, i) => [h('span', {}, '›'), h('button', { type: 'button', onclick: () => entrarPC(pcc.c, partes.slice(0, i + 1).join('/')) }, p)])];
+  $('#pcc-camino').replaceChildren(...(pcc.c ? camino : [h('span', {}, 'Elegí una carpeta')]));
+  requestAnimationFrame(() => { const c = $('#pcc-camino'); c.scrollLeft = c.scrollWidth; });
+  $('#pcc-lupa').hidden = !adentro; $('#pcc-opciones').hidden = !adentro;
+  $('#pcc-sup').hidden = !!pcc.elegidos; $('#pcc-sup-elegir').hidden = !pcc.elegidos;
+  $('#pcc-busqueda').hidden = !adentro || !pcc.buscando;
   $('#pcc-subir').hidden = !adentro || !!pcc.elegidos;
-  $('#pcc-elegir').hidden = !adentro || !!pcc.elegidos || !((pcc.lista && pcc.lista.entradas) || []).some((x) => !x.dir);
-  $('#pcc-herramientas').hidden = !adentro;
-  $('#pcc-orden').value = pcc.orden;
-  document.querySelectorAll('#pcc-filtros [data-tipo]').forEach((b) => { const on = b.dataset.tipo === pcc.tipo; b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on)); });
-  $('#pcc-vista').innerHTML = svg(pcc.vista === 'cuadricula' ? 'lista' : 'cuadricula', 20);
-  $('#pcc-vista').setAttribute('aria-label', pcc.vista === 'cuadricula' ? 'Ver como lista' : 'Ver como cuadrícula');
+  // Lo que está filtrando ahora, a la vista y fácil de sacar.
+  const activos = [pcc.tipo !== 'todo' ? h('button', { type: 'button', class: 'ficha-activa', onclick: () => { pcc.tipo = 'todo'; pintarCarpetaPC(); } }, `${NOMBRE_TIPO[pcc.tipo]} ✕`) : null,
+    pcc.orden !== 'nuevos' ? h('button', { type: 'button', class: 'ficha-activa', onclick: () => { pcc.orden = 'nuevos'; guardado.escribir('pcc.orden', pcc.orden); pintarCarpetaPC(); } }, `Orden: ${NOMBRE_ORDEN[pcc.orden]} ✕`) : null].filter(Boolean);
+  $('#pcc-activos').hidden = !adentro || !activos.length;
+  $('#pcc-activos').replaceChildren(...activos);
   ul.classList.toggle('cuadricula', pcc.vista === 'cuadricula' && adentro);
   pintarBarraPC();
   if (pcc.error) { ul.replaceChildren(vacio(pcc.error)); return; }
   if (!pcc.c) {
     if (!pcc.carpetas) { ul.replaceChildren(vacio('Cargando…')); return; }
     ul.replaceChildren(...(pcc.carpetas.length ? pcc.carpetas.map((x) => h('li', {}, h('button', { type: 'button', class: 'abrir', onclick: () => entrarPC(x.id) },
-      h('span', { class: 'ic', html: svg('carpeta', 20) }), h('span', { class: 'datos' }, h('b', {}, x.nombre), h('span', {}, 'Carpeta de la PC'))))) : [vacio('No hay carpetas compartidas. Elegilas en la PC: Ajustes → Dispositivos → Celular → Archivos de la PC.')]));
+      h('span', { class: 'ic mini', html: svg('carpeta', 22) }), h('span', { class: 'datos' }, h('b', {}, x.nombre), h('span', {}, 'Carpeta de la PC'))))) : [vacio('No hay carpetas compartidas. Elegilas en la PC: Ajustes → Dispositivos → Celular → Archivos de la PC.')]));
     return;
   }
   if (!pcc.lista) { ul.replaceChildren(vacio('Cargando…')); return; }
@@ -2080,35 +2160,64 @@ function pintarCarpetaPC() {
   const total = (pcc.lista.entradas || []).length;
   ul.replaceChildren(...(entradas.length ? entradas.map((x) => {
     const tipo = x.dir ? 'carpeta' : TIPO_EXT(x.nombre);
-    const ic = h('span', { class: 'ic mini', html: svg(x.dir ? 'carpeta' : ICONO_EXT(x.nombre), pcc.vista === 'cuadricula' ? 28 : 20) });
+    const ic = h('span', { class: 'ic mini', html: svg(x.dir ? 'carpeta' : ICONO_EXT(x.nombre), pcc.vista === 'cuadricula' ? 30 : 22) });
     if (!x.dir && tipo !== 'otro') {
       const rel = unir(pcc.r, x.nombre); const clave = `${pcc.c}|${rel}|${x.fecha}|${x.bytes}`;
       Object.assign(ic.dataset, { mini: clave, c: pcc.c, r: rel });
       if (minis.has(clave)) ponerMini(ic, minis.get(clave)); else if (observadorMinis) setTimeout(() => observadorMinis.observe(ic), 0);
     }
     const elegido = pcc.elegidos && pcc.elegidos.has(x.nombre);
-    return h('li', { class: `${elegido ? 'elegido' : ''} t-${tipo}` }, h('button', {
+    // Mantener apretado un archivo: empieza a elegir varios (como en cualquier explorador).
+    let largo = null;
+    const boton = h('button', {
       type: 'button', class: 'abrir', 'aria-pressed': pcc.elegidos && !x.dir ? String(!!elegido) : null,
       'aria-label': x.dir ? `Abrir la carpeta ${x.nombre}` : pcc.elegidos ? `${elegido ? 'Quitar' : 'Elegir'} ${x.nombre}` : `Opciones de ${x.nombre}`,
-      onclick: () => (x.dir ? (!pcc.elegidos && entrarPC(pcc.c, unir(pcc.r, x.nombre))) : pcc.elegidos ? alternarElegido(x.nombre) : abrirDePC(x)),
-      oncontextmenu: (e) => { if (x.dir) return; e.preventDefault(); if (!pcc.elegidos) pcc.elegidos = new Set(); alternarElegido(x.nombre); },
+      onclick: () => { if (boton.dataset.largo) { delete boton.dataset.largo; return; } if (x.dir) { if (!pcc.elegidos) entrarPC(pcc.c, unir(pcc.r, x.nombre)); } else if (pcc.elegidos) alternarElegido(x.nombre); else abrirDePC(x); },
+      oncontextmenu: (e) => e.preventDefault(),
     },
     ic, pcc.elegidos && !x.dir ? h('span', { class: 'marca', 'aria-hidden': 'true', html: elegido ? svg('tilde', 16) : '' }) : null,
-    h('span', { class: 'datos' }, h('b', {}, x.nombre), h('span', {}, x.dir ? 'Carpeta' : [tam(x.bytes), cuando(x.fecha)].filter(Boolean).join(' · ')))));
+    h('span', { class: 'datos' }, h('b', {}, x.nombre), h('span', {}, x.dir ? 'Carpeta' : [tam(x.bytes), cuando(x.fecha)].filter(Boolean).join(' · '))));
+    if (!x.dir) {
+      boton.addEventListener('pointerdown', () => { clearTimeout(largo); largo = setTimeout(() => { boton.dataset.largo = '1'; if (!pcc.elegidos) pcc.elegidos = new Set(); vibrar(20); alternarElegido(x.nombre); }, 480); });
+      ['pointerup', 'pointercancel', 'pointerleave', 'pointermove'].forEach((t) => boton.addEventListener(t, (e) => { if (t !== 'pointermove' || Math.abs(e.movementY) + Math.abs(e.movementX) > 6) clearTimeout(largo); }));
+    }
+    return h('li', { class: `${elegido ? 'elegido' : ''} t-${tipo}` }, boton);
   }) : [vacio(total ? 'Nada coincide con la búsqueda o el filtro.' : 'Esta carpeta está vacía.')]));
 }
 function alternarElegido(nombre) {
   if (!pcc.elegidos) return;
   if (pcc.elegidos.has(nombre)) pcc.elegidos.delete(nombre); else pcc.elegidos.add(nombre);
+  if (!pcc.elegidos.size) pcc.elegidos = null;
   vibrar(10); pintarCarpetaPC();
 }
 function pintarBarraPC() {
   const n = pcc.elegidos ? pcc.elegidos.size : 0;
-  $('#pcc-barra').hidden = !pcc.elegidos;
-  $('#pcc-cuantos').textContent = n ? `${n} ${n === 1 ? 'elegido' : 'elegidos'}` : 'Tocá los archivos';
+  $('#pcc-cuantos').textContent = n === 1 ? '1 elegido' : `${n} elegidos`;
   ['#pcc-b-whatsapp', '#pcc-b-compartir', '#pcc-b-bajar'].forEach((x) => { $(x).disabled = !n; });
 }
 const elegidosPC = () => ((pcc.lista && pcc.lista.entradas) || []).filter((x) => !x.dir && pcc.elegidos && pcc.elegidos.has(x.nombre));
+// ⋮: ordenar, qué mostrar, cómo verlo, elegir varios, fijar en Inicio.
+function opcionesCarpetaPC() {
+  const grupo = (titulo, opciones, valor, elegir) => h('div', { class: 'campo' }, h('span', { class: 'etiqueta' }, titulo),
+    h('div', { class: 'opciones-lista', role: 'radiogroup', 'aria-label': titulo }, Object.entries(opciones).map(([v, t]) => h('button', { type: 'button', role: 'radio', 'aria-checked': String(v === valor), class: v === valor ? 'on' : '', onclick: () => { elegir(v); hojaEd.close(); pintarCarpetaPC(); } }, v === valor ? h('span', { html: svg('tilde', 16) }) : h('span', {}), t))));
+  editor(($('#pcc-nombre').textContent || 'Carpeta'), [
+    grupo('Ordenar por', NOMBRE_ORDEN, pcc.orden, (v) => { pcc.orden = v; guardado.escribir('pcc.orden', v); }),
+    grupo('Mostrar', NOMBRE_TIPO, pcc.tipo, (v) => { pcc.tipo = v; }),
+    grupo('Ver como', { lista: 'Lista', cuadricula: 'Cuadrícula (con miniaturas grandes)' }, pcc.vista, (v) => { pcc.vista = v; guardado.escribir('pcc.vista', v); }),
+  ], [
+    { texto: 'Elegir varios', hacer: () => { pcc.elegidos = new Set(); pintarCarpetaPC(); return true; } },
+    { texto: 'Agregar esta carpeta a Inicio', hacer: () => { fijarCarpetaEnInicio(); return true; } },
+    { texto: 'Actualizar', hacer: () => { pcc.carpetas = null; cargarCarpetaPC(); return true; } },
+    { texto: 'Cerrar', clase: 'texto', hacer: () => true },
+  ]);
+}
+function fijarCarpetaEnInicio() {
+  const carpeta = (pcc.carpetas || []).find((x) => x.id === pcc.c);
+  const nombre = pcc.r ? pcc.r.split('/').pop() : carpeta ? carpeta.nombre : 'Carpeta';
+  widgets.push(normalizarW({ tipo: 'carpeta', tam: 2, alto: 2, c: pcc.c, r: pcc.r, nombre }));
+  guardarWidgets(); pintarInicio();
+  aviso(`Listo: "${nombre}" está en Inicio, con sus archivos más nuevos.`, { tipo: 'bien', ms: 4000, accion: { texto: 'Ver', hacer: () => irA('inicio') } });
+}
 // Mandar por WhatsApp desde la PC (no gasta datos del celular).
 function mandarPorWhatsAppDesdePC(archivos) {
   const para = entrada(guardado.leer('pcc.para', ''), { placeholder: 'Contacto, grupo o Yo', list: 'contactos', 'aria-label': 'A quién' });
@@ -2144,16 +2253,24 @@ async function bajarVarios(archivos, como) {
   if (NATIVO) { for (const f of blobs) await aAndroid(f, f.name, 'compartir'); return; }
   throw new Error('Este navegador no deja compartir varios archivos juntos: bajalos y compartilos desde ahí.');
 }
-$('#pcc-elegir').addEventListener('click', () => { pcc.elegidos = new Set(); pintarCarpetaPC(); });
+$('#pcc-atras').innerHTML = svg('atras', 22);
+$('#pcc-lupa').innerHTML = svg('buscar', 22);
+$('#pcc-opciones').innerHTML = svg('menu', 22);
+$('#pcc-b-cancelar').innerHTML = svg('cerrar', 22);
+$('#pcc-b-compartir').innerHTML = svg('compartir', 22);
+$('#pcc-b-whatsapp').innerHTML = svg('whatsapp', 22);
+$('#pcc-b-bajar').innerHTML = svg('bajar', 22);
+$('#pcc-subir').innerHTML = svg('subir', 24);
+$('#pcc-atras').addEventListener('click', () => { const partes = pcc.r ? pcc.r.split('/') : []; if (partes.length) entrarPC(pcc.c, partes.slice(0, -1).join('/')); else entrarPC(''); });
+$('#pcc-lupa').addEventListener('click', () => { pcc.buscando = !pcc.buscando; if (!pcc.buscando) { pcc.buscar = ''; $('#pcc-buscar').value = ''; } pintarCarpetaPC(); if (pcc.buscando) $('#pcc-buscar').focus(); });
+$('#pcc-opciones').addEventListener('click', () => opcionesCarpetaPC());
+$('#pcc-b-todos').addEventListener('click', () => { const archivos = entradasVisibles().filter((x) => !x.dir); pcc.elegidos = new Set(pcc.elegidos && pcc.elegidos.size === archivos.length ? [] : archivos.map((x) => x.nombre)); if (!pcc.elegidos.size) pcc.elegidos = null; pintarCarpetaPC(); });
 $('#pcc-b-cancelar').addEventListener('click', () => { pcc.elegidos = null; pintarCarpetaPC(); });
 $('#pcc-b-whatsapp').addEventListener('click', () => mandarPorWhatsAppDesdePC(elegidosPC()));
 const conAviso = (fn) => async () => { try { await fn(); } catch (e) { aviso(e instanceof SinPC ? 'Tu PC no responde.' : e.message, { tipo: 'mal', ms: 6000 }); } };
 $('#pcc-b-compartir').addEventListener('click', conAviso(() => bajarVarios(elegidosPC(), 'compartir')));
 $('#pcc-b-bajar').addEventListener('click', conAviso(async () => { await bajarVarios(elegidosPC(), 'bajar'); pcc.elegidos = null; pintarCarpetaPC(); }));
 $('#pcc-buscar').addEventListener('input', (e) => { pcc.buscar = e.target.value; pintarCarpetaPC(); });
-$('#pcc-orden').addEventListener('change', (e) => { pcc.orden = e.target.value; guardado.escribir('pcc.orden', pcc.orden); pintarCarpetaPC(); });
-$('#pcc-vista').addEventListener('click', () => { pcc.vista = pcc.vista === 'cuadricula' ? 'lista' : 'cuadricula'; guardado.escribir('pcc.vista', pcc.vista); pintarCarpetaPC(); });
-document.querySelectorAll('#pcc-filtros [data-tipo]').forEach((b) => b.addEventListener('click', () => { pcc.tipo = b.dataset.tipo; pintarCarpetaPC(); }));
 // Traer un archivo de la PC con progreso. En la app pasa por la propia app (sin bloqueos del WebView).
 async function traerDePC(ruta, alAvanzar = () => {}, bytes = 0) {
   let r;
@@ -2190,7 +2307,7 @@ function abrirDePC(x) {
       await navigator.share({ files: [f] }).catch((e) => { if (e.name !== 'AbortError') throw e; });
       return true;
     } },
-    ...(esMedio ? [{ texto: 'Guardar en Jarvis (para verlo acá)', hacer: async () => { if (avisarDatos()) return false; await local.guardarDesde(ruta, { nombre: x.nombre, tipo: /\.(mp3|m4a|wav|ogg|opus|flac|aac)$/i.test(x.nombre) ? 'audio' : 'video', bytes: x.bytes }, progresoDe('Bajando'), { conToken: true }); aviso('Listo: está en Archivos → En este celular.', { tipo: 'bien' }); return true; } }] : []),
+    ...(esMedio ? [{ texto: 'Guardar en Jarvis (para verlo acá)', hacer: async () => { if (avisarDatos()) return false; await local.guardarDesde(ruta, { nombre: x.nombre, tipo: /\.(mp3|m4a|wav|ogg|opus|flac|aac)$/i.test(x.nombre) ? 'audio' : 'video', bytes: x.bytes }, progresoDe('Bajando'), { conToken: true }); aviso('Listo: está en Archivos → En el celular.', { tipo: 'bien' }); return true; } }] : []),
     { texto: 'Mandar por WhatsApp (desde la PC)', hacer: () => { setTimeout(() => mandarPorWhatsAppDesdePC([x]), 50); return true; } },
     { texto: 'Abrir en la PC', hacer: async () => { const r = await api('/api/pc-archivos/abrir', { metodo: 'POST', cuerpo: { c: pcc.c, r: unir(pcc.r, x.nombre) } }); aviso(r.texto || 'Listo, lo abrí en la PC.', { tipo: 'bien' }); return true; } },
     { texto: 'Cerrar', clase: 'texto', hacer: () => true },
@@ -2218,15 +2335,13 @@ $('#pcc-archivo').addEventListener('change', async (e) => {
   let hechos = 0;
   try {
     for (const [i, a] of archivos.entries()) {
-      await subirAPC(a, pcc.c, pcc.r, (f) => { b.textContent = `Subiendo ${archivos.length > 1 ? `${i + 1} de ${archivos.length}` : ''}: ${Math.round(f * 100)} %`; });
+      await subirAPC(a, pcc.c, pcc.r, (f) => { aviso(`Subiendo ${archivos.length > 1 ? `${i + 1} de ${archivos.length}` : ''}: ${Math.round(f * 100)} %`, { ms: 0 }); });
       hechos++;
     }
     aviso(hechos === 1 ? `Listo: "${archivos[0].name}" quedó en la PC.` : `Listo: subí ${hechos} archivos a la PC.`, { tipo: 'bien', ms: 5000 });
   } catch (er) { aviso(er instanceof SinPC ? 'Tu PC no responde: no se pudo subir.' : er.message, { tipo: 'mal', ms: 7000 }); }
-  finally { b.disabled = false; b.textContent = 'Subir desde el celular'; cargarCarpetaPC(); }
+  finally { b.disabled = false; cargarCarpetaPC(); }
 });
-$('#pcc-actualizar').innerHTML = svg('actualizar', 20);
-$('#pcc-actualizar').addEventListener('click', () => { pcc.carpetas = null; cargarCarpetaPC(); });
 
 // Algo compartido desde otra app del celular (fotos, PDFs, cualquier archivo): a una carpeta de la PC o por WhatsApp.
 async function recibirArchivosCompartidos(d) {
@@ -2289,8 +2404,11 @@ function prepararControl() {
   $('#teclas-media').replaceChildren(...MEDIA.map(([t, ic, n]) => h('button', { type: 'button', class: 'icono-texto', 'aria-label': n, html: svg(ic, 20), onclick: () => { vibrar(); remoto({ tipo: 'multimedia', tecla: t }); } })));
   document.querySelectorAll('[data-rem]').forEach((b) => b.addEventListener('click', () => { vibrar(); remoto(JSON.parse(b.dataset.rem)); }));
   $('#form-teclado').addEventListener('submit', (e) => { e.preventDefault(); const t = $('#teclado').value; if (!t) return; $('#teclado').value = ''; remoto({ tipo: 'escribir', texto: t }); });
-  // Touchpad: un dedo mueve; tocar = clic; dos dedos = desplazar (o tocar con dos = clic derecho); mantener = arrastrar.
-  const tp = $('#tp');
+  armarTouchpad($('#tp'));
+}
+// Touchpad: un dedo mueve; tocar = clic; dos dedos = desplazar (o tocar con dos = clic derecho); mantener = arrastrar.
+// Lo usan la pantalla Control de la PC y el widget de Inicio.
+function armarTouchpad(tp) {
   const dedos = new Map();
   let gesto = null;
   const VEL = 1.8;
@@ -2321,8 +2439,8 @@ function prepararControl() {
     gesto = null;
   };
   tp.addEventListener('pointerup', soltar);
-  tp.addEventListener('pointercancel', soltar);
-}
+  tp.addEventListener('pointercancel', soltar);}
+
 function pintarEnergia() {
   const peligro = (tipo, pregunta) => () => { if (confirm(pregunta)) remoto({ tipo }, { avisar: true }); };
   $('#teclas-energia').replaceChildren(

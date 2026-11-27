@@ -620,25 +620,34 @@ async function hasta(fn, ms = 20000, que = '') {
     // Miniaturas, filtros, búsqueda, cuadrícula y elegir varios.
     await hasta(() => pA.locator('#lista-pcc li.t-foto .ic.mini img').count(), 15000, 'miniatura de la foto');
     await hasta(() => pA.locator('#lista-pcc li.t-video .ic.mini img').count(), 15000, 'miniatura del video');
-    await pA.click('#pcc-filtros button[data-tipo="foto"]');
+    // ⋮ → Mostrar: Fotos (queda como ficha arriba, se saca con ✕).
+    await pA.click('#pcc-opciones');
+    await pA.click('.opciones-lista button:has-text("Fotos")');
     assert.deepStrictEqual((await pA.locator('#lista-pcc li .datos b').allTextContents()).sort(), ['captura.png', 'foto del celu.jpg'], 'filtro Fotos');
-    await pA.click('#pcc-filtros button[data-tipo="todo"]');
+    await pA.click('#pcc-activos .ficha-activa:has-text("Fotos")');
+    await pA.click('#pcc-lupa');
     await pA.fill('#pcc-buscar', 'presu');
     assert.deepStrictEqual(await pA.locator('#lista-pcc li .datos b').allTextContents(), ['presupuesto.pdf'], 'búsqueda');
-    await pA.fill('#pcc-buscar', '');
-    await pA.selectOption('#pcc-orden', 'nombre');
+    await pA.click('#pcc-lupa');
+    await pA.click('#pcc-opciones');
+    await pA.click('.opciones-lista button:has-text("Nombre")');
     assert.strictEqual((await pA.locator('#lista-pcc li .datos b').allTextContents()).slice(1).join(), 'captura.png,foto del celu.jpg,jugada.mp4,presupuesto.pdf', 'orden por nombre (carpetas primero)');
-    await pA.click('#pcc-vista');
+    await pA.click('#pcc-opciones');
+    await pA.click('.opciones-lista button:has-text("Cuadrícula")');
     assert.ok(await pA.locator('#lista-pcc.cuadricula').count(), 'cuadrícula');
     await pA.screenshot({ path: path.join(SALIDA, '26b-android-archivos-cuadricula.png') });
-    await pA.click('#pcc-elegir');
-    await pA.click('#lista-pcc button[aria-label="Elegir captura.png"]');
+    // Mantener apretado un archivo empieza a elegir varios.
+    const cap = pA.locator('#lista-pcc button[aria-label="Opciones de captura.png"]');
+    const cb = await cap.boundingBox();
+    await pA.mouse.move(cb.x + cb.width / 2, cb.y + cb.height / 2); await pA.mouse.down(); await esperar(700); await pA.mouse.up();
+    await hasta(async () => (await pA.textContent('#pcc-cuantos')) === '1 elegido', 3000, 'mantener apretado elige');
     await pA.click('#lista-pcc button[aria-label="Elegir jugada.mp4"]');
     assert.strictEqual(await pA.textContent('#pcc-cuantos'), '2 elegidos');
     await pA.screenshot({ path: path.join(SALIDA, '26c-android-archivos-elegidos.png') });
     await pA.click('#pcc-b-bajar');
     await hasta(() => pA.evaluate(() => ['captura.png', 'jugada.mp4'].every((n) => window.androidFalso.archivos.some((a) => a.nombre === n))), 10000, 'android: bajados los dos');
-    await pA.click('#pcc-vista');
+    await pA.click('#pcc-opciones');
+    await pA.click('.opciones-lista button:has-text("Lista")');
     await pA.click('#lista-pcc button:has-text("presupuesto.pdf")');
     await pA.click('#ed-botones button:has-text("Bajar al celular")');
     await hasta(() => pA.evaluate(() => window.androidFalso.archivos.some((a) => a.nombre === 'presupuesto.pdf' && a.bytes === 3000)), 10000, 'android: bajado de la PC');

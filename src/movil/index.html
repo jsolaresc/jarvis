@@ -171,46 +171,34 @@
       <p id="clips-estado" class="tenue"></p>
       <div class="segmentado grande" role="tablist" aria-label="Dónde están">
         <button type="button" role="tab" data-donde="pc" aria-selected="true">En la PC</button>
-        <button type="button" role="tab" data-donde="celular" aria-selected="false">En este celular</button>
+        <button type="button" role="tab" data-donde="celular" aria-selected="false">En el celular</button>
         <button type="button" role="tab" data-donde="carpetas" aria-selected="false">Carpetas</button>
       </div>
       <div id="pcc" hidden>
-        <div class="fila-titulo pcc-arriba">
-          <nav id="pcc-camino" class="pcc-camino" aria-label="Dónde estás"></nav>
-          <button type="button" id="pcc-actualizar" class="icono" aria-label="Actualizar"></button>
-        </div>
-        <div id="pcc-herramientas" hidden>
-          <div class="pcc-buscar">
-            <input id="pcc-buscar" type="search" placeholder="Buscar" aria-label="Buscar en esta carpeta" autocomplete="off">
-            <select id="pcc-orden" aria-label="Ordenar">
-              <option value="nuevos">Más nuevos</option>
-              <option value="viejos">Más viejos</option>
-              <option value="nombre">Nombre</option>
-              <option value="pesados">Más pesados</option>
-            </select>
-            <button type="button" id="pcc-vista" class="icono" aria-label="Ver como cuadrícula"></button>
+        <div class="pcc-barra-sup" id="pcc-sup">
+          <button type="button" id="pcc-atras" class="icono" aria-label="Volver a la carpeta de arriba"></button>
+          <div class="pcc-titulo">
+            <b id="pcc-nombre">Carpetas de la PC</b>
+            <nav id="pcc-camino" class="pcc-camino" aria-label="Dónde estás"></nav>
           </div>
-          <div id="pcc-filtros" class="fichas chicas" role="radiogroup" aria-label="Mostrar">
-            <button type="button" role="radio" data-tipo="todo">Todo</button>
-            <button type="button" role="radio" data-tipo="foto">Fotos</button>
-            <button type="button" role="radio" data-tipo="video">Videos</button>
-            <button type="button" role="radio" data-tipo="audio">Audio</button>
-            <button type="button" role="radio" data-tipo="doc">Documentos</button>
-          </div>
+          <button type="button" id="pcc-lupa" class="icono" aria-label="Buscar"></button>
+          <button type="button" id="pcc-opciones" class="icono" aria-label="Ordenar, filtrar y más"></button>
         </div>
-        <div class="pcc-acciones">
-          <button type="button" id="pcc-subir" class="ancho principal">Subir desde el celular</button>
-          <button type="button" id="pcc-elegir" class="ancho" hidden>Elegir varios</button>
+        <div class="pcc-barra-sup elegir" id="pcc-sup-elegir" hidden>
+          <button type="button" id="pcc-b-cancelar" class="icono" aria-label="Dejar de elegir"></button>
+          <b id="pcc-cuantos" class="pcc-titulo"></b>
+          <button type="button" id="pcc-b-todos" class="texto">Todos</button>
+          <button type="button" id="pcc-b-compartir" class="icono" aria-label="Compartir"></button>
+          <button type="button" id="pcc-b-whatsapp" class="icono" aria-label="Mandar por WhatsApp desde la PC"></button>
+          <button type="button" id="pcc-b-bajar" class="icono" aria-label="Bajar al celular"></button>
         </div>
-        <input type="file" id="pcc-archivo" multiple hidden>
+        <div id="pcc-busqueda" class="pcc-busqueda" hidden>
+          <input id="pcc-buscar" type="search" placeholder="Buscar en esta carpeta" aria-label="Buscar en esta carpeta" autocomplete="off">
+        </div>
+        <div id="pcc-activos" class="pcc-activos" hidden></div>
         <ul id="lista-pcc" class="lista"></ul>
-        <div id="pcc-barra" class="pcc-barra" hidden>
-          <span id="pcc-cuantos"></span>
-          <button type="button" id="pcc-b-whatsapp" class="principal">WhatsApp</button>
-          <button type="button" id="pcc-b-compartir">Compartir</button>
-          <button type="button" id="pcc-b-bajar">Bajar</button>
-          <button type="button" id="pcc-b-cancelar" class="texto">Listo</button>
-        </div>
+        <button type="button" id="pcc-subir" class="fab" aria-label="Subir desde el celular"></button>
+        <input type="file" id="pcc-archivo" multiple hidden>
       </div>
       <div class="fila-titulo" id="filtros-fila">
         <div id="filtros" class="fichas chicas" role="radiogroup" aria-label="Mostrar">
