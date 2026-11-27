@@ -40,6 +40,8 @@ const arranque = require('./arranque');
 const celular = require('./celular');
 const red = require('./red');
 const camara = require('./camara');
+const estadopc = require('./estadopc');
+const disparadores = require('./disparadores');
 const descargas = require('./descargas');
 
 const ANCHO = 380; // tamaño de la ventana del notch (la pastilla y el panel viven adentro)
@@ -641,7 +643,7 @@ async function hablar() {
   await cerebro.activar();
 }
 
-ipcMain.on('voz:despertar', () => { if (!cerebro.activa()) cerebro.activar(); });
+ipcMain.on('voz:despertar', () => { if (!cerebro.activa()) cerebro.activar({ porPalabraClave: true }); });
 ipcMain.on('voz:audio', (_e, pcm) => cerebro.audio(pcm));
 ipcMain.on('voz:vigilia', (_e, pcm) => cerebro.vigilia(pcm)); // audio de cuando nadie lo llamó: para oír su nombre
 ipcMain.on('voz:pista', (_e, valor) => cerebro.pista(valor)); // el detector clásico notó algo, sin llegar a despertarse
@@ -732,7 +734,8 @@ manejar('clips:enviar', ({ archivo, contacto }) => clips.enviarGuardado(archivo,
 // Editor de clips: el video para la vista previa, renombrar, recortar (guardar o reemplazar) y mandar solo el trozo.
 manejar('clips:vista', (archivo) => { if (!clips.dentroDeCarpeta(archivo)) throw new Error('Ese video no está en la carpeta de clips.'); return servidor.compartirLocal(archivo); });
 manejar('clips:renombrar', ({ archivo, nombre }) => clips.renombrar(archivo, nombre));
-manejar('clips:recortar', ({ archivo, desde, hasta, reemplazar }) => clips.recortar(archivo, { desde, hasta, reemplazar: !!reemplazar, mandar: (ruta) => shell.trashItem(ruta) }));
+manejar('clips:recortar', ({ archivo, desde, hasta, reemplazar, edicion }) => clips.recortar(archivo, { desde, hasta, reemplazar: !!reemplazar, edicion: edicion || {}, mandar: (ruta) => shell.trashItem(ruta) }));
+manejar('clips:favorito', ({ archivo, si }) => clips.marcarFavorito(archivo, !!si));
 // Pantalla completa de Ajustes (el editor de clips la usa para ver el video grande).
 manejar('ventana:pantallaCompleta', (si) => { if (ajustes && !ajustes.isDestroyed()) ajustes.setFullScreen(!!si); return true; });
 manejar('clips:deshacerRecorte', (id) => clips.deshacerRecorte(String(id)));
@@ -741,14 +744,26 @@ const avisarTrabajo = (dato) => { if (ajustes && !ajustes.isDestroyed()) ajustes
 manejar('clips:transformar', async ({ archivo, tipo, opciones }) => {
   avisarTrabajo({ archivo, tipo, porcentaje: 0 });
   try {
-    const r = await clips.transformar(archivo, String(tipo), opciones || {}, (porcentaje) => avisarTrabajo({ archivo, tipo, porcentaje }));
+    const o = { ...(opciones || {}) };
+    if (o.reemplazar) o.mandar = (ruta) => shell.trashItem(ruta);
+    const r = await clips.transformar(archivo, String(tipo), o, (porcentaje) => avisarTrabajo({ archivo, tipo, porcentaje }));
     historial.anotar(`${clips.TRANSFORMACIONES[tipo].titulo}: ${r.nombre}`);
     return r;
   } finally { avisarTrabajo({ archivo, tipo, fin: true }); }
 });
+// Varios a la Papelera de una (desde Almacenamiento): sin plazo de "Deshacer", se recuperan desde la Papelera de Windows.
+manejar('clips:papeleraVarios', async (archivos) => {
+  let n = 0; let bytes = 0; const fallos = [];
+  for (const a of (Array.isArray(archivos) ? archivos : []).slice(0, 2000)) {
+    if (!clips.dentroDeCarpeta(a)) continue;
+    try { const t = require('fs').statSync(a).size; await shell.trashItem(a); n++; bytes += t; } catch (e) { fallos.push(require('path').basename(a)); }
+  }
+  historial.terminar(historial.empezar(`Mandé ${n} videos a la Papelera`, 'click'), { respuesta: fallos.length ? `No pude con ${fallos.length}: ${fallos.slice(0, 3).join(', ')}` : 'Listo.' });
+  return { n, bytes, fallos };
+});
 manejar('clips:mostrarArchivo', (ruta) => { if (!clips.enCarpeta(ruta)) throw new Error('Ese archivo no está en la carpeta de clips.'); shell.showItemInFolder(ruta); return true; });
 manejar('clips:vistaPrevia', async (archivo) => servidor.compartirLocal(await clips.vistaPrevia(archivo, (porcentaje) => avisarTrabajo({ archivo, tipo: 'vista', porcentaje }))));
-manejar('clips:enviarRecorte', ({ archivo, desde, hasta, contacto }) => clips.enviarRecorte(archivo, { desde, hasta }, contacto || leerConfig().clips.enviarA, (c, mp4) => whatsapp.enviarVideo(c, mp4)));
+manejar('clips:enviarRecorte', ({ archivo, desde, hasta, contacto, edicion }) => clips.enviarRecorte(archivo, { desde, hasta, edicion: edicion || {} }, contacto || leerConfig().clips.enviarA, (c, mp4) => whatsapp.enviarVideo(c, mp4)));
 // El clip se aparta 10 segundos (con "Deshacer") y después pasa a la Papelera de Windows.
 manejar('clips:papelera', async (archivo) => { const r = await clips.aLaPapelera(archivo, (ruta) => shell.trashItem(ruta)); return { texto: 'Mandé el clip a la Papelera.', id: r.id, plazo: r.plazo }; });
 manejar('musica:aDispositivo', (aparato) => musica.enviarActualA(String(aparato)));
@@ -791,18 +806,18 @@ manejar('rutinas:opciones', async () => {
   const [salidas, juegos] = await Promise.all([pc.listarSalidas().catch(() => []), Promise.resolve().then(() => pc.listarJuegosSteam()).catch(() => [])]);
   let programas = []; try { programas = pc.listarProgramas().map((p) => p.nombre); } catch {}
   return {
-    programas: programas.slice(0, 400), juegos: (juegos || []).map((j) => ({ id: j.id, nombre: j.nombre })).slice(0, 400),
+    programas: programas.slice(0, 400), juegos: (juegos || []).map((j) => ({ id: j.id, nombre: j.nombre, carpeta: j.carpeta || '' })).slice(0, 400),
     salidas: [...new Set([...nombresDe(c.salidasAudio), ...(salidas || []).map((x) => x.nombre)])],
     teles: nombresDe(c.teles), casa: nombresDe(c.casa), contactos: nombresDe(c.contactos),
     modos: (c.modos || []).map((m) => ({ id: m.id, nombre: m.nombre })),
     servicios: ((c.streaming || {}).servicios || []).map((x) => ({ id: x.id, nombre: x.nombre })),
   };
 });
-async function correrRutina(id, origen = 'click') {
+async function correrRutina(id, origen = 'click', motivo = '') {
   fase('pensando');
   const rutina = leerRutinas().find((x) => x.id === id);
   if (!rutina) { fase('reposo'); throw new Error('Esa rutina ya no existe.'); }
-  const entrada = historial.empezar(`Rutina "${rutina.nombre}" (${origen === 'celular' ? 'desde el celular' : 'click'})`, origen);
+  const entrada = historial.empezar(`Rutina "${rutina.nombre}" (${origen === 'celular' ? 'desde el celular' : origen === 'aviso' ? `sola: ${motivo}` : 'click'})`, origen);
   try {
     const r = await acciones.ejecutarRutina(id);
     historial.terminar(entrada, { respuesta: r.ok ? 'Salió todo bien.' : r.errores.join(' · '), ok: r.ok });
@@ -894,6 +909,28 @@ manejar('componentes:estado', () => componentes.estado());
 manejar('componentes:instalar', (id) => { componentes.instalar(id).catch(() => {}).finally(() => publicarEstado()); return true; });
 manejar('componentes:actualizar', async (id) => { try { return await componentes.actualizar(id); } finally { avisarSistema(); } });
 manejar('avisos:sistema', () => avisosDelSistema());
+// Estado de la PC (procesador, memoria, placa de video) y cuánto gasta cada parte de Jarvis.
+estadopc.configurar({
+  ventanas: () => BrowserWindow.getAllWindows().filter((w) => !w.isDestroyed()).map((w) => ({ pid: w.webContents.getOSProcessId(), nombre: w === notch ? 'Notch' : w === ajustes ? 'Ajustes' : (w.getTitle() || 'Ventana').replace(/^Jarvis · /, '').replace(/^./, (x) => x.toUpperCase()) })),
+});
+// Historial: repetir un pedido tal cual, o guardarlo como rutina (un botón que lo vuelve a pedir).
+manejar('historial:repetir', async (id) => {
+  const r = historial.recientes(300).find((x) => x.id === id);
+  if (!r || !r.dicho) throw new Error('Ese pedido ya no está en el historial.');
+  return (await cerebro.textoRemoto(r.dicho, { id: 'historial', origen: r.origen === 'celular' ? 'celular' : 'texto' })).texto || 'Listo.';
+});
+manejar('historial:aRutina', (id) => {
+  const r = historial.recientes(300).find((x) => x.id === id);
+  if (!r || !r.dicho) throw new Error('Ese pedido ya no está en el historial.');
+  const nombre = r.dicho.replace(/^(che |hey |oye )?jarvis[,:]?\s*/i, '').replace(/[.?!¿¡]+$/g, '').trim().slice(0, 60);
+  const lista = leerRutinas();
+  const nueva = { id: `rutina_${Date.now().toString(36)}`, nombre: nombre.charAt(0).toUpperCase() + nombre.slice(1), icono: 'estrella', rapida: true, pasos: [{ tipo: 'pedido', texto: r.dicho }] };
+  guardarRutinas([...lista, nueva]);
+  if (notch && !notch.isDestroyed()) notch.webContents.send('rutinas', leerRutinas());
+  if (ajustes && !ajustes.isDestroyed()) ajustes.webContents.send('rutinas-celular', leerRutinas());
+  return { id: nueva.id, nombre: nueva.nombre };
+});
+manejar('pc:estado', (opciones) => estadopc.leer({ detalle: !!(opciones && opciones.detalle) }));
 // ---------- Avisos del sistema (Ajustes → Inicio): versión nueva de Jarvis, yt-dlp viejo, componentes con error ----------
 async function avisosDelSistema({ fuerza = false } = {}) {
   const lista = [];
@@ -1261,7 +1298,8 @@ const PARA_CELULAR = new Set([
   'recordatorios:leer', 'recordatorios:borrar',
   'calendario:estado', 'calendario:conocidos', 'calendario:rango', 'calendario:guardar-local', 'calendario:borrar-local', 'calendario:cambiar', 'calendario:actualizar',
   'rutinas:leer', 'rutinas:guardar', 'rutinas:opciones', 'rutina:ejecutar',
-  'historial:leer', 'historial:borrar', 'historial:limpiar',
+  'historial:leer', 'historial:borrar', 'historial:limpiar', 'historial:repetir', 'historial:aRutina',
+  'pc:estado',
 ]);
 async function pcParaCelular(canal, args, quien) {
   if (!PARA_CELULAR.has(canal) || !canales.has(canal)) throw Object.assign(new Error('Eso no se puede hacer desde el celular.'), { status: 403 });
@@ -1285,7 +1323,15 @@ camara.configurar({
   ajustes: () => { const c = leerConfig(); return { permitido: !!(c.celular && c.celular.camara), camara: (c.camara || {}).dispositivo || '', microfono: (c.voz || {}).microfono || '' }; },
   avisar: (texto) => { if (!texto) return; historial.terminar(historial.empezar('Cámara de seguridad', 'celular'), { respuesta: texto }); if (notch && !notch.isDestroyed()) notch.webContents.send('decir', { texto, voz: false }); },
 });
+const presencia = new Map(); // celular → { enCasa, cuando }
 celular.configurar({
+  presencia: async ({ enCasa }, quien) => {
+    const antes = presencia.get(quien.id);
+    presencia.set(quien.id, { enCasa: !!enCasa, cuando: Date.now() });
+    // Llegó: antes estaba afuera, o hace más de 2 horas que no se sabía de él.
+    if (enCasa && (!antes || !antes.enCasa || Date.now() - antes.cuando > 2 * 3600000)) return { hechas: await disparadores.evento('llegar', `llegaste a casa (${quien.nombre || 'celular'})`) };
+    return { hechas: [] };
+  },
   camara: (res, opciones, quien) => camara.mirar(res, opciones, quien && quien.nombre ? `"${quien.nombre}"` : 'Un celular'),
   pc: pcParaCelular,
   inicio: inicioParaCelular,
@@ -1402,7 +1448,7 @@ app.whenReady().then(async () => {
   session.defaultSession.setPermissionCheckHandler((_wc, permiso, origen) => permiso === 'media' && propio(origen + '/'));
 
   pc.configurar({ abrirRuta: (ruta) => shell.openPath(ruta), abrirEnlace: (url) => (/^steam:\/\/rungameid\/\d+$/.test(url) ? shell.openExternal(url) : Promise.reject(new Error('Dirección no permitida.'))) });
-  acciones.configurar({ pedirAlNotch, fijarModo, decir, abrirAjustes });
+  acciones.configurar({ pedirAlNotch, fijarModo, decir, abrirAjustes, pedido: async (texto) => (await cerebro.textoRemoto(texto, { id: 'rutina', origen: 'click' })).texto });
   cerebro.configurar({
     estado: fase,
     salida: (pcm, hz) => { if (notch && !enSilencio()) notch.webContents.send('voz:salida', pcm, hz); },
@@ -1533,6 +1579,18 @@ app.whenReady().then(async () => {
   if (pedidosAlInstalar.length) arranque.tarea('componentes elegidos al instalar', D(6000), () => componentes.instalarVarios(pedidosAlInstalar));
   // Actualizaciones: solo en la versión instalada (se bajan de GitHub y se instalan al cerrar Jarvis).
   if (!PRUEBA) arranque.tarea('buscar actualizaciones', D(30000), () => actualizador.iniciar({ avisar: (texto) => { if (notch && !notch.isDestroyed()) notch.webContents.send('decir', { texto, voz: false }); historial.anotar(texto); }, alCambiar: (e) => { if (ajustes && !ajustes.isDestroyed()) ajustes.webContents.send('actualizacion', e); avisarSistema(); } }));
+  // Rutinas que se hacen solas (hora, juego, programa, aparato de audio, llegar a casa, prender la PC).
+  disparadores.configurar({
+    rutinas: () => leerRutinas(),
+    procesos: () => pc.listarProcesos(),
+    salidas: () => pc.listarSalidas(),
+    correr: async (id, motivo) => {
+      const r = leerRutinas().find((x) => x.id === id);
+      if (notch && !notch.isDestroyed() && r) notch.webContents.send('decir', { texto: `Hago "${require('./config').nombrePrincipal(r.nombre)}": ${motivo}.`, voz: false });
+      return correrRutina(id, 'aviso', motivo);
+    },
+  });
+  if (!PRUEBA || process.env.JARVIS_DISPARADORES) arranque.tarea('rutinas que se hacen solas', D(20000), () => { disparadores.iniciar(); setTimeout(() => disparadores.evento('inicio', 'se prendió la PC'), 25000); });
   // yt-dlp: se fija si salió una versión nueva al rato de arrancar y después dos veces por día.
   if (!PRUEBA) arranque.tarea('revisar yt-dlp', D(90000), () => { avisarSistema({ fuerza: true }); setInterval(() => avisarSistema({ fuerza: true }), 12 * 3600000).unref(); });
   // La primera vez faltan los modelos de voz: se avisa (una burbuja) dónde tocar para bajarlos.

@@ -26,6 +26,7 @@ function pintarMarca() {
 }
 let rutinas = [];
 let elegida = 0; // rutina abierta en el editor
+let estadoPc = null; let relojEstadoPc = null; // Estado de la PC (Sistema)
 const listas = { aprendido: [], salidas: [], programas: [], juegos: [], cast: [], entidades: [], microfonos: [], camaras: [] };
 let whatsapp = { fase: 'apagado' };
 let voces = { modelos: {}, voces: [], voz: {} }; // modelos de voz locales: qué hay instalado y qué se está bajando
@@ -785,11 +786,11 @@ let clipsGuardados = null; // [{ archivo, nombre, juego, bytes, fecha }] o null 
 const miniaturas = new Map(); // archivo -> data URL del cuadro del video
 let clipsEnviando = '';
 // Lista completa, de a páginas: filtro por carpeta (juego o programa) y orden por fecha, tamaño o nombre.
-const clipsUI = { carpeta: '', orden: 'fecha', asc: false, pagina: 0 };
+const clipsUI = { carpeta: '', orden: 'fecha', asc: false, pagina: 0, favoritos: false };
 const POR_PAGINA = 30;
 function clipsVisibles() {
   const todos = clipsGuardados || [];
-  const lista = clipsUI.carpeta ? todos.filter((x) => (x.juego || '') === clipsUI.carpeta) : todos.slice();
+  const lista = (clipsUI.carpeta ? todos.filter((x) => (x.juego || '') === clipsUI.carpeta) : todos.slice()).filter((x) => !clipsUI.favoritos || x.favorito);
   const k = clipsUI.orden;
   lista.sort((a, b) => {
     const d = k === 'nombre' ? a.nombre.localeCompare(b.nombre, 'es', { numeric: true, sensitivity: 'base' }) : k === 'tamano' ? a.bytes - b.bytes : a.fecha - b.fecha;
@@ -814,14 +815,14 @@ function pedirMiniaturas(lista) {
 async function cargarClips() {
   clipsGuardados = await pedir('clips:lista').catch(() => []);
   if (clipsUI.carpeta && !clipsGuardados.some((x) => (x.juego || '') === clipsUI.carpeta)) clipsUI.carpeta = '';
-  if (seccion === 'clips' || seccion === 'clips-ajustes') pintar();
+  if (seccion === 'clips' || seccion === 'clips-ajustes' || seccion === 'almacenamiento') pintar();
 }
 // ---------- Editor de clips: renombrar y recortar ----------
 let clipEditor = null; // { archivo, base, ext, nodo } mientras se edita un clip (la pantalla no se repinta para no cortar el video)
 const tiempoTexto = (s) => { s = Math.max(0, Number(s) || 0); const m = Math.floor(s / 60); const r = s - m * 60; return `${m}:${r < 10 ? '0' : ''}${r.toFixed(1)}`; };
 function abrirEditor(x) {
   const m = /^(.*?)(\.[^.]+)?$/.exec(x.nombre);
-  clipEditor = { archivo: x.archivo, base: m[1], ext: m[2] || '.mp4', nodo: null };
+  clipEditor = { archivo: x.archivo, base: m[1], ext: m[2] || '.mp4', nodo: null, favorito: !!x.favorito };
   pintar(true);
 }
 function cerrarEditor() { if (document.body.classList.contains('con-cine')) { document.body.classList.remove('con-cine'); pedir('ventana:pantallaCompleta', false).catch(() => {}); } clipEditor = null; pintar(true); cargarClips(); }
@@ -953,7 +954,12 @@ function editorDeClip() {
   // Lee la duración pero no la imagen (sin decodificador para ese formato): también va la vista previa.
   video.addEventListener('loadeddata', () => { if (!probóVista && video.videoWidth === 0 && video.getAttribute('src')) usarVistaPrevia(NO_LEE); });
   let viendo = false;
-  video.addEventListener('timeupdate', () => { moverCabezal(); if (viendo && video.currentTime >= T.hasta) { video.pause(); viendo = false; } });
+  video.addEventListener('timeupdate', () => {
+    moverCabezal();
+    // Viendo el recorte: los pedazos sacados se saltean, como va a quedar.
+    const q = viendo && enRango(video.currentTime); if (q) video.currentTime = q[1];
+    if (viendo && video.currentTime >= T.hasta) { video.pause(); viendo = false; }
+  });
   video.addEventListener('seeked', moverCabezal);
   video.addEventListener('pause', () => { viendo = false; });
   nDesde.addEventListener('input', () => { if (nDesde.value === '') return; T.desde = Number(nDesde.value); refrescar(); });
@@ -964,7 +970,11 @@ function editorDeClip() {
   const barra = h('div', { class: 'progreso fino', hidden: true }, h('i'));
   const progreso = (tipo, p, texto) => { barra.hidden = false; barra.firstChild.style.width = `${p}%`; if (texto) decir(texto); else if (p != null) decir(`${TAREAS_CLIP[tipo] || 'Trabajando'}… ${p} %`); };
   ed.progreso = (d) => { if (d.archivo !== ed.archivo) return; if (d.fin) { barra.hidden = true; return; } progreso(d.tipo, d.porcentaje); };
-  const recortado = () => T.dur && (T.desde > 0.05 || T.hasta < T.dur - 0.05);
+  // Más edición: pedazos del medio que se sacan, formato (vertical 9:16 / cuadrado con encuadre) y velocidad.
+  const E = { quitar: [], formato: 'original', encuadre: 0.5, velocidad: 1 };
+  const editado = () => E.quitar.length > 0 || E.formato !== 'original' || E.velocidad !== 1;
+  const recortado = () => (T.dur && (T.desde > 0.05 || T.hasta < T.dur - 0.05)) || editado();
+  const enRango = (t) => E.quitar.find(([a, b]) => t >= a && t < b);
   const todos = [];
   const ocupado = (si) => { todos.forEach((x) => { x.disabled = si; }); if (!si) estadoGuardar(); };
   const acciones = (nombreBoton, clase, hacer) => { const b = boton(nombreBoton, async () => { ocupado(true); try { await hacer(b); } catch (er) { decir(er.message, 'mal'); barra.hidden = true; } ocupado(false); }, clase); todos.push(b); return b; };
@@ -977,10 +987,10 @@ function editorDeClip() {
     const hechos = { desde: T.desde, hasta: T.hasta };
     await soltarVideos();
     let r;
-    try { r = await pedir('clips:recortar', { archivo: ed.archivo, ...hechos, reemplazar: true }); } catch (er) { await cargar(true).catch(() => {}); throw er; }
+    try { r = await pedir('clips:recortar', { archivo: ed.archivo, ...hechos, reemplazar: true, edicion: { ...E } }); } catch (er) { await cargar(true).catch(() => {}); throw er; }
     const antes = ed.archivo;
     ed.archivo = r.archivo; ed.base = r.archivo.split(/[\\/]/).pop().replace(/\.[^.]+$/, ''); nombre.value = ed.base;
-    T.dur = 0; await cargar(false);
+    T.dur = 0; Object.assign(E, { quitar: [], formato: 'original', encuadre: 0.5, velocidad: 1 }); pintarEdicion(); await cargar(false);
     decir('Guardado: el clip quedó recortado.', 'bien'); cargarClips();
     avisarConAccion('Guardé el recorte en lugar del original.', 'Deshacer', async () => {
       await soltarVideos();
@@ -991,7 +1001,7 @@ function editorDeClip() {
   };
   const guardarCopia = async () => {
     decir('Recortando…');
-    const r = await pedir('clips:recortar', { archivo: ed.archivo, desde: T.desde, hasta: T.hasta });
+    const r = await pedir('clips:recortar', { archivo: ed.archivo, desde: T.desde, hasta: T.hasta, edicion: { ...E } });
     const n = r.archivo.split(/[\\/]/).pop();
     decir(`Listo: guardé "${n}" (el original sigue igual).`, 'bien'); cargarClips();
     avisarConAccion(`Guardé la copia "${n}".`, 'Abrirla', () => { abrirEditor({ archivo: r.archivo, nombre: n }); return ''; }, 8000);
@@ -1007,7 +1017,7 @@ function editorDeClip() {
   const destino = h('input', { type: 'text', value: c.enviarA || '', placeholder: 'Contacto o grupo', list: 'contactos-clips', 'aria-label': 'A quién se lo mando por WhatsApp', style: 'width:170px', oninput: (e) => { c.enviarA = e.target.value; guardar(); } });
   const enviar = acciones('Enviar', 'principal', async () => {
     if (!String(c.enviarA || '').trim()) { destino.focus(); throw new Error('Escribí a quién se lo mando.'); }
-    if (recortado()) { decir('Recortando y enviando…'); decir(await pedir('clips:enviarRecorte', { archivo: ed.archivo, desde: T.desde, hasta: T.hasta, contacto: c.enviarA }), 'bien'); }
+    if (recortado()) { decir('Recortando y enviando…'); decir(await pedir('clips:enviarRecorte', { archivo: ed.archivo, desde: T.desde, hasta: T.hasta, contacto: c.enviarA, edicion: { ...E } }), 'bien'); }
     else { decir('Enviando…'); decir(await pedir('clips:enviar', { archivo: ed.archivo, contacto: c.enviarA }), 'bien'); }
   });
   // El nombre se guarda solo al apretar Enter o al salir del campo.
@@ -1027,6 +1037,53 @@ function editorDeClip() {
   };
   nombre.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); nombre.blur(); } if (e.key === 'Escape') { nombre.value = ed.base; nombre.blur(); } });
   nombre.addEventListener('blur', renombrar);
+  // ---- Panel "Más edición" ----
+  const qDesde = h('input', { type: 'number', min: 0, step: 0.1, class: 'seg', 'aria-label': 'Sacar desde (segundos)' });
+  const qHasta = h('input', { type: 'number', min: 0, step: 0.1, class: 'seg', 'aria-label': 'Sacar hasta (segundos)' });
+  const marcasQuitar = h('div', { class: 'lt-quitar' });
+  pista.append(marcasQuitar);
+  const mascara = h('div', { class: 'mascara-formato', hidden: true }, h('i', { class: 'mf-izq' }), h('i', { class: 'mf-marco' }), h('i', { class: 'mf-der' }));
+  const pintarMascara = () => {
+    if (E.formato === 'original' || !video.videoWidth) { mascara.hidden = true; return; }
+    // El recuadro que queda, sobre el video tal como se ve (object-fit: contain).
+    const caja = video.getBoundingClientRect(); const vr = video.videoWidth / video.videoHeight; const cr = caja.width / caja.height;
+    const ancho = vr > cr ? caja.width : caja.height * vr; const alto = vr > cr ? caja.width / vr : caja.height;
+    const proporcion = E.formato === 'vertical' ? 9 / 16 : 1;
+    const anchoMarco = Math.min(ancho, alto * proporcion);
+    const x0 = (caja.width - ancho) / 2 + (ancho - anchoMarco) * E.encuadre;
+    mascara.hidden = false;
+    mascara.style.setProperty('--x', `${x0}px`); mascara.style.setProperty('--w', `${anchoMarco}px`);
+    mascara.style.setProperty('--top', `${(caja.height - alto) / 2}px`); mascara.style.setProperty('--h', `${alto}px`);
+  };
+  new ResizeObserver(pintarMascara).observe(video);
+  video.addEventListener('loadedmetadata', pintarMascara);
+  const panelEdicion = h('details', { class: 'panel-edicion' });
+  function pintarEdicion() {
+    marcasQuitar.replaceChildren(...E.quitar.map(([a, b]) => h('span', { style: `left:${pct(a)};width:${T.dur ? ((b - a) / T.dur) * 100 : 0}%`, title: `Se saca de ${tiempoTexto(a)} a ${tiempoTexto(b)}` })));
+    video.playbackRate = E.velocidad;
+    pintarMascara();
+    const seg = (opciones, valor, alElegir, etiqueta) => h('div', { class: 'segmentado chico', role: 'radiogroup', 'aria-label': etiqueta }, opciones.map(([v, t]) => h('button', { type: 'button', role: 'radio', 'aria-checked': String(v === valor), class: v === valor ? 'elegido' : '', onclick: () => { alElegir(v); refrescar(); pintarEdicion(); } }, t)));
+    const resumenEd = [E.quitar.length ? `${E.quitar.length} ${E.quitar.length === 1 ? 'pedazo sacado' : 'pedazos sacados'}` : '', E.formato !== 'original' ? (E.formato === 'vertical' ? 'vertical 9:16' : 'cuadrado') : '', E.velocidad !== 1 ? `${String(E.velocidad).replace('.', ',')}x` : ''].filter(Boolean).join(' · ');
+    panelEdicion.replaceChildren(
+      h('summary', {}, h('b', {}, 'Más edición'), h('span', { class: 'nota' }, resumenEd || 'sacar pedazos del medio, vertical para Shorts/TikTok, velocidad')),
+      h('div', { class: 'pe-bloque' },
+        h('span', { class: 'et' }, 'Sacar un pedazo del medio'),
+        h('div', { class: 'fila-recorte' }, h('span', { class: 'nota' }, 'De'), qDesde, boton('Acá', () => { qDesde.value = video.currentTime.toFixed(1); }, 'chico'), h('span', { class: 'nota' }, 'a'), qHasta, boton('Acá', () => { qHasta.value = video.currentTime.toFixed(1); }, 'chico'),
+          boton('Sacar', () => { const a = Number(qDesde.value); const b = Number(qHasta.value); if (!(b > a)) { decir('Elegí de dónde a dónde sacar (el segundo número más grande).', 'mal'); return; } E.quitar.push([Math.max(0, a), Math.min(T.dur, b)]); E.quitar.sort((x, y) => x[0] - y[0]); qDesde.value = ''; qHasta.value = ''; refrescar(); pintarEdicion(); }, 'chico principal')),
+        E.quitar.length ? h('div', { class: 'quitados' }, E.quitar.map(([a, b], i) => h('span', { class: 'chip-q' }, `${tiempoTexto(a)} → ${tiempoTexto(b)}`, h('button', { type: 'button', 'aria-label': 'Volver a ponerlo', title: 'Volver a ponerlo', html: icono('cerrar', 12), onclick: () => { E.quitar.splice(i, 1); refrescar(); pintarEdicion(); } })))) : null),
+      h('div', { class: 'pe-bloque' },
+        h('span', { class: 'et' }, 'Formato'),
+        seg([['original', 'Original'], ['vertical', 'Vertical 9:16'], ['cuadrado', 'Cuadrado']], E.formato, (v) => { E.formato = v; }, 'Formato'),
+        E.formato !== 'original' ? h('label', { class: 'fila' }, h('span', { class: 'nota' }, 'Encuadre'), h('input', { type: 'range', min: 0, max: 1, step: 0.01, value: E.encuadre, 'aria-label': 'Encuadre de izquierda a derecha', oninput: (e) => { E.encuadre = Number(e.target.value); pintarMascara(); } })) : null),
+      h('div', { class: 'pe-bloque' },
+        h('span', { class: 'et' }, 'Velocidad'),
+        seg([[0.5, '0,5x'], [0.75, '0,75x'], [1, 'Normal'], [1.25, '1,25x'], [1.5, '1,5x'], [2, '2x']], E.velocidad, (v) => { E.velocidad = v; }, 'Velocidad')));
+  }
+  pintarEdicion();
+  ed.favorito = !!ed.favorito;
+  const estrella = h('button', { type: 'button', class: `boton icono-solo estrella${ed.favorito ? ' on' : ''}`, title: 'Favorito', 'aria-pressed': String(ed.favorito), 'aria-label': 'Marcar como favorito', html: icono('estrella', 18), onclick: async () => {
+    try { ed.favorito = await pedir('clips:favorito', { archivo: ed.archivo, si: !ed.favorito }); estrella.classList.toggle('on', ed.favorito); estrella.setAttribute('aria-pressed', String(ed.favorito)); cargarClips(); } catch (er) { decir(er.message, 'mal'); }
+  } });
   // Convertir y comprimir: secundarios, en el menú ⋯.
   const panelComprimir = h('div', { class: 'panel-comprimir', hidden: true });
   const transformar = async (tipo, opciones = {}) => {
@@ -1067,7 +1124,7 @@ function editorDeClip() {
     } },
   ], 'Más opciones del clip');
   // Pantalla completa propia (la del reproductor no anda bien adentro de Ajustes): doble clic, el botón o la tecla F; Esc sale.
-  const cine = h('div', { class: 'video-caja' }, video,
+  const cine = h('div', { class: 'video-caja' }, video, mascara,
     h('button', { type: 'button', class: 'boton-cine', title: 'Pantalla completa (F)', 'aria-label': 'Pantalla completa', html: icono('expandir', 18), onclick: () => alternarCine() }));
   const alternarCine = async (forzar) => {
     const si = forzar !== undefined ? forzar : !cine.classList.contains('cine');
@@ -1085,7 +1142,7 @@ function editorDeClip() {
     h('div', { class: 'editor-cabeza' },
       boton('← Clips', () => cerrarEditor(), 'chico'),
       h('div', { class: 'nombre-editable' }, nombre, h('span', { class: 'nota' }, ed.ext)),
-      masOpciones),
+      estrella, masOpciones),
     cine,
     h('div', { class: 'recorte' },
       linea,
@@ -1095,6 +1152,7 @@ function editorDeClip() {
         h('span', { class: 'et' }, 'Fin'), nHasta, h('span', { class: 'nota' }, 's'), acaHasta,
         h('span', { style: 'flex:1' }), aVer),
       resumen),
+    panelEdicion,
     panelComprimir,
     h('div', { class: 'editor-pie' },
       guardarCaja,
@@ -1154,7 +1212,8 @@ function listaDeClips() {
     h('label', { class: 'nota' }, 'Ordenar por ', h('select', { 'aria-label': 'Ordenar por', onchange: (e) => { clipsUI.orden = e.target.value; clipsUI.asc = e.target.value === 'nombre'; clipsUI.pagina = 0; pintar(); } },
       [['fecha', 'Fecha'], ['tamano', 'Tamaño'], ['nombre', 'Nombre']].map(([v, t]) => h('option', { value: v, selected: clipsUI.orden === v }, t)))),
     boton(clipsUI.orden === 'nombre' ? (clipsUI.asc ? 'A → Z' : 'Z → A') : clipsUI.orden === 'tamano' ? (clipsUI.asc ? 'Más chicos primero' : 'Más grandes primero') : (clipsUI.asc ? 'Más viejos primero' : 'Más nuevos primero'),
-      () => { clipsUI.asc = !clipsUI.asc; clipsUI.pagina = 0; pintar(); }, 'chico'));
+      () => { clipsUI.asc = !clipsUI.asc; clipsUI.pagina = 0; pintar(); }, 'chico'),
+    h('button', { type: 'button', class: `boton chico estrella-filtro${clipsUI.favoritos ? ' on' : ''}`, 'aria-pressed': String(clipsUI.favoritos), onclick: () => { clipsUI.favoritos = !clipsUI.favoritos; clipsUI.pagina = 0; pintar(); }, html: `${icono('estrella', 14)}<span>Favoritos</span>` }));
   const paginador = vis.paginas > 1 ? h('div', { class: 'fila clips-paginas' },
     Object.assign(boton('Anteriores', () => irPagina(clipsUI.pagina - 1), 'chico'), { disabled: clipsUI.pagina === 0 }),
     h('span', { class: 'nota' }, `Página ${clipsUI.pagina + 1} de ${vis.paginas} · ${vis.total} clips`),
@@ -1175,6 +1234,7 @@ function listaDeClips() {
       h('div', { class: 'quien-espacio', onclick: () => abrirEditor(x), style: 'cursor:pointer' }, h('div', { class: 'nombre-clip', title: 'Recortar, guardar y enviar' }, x.nombre), h('div', { class: 'nota' }, [x.juego, tamano(x.bytes), hace(x.fecha)].filter(Boolean).join(' · ')),
         h('div', { class: 'progreso fino fila-progreso', hidden: !trabajo, title: trabajo ? `${TAREAS_CLIP[trabajo.tipo]}… ${trabajo.porcentaje} %` : '' }, h('i', { style: `width:${trabajo ? trabajo.porcentaje : 0}%` }))),
       h('div', { class: 'acciones-clip' },
+        h('button', { type: 'button', class: `boton icono-solo estrella${x.favorito ? ' on' : ''}`, title: x.favorito ? 'Sacar de favoritos' : 'Favorito', 'aria-pressed': String(!!x.favorito), 'aria-label': `Favorito: ${x.nombre}`, html: icono('estrella', 16), onclick: async () => { try { x.favorito = await pedir('clips:favorito', { archivo: x.archivo, si: !x.favorito }); pintar(); } catch (er) { avisarGuardado(er.message); } } }),
         boton('Recortar', () => abrirEditor(x), 'chico'),
         boton(enviando ? 'Enviando…' : 'Enviar', async (ev) => {
           if (!String(c.enviarA || '').trim()) { avisarGuardado('Escribí arriba a quién se lo mando.'); return; }
@@ -3224,6 +3284,7 @@ const secciones = {
         barra, leyenda,
         h('p', { class: 'nota' }, disco + discoClips)),
       segurosBytes > 0 ? campo('Limpieza rápida', [dosPasos('rapida', `Liberar ${tamano(segurosBytes)} de temporales`, async () => { let dicho = ''; for (const i of seguros) dicho = await pedir('almacenamiento:liberar', i.id); return `Listo: liberé ${tamano(segurosBytes)}.`; }), h('span', { class: 'nota' }, 'Memoria de clips, copias para WhatsApp y descargas cortadas. No toca tus videos.')]) : null,
+      bloqueVideosEnLote(tamano),
       ...almacen.grupos.map((g) => h('section', { class: `bloque-espacio g-${g.id}` },
         h('div', { class: 'cabeza-espacio' }, h('h2', {}, g.titulo), h('span', { class: 'cifra-chica' }, g.id === 'fotos' ? 'No se guardan' : tamano(g.bytes))),
         h('p', { class: 'bajada' }, g.ayuda),
@@ -3257,6 +3318,18 @@ secciones.historial = function historial() {
         r.ok === false ? h('span', { class: 'chip mal' }, 'falló') : null,
         typeof r.ms === 'number' ? h('span', {}, `${(r.ms / 1000).toFixed(1)} s`) : null,
         h('span', { style: 'flex:1' }),
+        r.dicho && r.origen !== 'aviso' ? boton('Repetir', async (ev) => {
+          ev.target.disabled = true; ev.target.textContent = 'Haciéndolo…';
+          try { avisarGuardado(await pedir('historial:repetir', r.id)); } catch (er) { avisarGuardado(er.message); }
+          registros = await pedir('historial:leer').catch(() => registros); pintar();
+        }, 'chico') : null,
+        r.dicho && r.origen !== 'aviso' ? boton('Hacer rutina', async () => {
+          try {
+            const n = await pedir('historial:aRutina', r.id);
+            rutinas = await pedir('rutinas:leer').catch(() => rutinas);
+            avisarConAccion(`Armé la rutina "${n.nombre}" (botón en el notch).`, 'Verla', () => { elegida = Math.max(0, rutinas.findIndex((x) => x.id === n.id)); irA('rutinas'); return ''; }, 8000);
+          } catch (er) { avisarGuardado(er.message); }
+        }, 'chico') : null,
         boton('Borrar', async () => { await pedir('historial:borrar', r.id); registros = registros.filter((x) => x.id !== r.id); pintar(); }, 'chico')),
       h('div', { class: 'dicho' }, r.dicho || '(sin texto)'),
       h('div', { class: 'respuesta' }, r.respuesta ? `→ ${r.respuesta}` : '→ (sin respuesta hablada)'),
@@ -3314,8 +3387,42 @@ const TIPOS_PASO = {
       texto(p, 'dispositivo', guardarRutinas, { placeholder: 'En la PC (o el nombre de una tele)' })],
   },
   musica: { titulo: 'Reproducir música', campos: (p) => [texto(p, 'busqueda', guardarRutinas, { placeholder: 'Canción, álbum, género… (vacío = "poné música")' })] },
+  pedido: { titulo: 'Pedirle algo a Jarvis', campos: (p) => [texto(p, 'texto', guardarRutinas, { placeholder: 'Lo que le dirías, por ejemplo "apagá la tele del comedor"' })] },
 };
 
+// "Se hace sola": a una hora, al abrir un juego o programa, al conectar un aparato de audio, al llegar a casa, al prender la PC.
+const TIPOS_DISPARADOR = [['hora', 'A una hora'], ['juego', 'Al abrir un juego'], ['programa', 'Al abrir un programa'], ['audio', 'Al conectar un aparato de audio'], ['llegar', 'Al llegar a casa (con el celular)'], ['inicio', 'Al prender la PC']];
+const DIAS_CORTOS = [[1, 'L'], [2, 'M'], [3, 'X'], [4, 'J'], [5, 'V'], [6, 'S'], [0, 'D']];
+function editorDisparadores(r) {
+  r.disparadores = Array.isArray(r.disparadores) ? r.disparadores : [];
+  const cambio = () => { guardarRutinas(); pintar(); };
+  const filas = r.disparadores.map((d, i) => {
+    let campos = [];
+    if (d.tipo === 'hora') {
+      d.dias = Array.isArray(d.dias) ? d.dias : [];
+      campos = [h('input', { type: 'time', value: d.hora || '08:00', 'aria-label': 'Hora', onchange: (e) => { d.hora = e.target.value; guardarRutinas(); } }),
+        h('div', { class: 'dias', role: 'group', 'aria-label': 'Días (ninguno = todos)' }, DIAS_CORTOS.map(([n, l]) => h('button', { type: 'button', class: `dia${d.dias.includes(n) ? ' on' : ''}`, 'aria-pressed': String(d.dias.includes(n)), title: ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'][n], onclick: () => { d.dias = d.dias.includes(n) ? d.dias.filter((x) => x !== n) : [...d.dias, n].sort(); cambio(); } }, l))),
+        h('span', { class: 'nota' }, d.dias.length ? '' : 'todos los días')];
+    } else if (d.tipo === 'juego') {
+      campos = [selector(d, 'juego', listas.juegos.map((j) => j.nombre), () => { const j = listas.juegos.find((x) => x.nombre === d.juego); d.carpeta = j ? j.carpeta : ''; guardarRutinas(); }, 'Qué juego (de Steam)…')];
+    } else if (d.tipo === 'programa') {
+      campos = [h('input', { type: 'text', value: d.proceso || '', placeholder: 'Discord.exe', 'aria-label': 'Nombre del programa (.exe)', oninput: (e) => { d.proceso = e.target.value.trim(); guardarRutinas(); } }), h('span', { class: 'nota' }, 'el nombre del .exe (lo ves en el Administrador de tareas → Detalles)')];
+    } else if (d.tipo === 'audio') {
+      campos = [selector(d, 'salida', [...nombres(cfg.salidasAudio), ...listas.salidas.map((x) => x.nombre)], guardarRutinas, 'Qué aparato…'), h('span', { class: 'nota' }, 'auriculares, parlante Bluetooth… cuando aparece en Windows')];
+    } else if (d.tipo === 'llegar') campos = [h('span', { class: 'nota' }, 'Cuando el celular vinculado vuelve a la Wi-Fi de casa (la app lo revisa al abrirla y cada 15 minutos).')];
+    else if (d.tipo === 'inicio') campos = [h('span', { class: 'nota' }, 'Cuando arranca Jarvis (si arranca con Windows, al prender la PC).')];
+    return h('div', { class: 'disparador' },
+      h('span', { class: 'd-tipo' }, (TIPOS_DISPARADOR.find(([t]) => t === d.tipo) || [0, d.tipo])[1]),
+      h('div', { class: 'd-campos' }, campos),
+      botonQuitar(() => { r.disparadores.splice(i, 1); cambio(); }, 'este disparador'));
+  });
+  const sumar = h('select', { 'aria-label': 'Agregar cuándo se hace sola', onchange: (e) => { const t = e.target.value; if (!t) return; r.disparadores.push(t === 'hora' ? { tipo: 'hora', hora: '08:00', dias: [] } : { tipo: t }); if (t === 'juego' && !listas.juegos.length) pedir('pc:juegos').then((j) => { listas.juegos = j || []; pintar(); }).catch(() => {}); cambio(); } },
+    h('option', { value: '' }, '+ Que se haga sola…'), TIPOS_DISPARADOR.map(([t, n]) => h('option', { value: t }, n)));
+  return h('div', { class: 'disparadores' },
+    h('h2', {}, 'Cuándo se hace sola'),
+    r.disparadores.length ? null : h('p', { class: 'nota' }, 'Por ahora solo cuando la pedís (por voz, el botón o el celular).'),
+    filas, h('div', { class: 'fila' }, sumar));
+}
 function editorRutina(r) {
   const resultado = h('span', { class: 'nota' });
   const mover = (i, d) => { const [p] = r.pasos.splice(i, 1); r.pasos.splice(i + d, 0, p); guardarRutinas(); pintar(); };
@@ -3328,6 +3435,7 @@ function editorRutina(r) {
       oninput: (e) => { r.activadores = e.target.value.split(',').map((x) => x.trim()).filter(Boolean); guardarRutinas(); } }),
       'Otras maneras de pedirla, separadas por coma. Aunque no las cargues, Jarvis entiende variantes parecidas ("avisale", "decile", "contale" cuentan como lo mismo) y, si duda, te pregunta antes de hacerla.'),
     campo('Acción rápida', [casilla(r, 'rapida', guardarRutinas), h('span', {}, 'Mostrar como botón en el notch')]),
+    editorDisparadores(r),
     h('h2', {}, 'Pasos'),
     r.pasos.length ? null : h('div', { class: 'vacio' }, 'Esta rutina todavía no hace nada. Agregale un paso.'),
     r.pasos.map((p, i) => h('div', { class: 'paso' },
@@ -3416,6 +3524,134 @@ secciones.resumen = function resumen() {
   ];
 };
 
+// ---------- Almacenamiento: elegir varios videos (con Shift, un rango) para comprimirlos o mandarlos a la Papelera ----------
+const lote = { sel: new Set(), ultimo: null, orden: 'tamano', asc: false, carpeta: '', trabajo: null, nivel: 'medio', reemplazar: true, mostrar: 100 };
+function videosDelLote() {
+  const l = (clipsGuardados || []).filter((x) => !lote.carpeta || (x.juego || '') === lote.carpeta);
+  const k = { tamano: (x) => x.bytes, fecha: (x) => x.fecha, nombre: (x) => x.nombre.toLowerCase() }[lote.orden];
+  return l.slice().sort((a, b) => { const va = k(a); const vb = k(b); const c = typeof va === 'string' ? va.localeCompare(vb, 'es', { numeric: true }) : va - vb; return lote.asc ? c : -c; });
+}
+const tamanoCorto = (b) => (b >= 1e9 ? `${(b / 1e9).toFixed(1).replace('.', ',')} GB` : `${Math.round((b || 0) / 1e6)} MB`);
+async function hacerLote(tipo) {
+  const elegidos = (clipsGuardados || []).filter((x) => lote.sel.has(x.archivo));
+  if (!elegidos.length) return;
+  if (tipo === 'papelera') {
+    if (!await confirmar({ titulo: `¿Mandar ${elegidos.length} ${elegidos.length === 1 ? 'video' : 'videos'} a la Papelera?`, texto: 'Se pueden recuperar desde la Papelera de Windows.', si: 'Mandar a la Papelera', peligro: true })) return;
+    const r = await pedir('clips:papeleraVarios', elegidos.map((x) => x.archivo)).catch((e) => ({ error: e.message }));
+    avisarGuardado(r.error || `Listo: mandé ${r.n} a la Papelera (${tamanoCorto(r.bytes)} libres).${r.fallos.length ? ` No pude con ${r.fallos.length}.` : ''}`);
+    lote.sel.clear(); await cargarClips(); cargarAlmacen(); return;
+  }
+  lote.trabajo = { i: 0, total: elegidos.length, ahorro: 0, fallos: 0, actual: '', porcentaje: 0, cortar: false };
+  pintar();
+  for (const x of elegidos) {
+    if (lote.trabajo.cortar) break;
+    lote.trabajo.actual = x.nombre; lote.trabajo.porcentaje = 0; pintar();
+    try {
+      const r = await pedir('clips:transformar', { archivo: x.archivo, tipo: 'comprimir', opciones: { nivel: lote.nivel, reemplazar: lote.reemplazar } });
+      lote.trabajo.ahorro += Math.max(0, r.antes - r.bytes);
+    } catch { lote.trabajo.fallos++; }
+    lote.trabajo.i++;
+  }
+  const t = lote.trabajo; lote.trabajo = null; lote.sel.clear();
+  avisarGuardado(`Comprimí ${t.i - t.fallos} de ${t.total}: ${lote.reemplazar ? 'liberaste' : 'ahorrarías'} ${tamanoCorto(t.ahorro)}.${t.fallos ? ` ${t.fallos} no achicaban o fallaron (quedaron igual).` : ''}`);
+  await cargarClips(); cargarAlmacen();
+}
+jarvis.escuchar('clips-trabajo', (d) => { if (lote.trabajo && !d.fin) { lote.trabajo.porcentaje = d.porcentaje || 0; const b = document.querySelector('.lote-progreso i'); if (b) b.style.width = `${((lote.trabajo.i + (d.porcentaje || 0) / 100) / lote.trabajo.total) * 100}%`; } });
+function bloqueVideosEnLote(tamano) {
+  if (!clipsGuardados) return h('section', { class: 'bloque-espacio' }, h('h2', {}, 'Tus videos'), h('p', { class: 'nota cargando' }, 'Leyendo la carpeta…'));
+  const lista = videosDelLote();
+  const vis = lista.slice(0, lote.mostrar);
+  const elegidos = (clipsGuardados || []).filter((x) => lote.sel.has(x.archivo));
+  const bytesSel = elegidos.reduce((t, x) => t + x.bytes, 0);
+  const todosVis = vis.length && vis.every((x) => lote.sel.has(x.archivo));
+  const tocar = (x, i, ev) => {
+    if (ev.shiftKey && lote.ultimo != null && vis[lote.ultimo]) {
+      // Shift: del último tocado a este, todos quedan como quedó el último (elegidos o no).
+      const desde = Math.min(lote.ultimo, i); const hasta = Math.max(lote.ultimo, i);
+      const valor = lote.sel.has(vis[lote.ultimo].archivo);
+      for (let k = desde; k <= hasta; k++) { if (valor) lote.sel.add(vis[k].archivo); else lote.sel.delete(vis[k].archivo); }
+    } else if (lote.sel.has(x.archivo)) lote.sel.delete(x.archivo); else lote.sel.add(x.archivo);
+    lote.ultimo = i;
+    pintar();
+  };
+  const carpetas = [...new Set((clipsGuardados || []).map((x) => x.juego || ''))].sort();
+  const t = lote.trabajo;
+  return h('section', { class: 'bloque-espacio lote' },
+    h('div', { class: 'cabeza-espacio' }, h('h2', {}, 'Tus videos'), h('span', { class: 'cifra-chica' }, tamano((clipsGuardados || []).reduce((n, x) => n + x.bytes, 0)))),
+    h('p', { class: 'bajada' }, 'Clips, grabaciones y descargas. Elegí varios (con Shift elegís todos los del medio) para comprimirlos o mandarlos a la Papelera.'),
+    h('div', { class: 'fila lote-filtros' },
+      h('select', { 'aria-label': 'Carpeta', onchange: (e) => { lote.carpeta = e.target.value; lote.ultimo = null; pintar(); } }, h('option', { value: '' }, 'Todas las carpetas'), carpetas.map((c) => h('option', { value: c, selected: c === lote.carpeta }, c || '(sueltos)'))),
+      h('select', { 'aria-label': 'Ordenar por', onchange: (e) => { lote.orden = e.target.value; lote.asc = e.target.value === 'nombre'; lote.ultimo = null; pintar(); } }, [['tamano', 'Más pesados primero'], ['fecha', 'Más nuevos primero'], ['nombre', 'Por nombre']].map(([v, n]) => h('option', { value: v, selected: v === lote.orden }, n)))),
+    t ? h('div', { class: 'lote-barra trabajando' },
+      h('span', {}, `Comprimiendo ${Math.min(t.i + 1, t.total)} de ${t.total}: ${t.actual}`),
+      h('div', { class: 'progreso lote-progreso' }, h('i', { style: `width:${((t.i + t.porcentaje / 100) / t.total) * 100}%` })),
+      boton('Parar después de este', () => { t.cortar = true; }, 'chico'))
+      : elegidos.length ? h('div', { class: 'lote-barra' },
+        h('b', {}, `${elegidos.length} ${elegidos.length === 1 ? 'elegido' : 'elegidos'} · ${tamano(bytesSel)}`),
+        h('select', { 'aria-label': 'Cuánto comprimir', onchange: (e) => { lote.nivel = e.target.value; } }, [['poco', 'Un poco'], ['medio', 'Bastante (720p)'], ['mucho', 'Mucho (480p)']].map(([v, n]) => h('option', { value: v, selected: v === lote.nivel }, n))),
+        h('label', { class: 'casilla-texto' }, h('input', { type: 'checkbox', checked: lote.reemplazar, onchange: (e) => { lote.reemplazar = e.target.checked; } }), h('span', {}, 'Reemplazar los originales (van a la Papelera)')),
+        boton('Comprimir', () => hacerLote('comprimir'), 'principal chico'),
+        boton('Mandar a la Papelera', () => hacerLote('papelera'), 'peligro chico'),
+        boton('Ninguno', () => { lote.sel.clear(); lote.ultimo = null; pintar(); }, 'chico')) : null,
+    lista.length ? h('div', { class: 'tabla-lote', role: 'grid', 'aria-label': 'Videos' },
+      h('div', { class: 'fila-lote cabeza', role: 'row' },
+        h('label', { class: 'cl-check' }, h('input', { type: 'checkbox', checked: !!todosVis, 'aria-label': 'Elegir todos los que se ven', onchange: () => { for (const x of vis) { if (todosVis) lote.sel.delete(x.archivo); else lote.sel.add(x.archivo); } pintar(); } })),
+        h('span', {}, 'Nombre'), h('span', {}, 'Carpeta'), h('span', {}, 'Fecha'), h('span', { class: 'der' }, 'Tamaño')),
+      vis.map((x, i) => h('div', { class: `fila-lote${lote.sel.has(x.archivo) ? ' elegida' : ''}`, role: 'row', onclick: (ev) => tocar(x, i, ev) },
+        h('span', { class: 'cl-check' }, h('input', { type: 'checkbox', checked: lote.sel.has(x.archivo), tabindex: '-1', 'aria-label': `Elegir ${x.nombre}`, style: 'pointer-events:none' })),
+        h('span', { class: 'cl-nombre', title: x.nombre }, x.favorito ? h('span', { class: 'fav-mini', html: icono('estrella', 12) }) : null, x.nombre), h('span', { class: 'nota' }, x.juego || '—'),
+        h('span', { class: 'nota' }, new Date(x.fecha).toLocaleDateString('es-AR', { day: 'numeric', month: 'short', year: '2-digit' })),
+        h('span', { class: 'der' }, tamano(x.bytes)))),
+      lista.length > vis.length ? h('div', { class: 'fila' }, boton(`Ver ${Math.min(200, lista.length - vis.length)} más (de ${lista.length})`, () => { lote.mostrar += 200; pintar(); }, 'chico')) : null)
+      : h('div', { class: 'vacio' }, 'No hay videos en esa carpeta.'));
+}
+
+// ---------- Estado de la PC: procesador, memoria, placa de video y lo que gasta Jarvis (se actualiza cada 2 s) ----------
+const historiaPc = { cpu: [], ram: [], gpu: [], jarvis: [] }; // últimos 60 valores, para las líneas
+async function cargarEstadoPc() {
+  try {
+    estadoPc = await pedir('pc:estado', { detalle: true });
+    const meter = (k, v) => { if (v == null) return; historiaPc[k].push(v); if (historiaPc[k].length > 60) historiaPc[k].shift(); };
+    meter('cpu', estadoPc.cpu.uso); meter('ram', estadoPc.ram.uso); meter('gpu', estadoPc.gpu && estadoPc.gpu.uso); meter('jarvis', estadoPc.jarvis.cpu);
+  } catch (e) { estadoPc = { error: e.message }; }
+  if (seccion === 'estado-pc' && !escribiendo()) pintar();
+}
+function lineaPc(valores, max = 100) {
+  if (valores.length < 2) return null;
+  const pts = valores.map((v, i) => `${(i / 59) * 100},${30 - (Math.min(max, v) / max) * 28}`).join(' ');
+  const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  s.setAttribute('viewBox', '0 0 100 30'); s.setAttribute('preserveAspectRatio', 'none'); s.setAttribute('class', 'linea-pc'); s.setAttribute('aria-hidden', 'true');
+  s.innerHTML = `<polyline points="${pts}" fill="none" stroke="currentColor" stroke-width="1.5" vector-effect="non-scaling-stroke"/>`;
+  return s;
+}
+secciones['estado-pc'] = function estadoDeLaPc() {
+  const e = estadoPc;
+  if (!e) return [h('h1', {}, 'Estado de la PC'), h('p', { class: 'bajada cargando' }, 'Midiendo…')];
+  if (e.error) return [h('h1', {}, 'Estado de la PC'), h('p', { class: 'nota mal' }, e.error)];
+  const gb = (mb) => `${(mb / 1024).toFixed(1).replace('.', ',')} GB`;
+  const tono = (v, a = 70, b = 90) => (v >= b ? 'mal' : v >= a ? 'aviso' : 'bien');
+  const hace = (t) => { const m = Math.round((Date.now() - t) / 60000); return m < 60 ? `${m} min` : m < 1440 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${Math.floor(m / 1440)} d ${Math.floor((m % 1440) / 60)} h`; };
+  const tarjeta = (titulo, cifra, tonoC, detalle, valores) => h('div', { class: `tarjeta-pc ${tonoC}` }, h('span', { class: 'tp-titulo' }, titulo), h('b', { class: 'tp-cifra' }, cifra), h('span', { class: 'nota' }, detalle), valores ? lineaPc(valores) : null);
+  const g = e.gpu;
+  const procesos = (e.jarvis.procesos || []);
+  return [
+    h('h1', {}, 'Estado de la PC'),
+    h('p', { class: 'bajada' }, 'Se actualiza cada 2 segundos mientras estás en esta pantalla. Lo de Jarvis sirve para ver qué parte gasta más.'),
+    h('div', { class: 'grilla-pc' },
+      tarjeta('Procesador', `${e.cpu.uso} %`, tono(e.cpu.uso), `${e.cpu.nombre} · ${e.cpu.nucleos} hilos`, historiaPc.cpu),
+      tarjeta('Memoria', `${e.ram.uso} %`, tono(e.ram.uso, 80, 92), `${gb(e.ram.usadaMB)} de ${gb(e.ram.totalMB)}`, historiaPc.ram),
+      g ? tarjeta('Placa de video', g.temp != null ? `${g.temp} °C` : `${g.uso} %`, g.temp != null ? tono(g.temp, 75, 85) : tono(g.uso), [g.nombre, g.uso != null ? `${g.uso} % de uso` : '', g.memTotal ? `${gb(g.memUsada)} de ${gb(g.memTotal)}` : '', g.ventilador != null ? `ventilador ${g.ventilador} %` : '', g.consumo != null ? `${Math.round(g.consumo)} W` : ''].filter(Boolean).join(' · '), historiaPc.gpu)
+        : tarjeta('Placa de video', '—', '', 'Solo con placas NVIDIA (usa nvidia-smi, que viene con el driver).'),
+      tarjeta('Jarvis', `${String(e.jarvis.cpu).replace('.', ',')} %`, tono(e.jarvis.cpu, 15, 35), `${e.jarvis.memMB} MB de memoria · abierto hace ${hace(e.jarvis.abiertoDesde)}`, historiaPc.jarvis)),
+    h('p', { class: 'nota' }, `PC encendida hace ${hace(e.encendidaDesde)}. La temperatura del procesador Windows no la da sin programas aparte; la de la placa de video, sí.`),
+    h('h2', {}, 'Lo que gasta cada parte de Jarvis'),
+    h('div', { class: 'tabla-pc', role: 'table', 'aria-label': 'Procesos de Jarvis' },
+      h('div', { class: 'fila-pc cabeza', role: 'row' }, h('span', { role: 'columnheader' }, 'Parte'), h('span', { role: 'columnheader' }, 'Procesador'), h('span', { role: 'columnheader' }, 'Memoria')),
+      procesos.map((p) => h('div', { class: 'fila-pc', role: 'row' }, h('span', { role: 'cell' }, p.nombre), h('span', { role: 'cell' }, p.cpu == null ? '—' : `${String(p.cpu).replace('.', ',')} %`), h('span', { role: 'cell' }, p.memMB == null ? '—' : `${p.memMB} MB`)))),
+    h('p', { class: 'nota' }, 'Si Jarvis te parece pesado, mandame una captura de esta pantalla con la PC en uso normal (y otra jugando): con esos números se optimiza lo que más gasta.'),
+  ];
+};
+
 // ---------- Navegación ----------
 // [A1] Grupos pensados por tarea; [A2] cada uno con ícono; [A3] un punto avisa si algo de adentro necesita atención.
 const GRUPOS = [
@@ -3432,10 +3668,11 @@ const GRUPOS = [
   { id: 'cuentas', nombre: 'Cuentas y avisos', icono: 'cuentas', hojas: [['whatsapp', 'WhatsApp'], ['mail', 'Mail'], ['calendario', 'Calendario'], ['notificaciones', 'Notificaciones'], ['conexion', 'Conexión']] },
   { id: 'equipos', nombre: 'Dispositivos', icono: 'equipos', hojas: [['dispositivos', 'Teles y parlantes'], ['celular', 'Celular'], ['pc', 'PC']] },
   { id: 'multimedia', nombre: 'Multimedia', icono: 'musica', hojas: [['clips-ajustes', 'Grabación de clips'], ['descargas', 'Descargas'], ['musica', 'Música'], ['streaming', 'Streaming']] },
-  { id: 'sistema', nombre: 'Sistema', icono: 'sistema', hojas: [['actualizaciones', 'Información'], ['componentes', 'Componentes'], ['almacenamiento', 'Almacenamiento']] },
+  { id: 'sistema', nombre: 'Sistema', icono: 'sistema', hojas: [['estado-pc', 'Estado de la PC'], ['actualizaciones', 'Información'], ['componentes', 'Componentes'], ['almacenamiento', 'Almacenamiento']] },
 ];
 // [A6] Palabras para el buscador (además del nombre de cada pantalla).
 const CLAVES = {
+  'estado-pc': 'procesador cpu memoria ram placa video gpu temperatura consumo recursos lento optimizar',
   general: 'nombre ciudad clima cámara webcam atajo iniciar windows arranque',
   escucha: 'micrófono escuchar transcribir groq despertar hey jarvis palabra clave sensibilidad frases aprendidas confirmar',
   inteligencia: 'ia modelo groq gemini ollama clave api buscar internet tavily',
@@ -3644,7 +3881,9 @@ function irA(hoja) {
   if (seccion === 'clips' || seccion === 'clips-ajustes') { nombresFilas = null; refrescarClips(); cargarClips(); }
   if (seccion === 'resumen' && !notasLista) cargarNotas();
   if (seccion === 'resumen') cargarAvisosSistema();
-  if (seccion === 'almacenamiento') { almacen = null; pintar(); cargarAlmacen(); }
+  clearInterval(relojEstadoPc);
+  if (seccion === 'estado-pc') { cargarEstadoPc(); relojEstadoPc = setInterval(() => { if (seccion === 'estado-pc' && !document.hidden) cargarEstadoPc(); else if (seccion !== 'estado-pc') clearInterval(relojEstadoPc); }, 2000); }
+  if (seccion === 'almacenamiento') { almacen = null; pintar(); cargarAlmacen(); cargarClips(); }
   if (seccion === 'componentes') cargarComponentes();
   if (seccion === 'actualizaciones') cargarActualizacion();
   if (seccion === 'historial') pedir('historial:leer').then((x) => { registros = x; if (seccion === 'historial') pintar(); }).catch(() => {});

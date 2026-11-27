@@ -34,8 +34,8 @@ function recibir(m) {
   switch (m.tipo) {
     case 'habla': oyentes.habla(); break;
     case 'nada': oyentes.nada(); break;
-    case 'segmento': oyentes.segmento(m.pcm, m.segundos); break;
-    case 'vigilia': oyentes.vigilia(m.texto, m.segundos); break;
+    case 'segmento': oyentes.segmento(m.pcm, m.segundos, m.inicio); break;
+    case 'vigilia': oyentes.vigilia(m.texto, m.segundos, m.inicio); break;
     case 'voz': if (p && p.alTrozo) p.alTrozo(m.pcm, m.hz); break;
     case 'transcripto': if (p) { terminar(m.id); p.ok(m.texto); } break;
     case 'dicho': if (p) { terminar(m.id); p.ok(!m.cortado); } break;

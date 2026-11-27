@@ -665,7 +665,12 @@ function enCuanto(inicio, fin, todoElDia) {
 }
 
 // Datos que piden algunos widgets: se piden solo si hay un widget que los muestre.
-const datosWidgets = { clima: null, climaPedido: 0, notas: null, notasPedido: 0, volumen: null, mudo: false };
+const datosWidgets = { clima: null, climaPedido: 0, notas: null, notasPedido: 0, volumen: null, mudo: false, pc: null };
+// Estado de la PC: cada 5 s, solo si hay un widget que lo muestre y el panel está a la vista.
+setInterval(async () => {
+  if (!estado || !estado.panel || document.hidden || !normalizarLista(estado.panel.widgets).some((w) => w.tipo === 'pc')) return;
+  try { datosWidgets.pc = await pedir('pc:estado'); pintarWidgets(estado); } catch {}
+}, 5000);
 async function refrescarDatosDeWidgets(lista, forzar) {
   const ahora = Date.now();
   if (lista.some((w) => w.tipo === 'clima') && (forzar || ahora - datosWidgets.climaPedido > 15 * 60 * 1000)) {
@@ -833,6 +838,16 @@ function datosDeTile(w, e) {
       const ev = (e.agenda || []).find((x) => x.fin > Date.now());
       return ev ? { html: `<button type="button" class="tile-agenda" data-accion="agenda" title="Contame mi agenda">${icono('calendario', 20)}<span><b>${escapar(ev.titulo)}</b><small>${escapar(enCuanto(ev.inicio, ev.fin, ev.todoElDia))}</small></span></button>` } : { html: `<button type="button" class="tile-agenda" data-accion="agenda" title="Contame mi agenda">${icono('calendario', 20)}<span><b>Sin eventos</b><small>Nada próximo en tu calendario</small></span></button>` };
     }
+    case 'pc': {
+      const p = datosWidgets.pc;
+      if (!p) return { html: '<div class="tile-info"><small>Midiendo…</small></div>' };
+      const barra = (nombre, v, texto) => `<span class="pc-fila"><small>${nombre}</small><i style="--v:${Math.max(2, Math.min(100, v || 0))}%" class="${v >= 90 ? 'alto' : v >= 70 ? 'medio' : ''}"></i><b>${escapar(texto)}</b></span>`;
+      const g = p.gpu;
+      const filas = [barra('CPU', p.cpu.uso, `${p.cpu.uso}%`), barra('RAM', p.ram.uso, `${p.ram.uso}%`)];
+      if (g) filas.push(barra('GPU', g.temp != null ? g.temp : g.uso, g.temp != null ? `${g.temp}°` : `${g.uso}%`));
+      if (w.alto === 2) filas.push(`<span class="pc-fila jarvis"><small>Jarvis</small><b>${String(p.jarvis.cpu).replace('.', ',')}% · ${p.jarvis.memMB} MB</b></span>`);
+      return { html: `<button type="button" class="tile-pc" data-accion="abrir-ajustes" data-hoja="estado-pc" title="Ver el estado de la PC">${filas.join('')}</button>` };
+    }
     case 'nota': return { html: '<form class="tile-nota"><input type="text" placeholder="Anotar algo…" autocomplete="off" spellcheck="false" aria-label="Nota rápida"><button type="submit" title="Guardar la nota">' + icono('agregar', 16) + '</button></form>', fijo: true };
     default: return { vacio: true };
   }
@@ -988,6 +1003,7 @@ $('widgets').addEventListener('click', async (e) => {
     b.classList.remove('ocupado');
   } else if (a === 'modo') pedir('modo:cambiar', b.dataset.modo).catch((er) => mostrarBurbuja(er.message));
   else if (a === 'ver-notas') pedir('ajustes:abrir', 'notas');
+  else if (a === 'abrir-ajustes') pedir('ajustes:abrir', b.dataset.hoja);
   else if (a === 'mudo') {
     datosWidgets.mudo = !datosWidgets.mudo;
     try { await pedir('widget:silenciar', datosWidgets.mudo); } catch (er) { datosWidgets.mudo = !datosWidgets.mudo; mostrarBurbuja(er.message); }

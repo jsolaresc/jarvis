@@ -131,6 +131,47 @@ prueba('una rutina sigue aunque un paso falle, y cuenta qué falló', async () =
   await assert.rejects(() => acciones.ejecutarRutina('no existe'), /No existe la rutina/);
 });
 
+prueba('rutinas que se hacen solas: hora y días, juego, programa, aparato de audio, llegar y prender', async () => {
+  const d = require('../src/main/disparadores');
+  d._reiniciar();
+  const hechas = [];
+  let procesos = ['C:/Windows/explorer.exe'];
+  let salidas = [{ nombre: 'Parlantes (Realtek)' }];
+  let ahora = new Date(2026, 10, 27, 8, 29); // viernes
+  const rutinas = [
+    { id: 'manana', nombre: 'Mañana', disparadores: [{ tipo: 'hora', hora: '08:30', dias: [1, 2, 3, 4, 5] }] },
+    { id: 'finde', nombre: 'Finde', disparadores: [{ tipo: 'hora', hora: '08:30', dias: [0, 6] }] },
+    { id: 'cs', nombre: 'Counter', disparadores: [{ tipo: 'juego', juego: 'Counter-Strike 2', carpeta: 'D:\\Steam\\steamapps\\common\\Counter-Strike Global Offensive' }] },
+    { id: 'disc', nombre: 'Discord', disparadores: [{ tipo: 'programa', proceso: 'Discord.exe' }] },
+    { id: 'auris', nombre: 'Auris', disparadores: [{ tipo: 'audio', salida: 'Auriculares' }] },
+    { id: 'casa', nombre: 'Casa', disparadores: [{ tipo: 'llegar' }, { tipo: 'inicio' }] },
+    { id: 'nada', nombre: 'Nada', pasos: [] },
+  ];
+  d.configurar({ rutinas: () => rutinas, procesos: async () => procesos, salidas: async () => salidas, ahora: () => ahora, correr: async (id, motivo) => { hechas.push(`${id}: ${motivo}`); } });
+  await d.vuelta(); // primera vuelta: toma nota de lo que ya estaba abierto, no hace nada
+  assert.deepStrictEqual(hechas, []);
+  ahora = new Date(2026, 10, 27, 8, 30);
+  procesos = [...procesos, 'D:\\Steam\\steamapps\\common\\Counter-Strike Global Offensive\\game\\bin\\win64\\cs2.exe', 'C:/Users/x/AppData/Local/Discord/app-1.0/Discord.exe'];
+  salidas = [...salidas, { nombre: 'Auriculares (WH-1000XM4)' }];
+  await d.vuelta();
+  await new Promise((r) => setTimeout(r, 20));
+  assert.deepStrictEqual(hechas.sort(), ['auris: conectaste Auriculares', 'cs: abriste Counter-Strike 2', 'disc: abriste Discord.exe', 'manana: son las 08:30'].sort());
+  // La misma vuelta otra vez no repite.
+  await d.vuelta(); await new Promise((r) => setTimeout(r, 20));
+  assert.strictEqual(hechas.length, 4);
+  assert.deepStrictEqual(await d.evento('llegar', 'llegaste'), ['Casa']);
+  assert.deepStrictEqual(await d.evento('llegar', 'llegaste'), [], 'no dos veces seguidas');
+  assert.deepStrictEqual(await d.evento('inicio', 'se prendió'), ['Casa']);
+  assert.strictEqual(d.describir({ tipo: 'hora', hora: '08:30', dias: [1, 2, 3, 4, 5] }), 'de lunes a viernes a las 08:30');
+  assert.strictEqual(d.describir({ tipo: 'juego', juego: 'CS2' }), 'al abrir CS2');
+  // Estado de la PC: procesador y memoria siempre; placa de video solo con nvidia-smi.
+  const epc = require('../src/main/estadopc');
+  process.env.JARVIS_NVIDIA_SMI = '/no/existe';
+  const e = await epc.leer();
+  assert.ok(e.cpu.uso >= 0 && e.cpu.uso <= 100 && e.ram.totalMB > 0 && e.gpu === null, JSON.stringify(e));
+  delete process.env.JARVIS_NVIDIA_SMI;
+});
+
 prueba('yt-dlp: sabe si está viejo y lo avisa (también si una descarga falla por eso)', async () => {
   const descargasM = require('../src/main/descargas');
   assert.ok(descargasM.masNueva('2026.11.20', '2026.10.31'));
@@ -2085,6 +2126,18 @@ prueba('clips: renombrar y recortar un clip guardado (clip nuevo, reemplazo y so
     assert.strictEqual(alaPapelera, 'Ace en Mirage 1v4 (recorte 2) (original).mp4');
     assert.ok(!fs.readdirSync(carpeta).some((n) => n.endsWith(clips.SUFIJO_DESHACER)));
     await assert.rejects(() => clips.deshacerRecorte(rem2.deshacer), /Ya no se puede/);
+    // Editar de verdad: sacar un pedazo del medio, vertical 9:16 y al doble de velocidad → (8 - 2) / 2 = 3 s, 202x360.
+    assert.deepStrictEqual(clips._pruebas.partesQueQuedan(0, 8, [[2, 4], [6, 6.1]]), [[0, 2], [4, 6], [6.1, 8]]);
+    const ed9 = await clips.recortar(nuevo1, { desde: 0, hasta: 8, edicion: { quitar: [[2, 4]], formato: 'vertical', encuadre: 0.5, velocidad: 2 } });
+    assert.ok(Math.abs(largo(ed9.archivo) - 3) < 0.4, `dura ${largo(ed9.archivo)}`);
+    assert.match(String(spawnSync('ffmpeg', ['-hide_banner', '-i', ed9.archivo]).stderr), /202x360/);
+    assert.strictEqual(path.basename(ed9.archivo), 'Ace en Mirage 1v4 (vertical).mp4');
+    // Favoritos: se marcan, aparecen en la lista y siguen al renombrar.
+    clips.marcarFavorito(ed9.archivo, true);
+    assert.ok(clips.listar(Infinity).find((x) => x.archivo === ed9.archivo).favorito);
+    const ren9 = clips.renombrar(ed9.archivo, 'Vertical favorito');
+    assert.ok(clips.listar(Infinity).find((x) => x.archivo === ren9).favorito, 'el favorito sigue al renombrar');
+    fs.unlinkSync(ren9);
     // Convertir para editar (H.264 + AAC, cuadros fijos), comprimir, MP3 y GIF: copias al lado, con avance.
     const avances = [];
     const ed = await clips.transformar(nuevo1, 'editable', {}, (p) => avances.push(p));

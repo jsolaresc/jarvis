@@ -163,6 +163,12 @@ async function hacer(paso, contexto) {
       if (contexto.porVoz) return `Decile al usuario: ${paso.texto}`;
       puente.decir(paso.texto);
       return 'Dicho.';
+    case 'pedido': {
+      // Pedirle algo a Jarvis como si lo escribieras ("apagá la tele del comedor y poné música").
+      if (!puente.pedido) throw new Error('No puedo pedirle cosas a Jarvis desde acá.');
+      if (!String(paso.texto || '').trim()) throw new Error('Falta qué pedirle.');
+      return (await puente.pedido(String(paso.texto))) || 'Listo.';
+    }
     case 'esperar': await esperar(Math.max(0, Math.min(120, Number(paso.segundos) || 1)) * 1000); return 'Listo.';
     case 'notavoz': {
       if (paso.accion === 'parar') {

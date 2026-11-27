@@ -9,7 +9,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
-const { leerConfig, panelDeModo, DATOS } = require('./config');
+const { leerConfig, panelDeModo, DATOS, leerJSON, guardarJSON } = require('./config');
 const modelos = require('./modelos');
 
 const BUFFER = path.join(DATOS, 'clips-buffer');
@@ -360,7 +360,7 @@ function finDelPedido() {
   pedidoDeVoz = null;
   const margen = Math.max(0, Number(cfg().recorteDeVoz) || 0);
   if (!m || Date.now() - m.marcado > 90 * 1000) return 0; // 0 = sin pedido de voz: hasta ahora
-  return m.desde - margen * 1000;
+  return m.desde - margen * 1000 - 200; // 0,2 s de más: que no llegue a oírse el "che"
 }
 
 // Qué pedazos del buffer forman un clip de "pedido" segundos que termina en "hasta" (ms; sin eso, ahora). Si recortar el final deja casi
@@ -550,6 +550,8 @@ function listar(limite = 30) {
     }
   };
   mirar(raiz, 0);
+  const fav = favoritos();
+  for (const x of salida) x.favorito = fav.has(path.resolve(x.archivo));
   if (!listar.rescatado) { listar.rescatado = true; const dirs = new Set(salida.map((x) => path.dirname(x.archivo))); dirs.add(raiz); for (const d of dirs) rescatarApartados(d); }
   return salida.sort((a, b) => b.fecha - a.fecha).slice(0, limite);
 }
@@ -656,6 +658,7 @@ function renombrar(archivo, nuevo) {
     throw e;
   }
   if (ultimoClip && ultimoClip.archivo === archivo) ultimoClip.archivo = destino;
+  moverFavorito(archivo, destino);
   return destino;
 }
 function nombreLibre(dir, base, sufijo) {
@@ -677,6 +680,64 @@ function argumentosDeRecorte(origen, desde, largo, cod, salida) {
     : ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '22', '-threads', '4'];
   return ['-y', '-hide_banner', '-ss', desde.toFixed(3), '-i', origen, '-t', largo.toFixed(3), ...video, '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', `${kbpsAudio()}k`, '-movflags', '+faststart', salida];
 }
+// Edición completa: además de inicio y fin, pedazos del medio que se sacan, formato (vertical 9:16 o cuadrado, con
+// el encuadre de izquierda a derecha) y velocidad. ed = { quitar: [[a, b]], formato: 'original'|'vertical'|'cuadrado', encuadre: 0..1, velocidad }
+function partesQueQuedan(desde, hasta, quitar = []) {
+  let partes = [[desde, hasta]];
+  for (const [a0, b0] of (quitar || [])) {
+    const a = Number(a0); const b = Number(b0);
+    if (!(b > a)) continue;
+    partes = partes.flatMap(([x, y]) => (b <= x || a >= y ? [[x, y]] : [[x, a], [b, y]].filter(([p, q]) => q - p >= 0.2)));
+  }
+  return partes;
+}
+const VELOCIDADES = [0.5, 0.75, 1, 1.25, 1.5, 2];
+function edicionSimple(ed = {}) { return !(ed.quitar && ed.quitar.length) && (!ed.formato || ed.formato === 'original') && (!ed.velocidad || Number(ed.velocidad) === 1); }
+function largoEditado(desde, hasta, ed = {}) {
+  const v = VELOCIDADES.includes(Number(ed.velocidad)) ? Number(ed.velocidad) : 1;
+  return partesQueQuedan(desde, hasta, ed.quitar).reduce((t, [a, b]) => t + (b - a), 0) / v;
+}
+function argumentosDeEdicion(origen, desde, hasta, ed, conAudio, cod, salida) {
+  const partes = partesQueQuedan(desde, hasta, ed.quitar);
+  if (!partes.length) throw new Error('Sacaste todo el video: dejá algún pedazo.');
+  const base = Math.max(0, partes[0][0] - 2); // se salta rápido hasta cerca del primer pedazo
+  const v = VELOCIDADES.includes(Number(ed.velocidad)) ? Number(ed.velocidad) : 1;
+  const f = [];
+  partes.forEach(([a, b], i) => {
+    f.push(`[0:v]trim=start=${(a - base).toFixed(3)}:end=${(b - base).toFixed(3)},setpts=PTS-STARTPTS[v${i}]`);
+    if (conAudio) f.push(`[0:a]atrim=start=${(a - base).toFixed(3)}:end=${(b - base).toFixed(3)},asetpts=PTS-STARTPTS[a${i}]`);
+  });
+  f.push(`${partes.map((_, i) => `[v${i}]${conAudio ? `[a${i}]` : ''}`).join('')}concat=n=${partes.length}:v=1:a=${conAudio ? 1 : 0}[vc]${conAudio ? '[ac]' : ''}`);
+  const post = [];
+  const enc = Math.max(0, Math.min(1, Number.isFinite(Number(ed.encuadre)) ? Number(ed.encuadre) : 0.5));
+  if (ed.formato === 'vertical') post.push(`crop=trunc(ih*9/16/2)*2:ih:(iw-trunc(ih*9/16/2)*2)*${enc.toFixed(3)}:0`);
+  if (ed.formato === 'cuadrado') post.push(`crop=trunc(ih/2)*2:ih:(iw-trunc(ih/2)*2)*${enc.toFixed(3)}:0`);
+  if (v !== 1) post.push(`setpts=PTS/${v}`);
+  f.push(`[vc]${post.length ? post.join(',') : 'null'}[v]`);
+  if (conAudio) f.push(`[ac]${v !== 1 ? `atempo=${v}` : 'anull'}[a]`);
+  const video = cod === 'h264_nvenc'
+    ? ['-c:v', 'h264_nvenc', '-preset', 'p4', '-rc', 'vbr', '-cq', '22', '-b:v', '0']
+    : ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '21', '-threads', '4'];
+  return ['-y', '-hide_banner', ...(base > 0 ? ['-ss', base.toFixed(3)] : []), '-i', origen, '-filter_complex', f.join(';'), '-map', '[v]', ...(conAudio ? ['-map', '[a]', '-c:a', 'aac', '-b:a', `${kbpsAudio()}k`] : []), ...video, '-pix_fmt', 'yuv420p', '-movflags', '+faststart', salida];
+}
+async function argsPara(ruta, archivo, t, ed) {
+  if (edicionSimple(ed)) return { largo: t.largo, hacer: (cod, salida) => argumentosDeRecorte(archivo, t.desde, t.largo, cod, salida) };
+  const info = await infoDe(ruta, archivo);
+  return { largo: largoEditado(t.desde, t.desde + t.largo, ed), hacer: (cod, salida) => argumentosDeEdicion(archivo, t.desde, t.desde + t.largo, ed, info.audio, cod, salida) };
+}
+
+// Favoritos: se guardan por ruta dentro de la carpeta de clips (se actualizan al renombrar o reemplazar).
+const ARCHIVO_FAVORITOS = 'clips-favoritos.json';
+function favoritos() { const l = leerJSON(ARCHIVO_FAVORITOS, []); return new Set(Array.isArray(l) ? l : []); }
+function marcarFavorito(archivo, si) {
+  if (!dentroDeCarpeta(archivo)) throw new Error('Ese video no está en la carpeta de clips.');
+  const f = favoritos(); const k = path.resolve(archivo);
+  if (si) f.add(k); else f.delete(k);
+  guardarJSON(ARCHIVO_FAVORITOS, [...f]);
+  return !!si;
+}
+function moverFavorito(antes, despues) { const f = favoritos(); if (f.delete(path.resolve(antes))) { f.add(path.resolve(despues)); guardarJSON(ARCHIVO_FAVORITOS, [...f]); } }
+
 let recortando = false;
 function soltarLecturas(archivo) { try { return require('./servidor').soltar(archivo); } catch { return 0; } }
 // Repite una operación de archivos mientras Windows conteste "ocupado" (EBUSY/EPERM/EACCES).
@@ -689,7 +750,7 @@ async function conReintentos(fn, intentos = 12, espera = 250) {
   }
 }
 // Guarda el trozo como clip nuevo ("<nombre> (recorte).mp4") o, con reemplazar, deja el recorte en lugar del original.
-async function recortar(archivo, { desde, hasta, reemplazar = false, mandar = null, plazo = 30000 } = {}) {
+async function recortar(archivo, { desde, hasta, reemplazar = false, mandar = null, plazo = 30000, edicion = {} } = {}) {
   if (!dentroDeCarpeta(archivo)) throw new Error('Ese video no está en la carpeta de clips.');
   if (recortando) throw new Error('Ya estoy recortando otro clip: esperá a que termine.');
   const t = tramo(desde, hasta);
@@ -698,8 +759,9 @@ async function recortar(archivo, { desde, hasta, reemplazar = false, mandar = nu
     const ruta = await asegurarFfmpeg();
     const dir = path.dirname(archivo);
     const base = path.basename(archivo, path.extname(archivo));
-    const destino = nombreLibre(dir, base, reemplazar ? 'editando' : 'recorte');
-    await codificar(ruta, (cod, salida) => argumentosDeRecorte(archivo, t.desde, t.largo, cod, salida), destino, t.largo);
+    const destino = nombreLibre(dir, base, reemplazar ? 'editando' : (edicion.formato === 'vertical' ? 'vertical' : 'recorte'));
+    const a = await argsPara(ruta, archivo, t, edicion || {});
+    await codificar(ruta, a.hacer, destino, a.largo);
     if (!reemplazar) { ultimoClip = { archivo: destino, juego: (ultimoClip && ultimoClip.juego) || '', segundos: Math.round(t.largo) }; return { archivo: destino, segundos: t.largo }; } // "el último clip" pasa a ser el recorte
     const final = path.join(dir, `${base}.mp4`);
     // El original no se borra enseguida: queda apartado (oculto para la lista) para poder "Deshacer"; pasado el plazo va a la Papelera.
@@ -718,6 +780,7 @@ async function recortar(archivo, { desde, hasta, reemplazar = false, mandar = nu
       throw new Error(`Recorté el clip pero no pude reemplazar el original (${e.code || e.message}: ¿está abierto en otro programa?). Quedó como "${path.basename(destino)}".`);
     }
     if (ultimoClip && ultimoClip.archivo === archivo) ultimoClip.archivo = final;
+    if (final !== archivo) moverFavorito(archivo, final);
     const id = `r${Date.now().toString(36)}`;
     const reloj = setTimeout(() => terminarRecorte(id), plazo);
     if (reloj.unref) reloj.unref();
@@ -867,6 +930,15 @@ async function transformar(archivo, tipo, opciones = {}, alAvanzar = () => {}) {
       throw new Error(opciones.mb ? 'No pude dejarlo más liviano que el original.' : 'Ese video ya estaba bien comprimido: así no pesa menos. Probá "Mucho" o "Por peso".');
     }
     alAvanzar(100);
+    // En lote, desde Almacenamiento: el comprimido queda en lugar del original (el original va a la Papelera).
+    if (tipo === 'comprimir' && opciones.reemplazar && typeof opciones.mandar === 'function') {
+      const antes = fs.statSync(archivo).size;
+      const final = path.join(dir, `${base}.mp4`);
+      soltarLecturas(archivo);
+      await opciones.mandar(archivo);
+      await conReintentos(() => fs.renameSync(destino, final));
+      return { archivo: final, nombre: path.basename(final), bytes: fs.statSync(final).size, antes, esVideo: true, reemplazado: true };
+    }
     return { archivo: destino, nombre: path.basename(destino), bytes: fs.statSync(destino).size, antes: fs.statSync(archivo).size, esVideo: esVideo(destino) };
   } finally { transformando = null; }
 }
@@ -896,7 +968,7 @@ async function vistaPrevia(archivo, alAvanzar = () => {}) {
 }
 
 // Manda solo el trozo elegido por WhatsApp, sin guardarlo en la carpeta.
-async function enviarRecorte(archivo, { desde, hasta } = {}, contacto, enviarVideo) {
+async function enviarRecorte(archivo, { desde, hasta, edicion = {} } = {}, contacto, enviarVideo) {
   if (!dentroDeCarpeta(archivo)) throw new Error('Ese video no está en la carpeta de clips.');
   if (!contacto) throw new Error('Decime a quién se lo mando.');
   if (recortando) throw new Error('Ya estoy recortando otro clip: esperá a que termine.');
@@ -907,7 +979,8 @@ async function enviarRecorte(archivo, { desde, hasta } = {}, contacto, enviarVid
   const tmp = path.join(TEMPORAL, `recorte-${Date.now()}.mp4`);
   let p = null;
   try {
-    await codificar(ruta, (cod, salida) => argumentosDeRecorte(archivo, t.desde, t.largo, cod, salida), tmp, t.largo);
+    const a = await argsPara(ruta, archivo, t, edicion || {});
+    await codificar(ruta, a.hacer, tmp, a.largo);
     recortando = false;
     p = await prepararParaEnviar(tmp);
     return await enviarVideo(contacto, fs.readFileSync(p.archivo));
@@ -932,8 +1005,8 @@ module.exports = {
   asegurarFfmpeg, rutaFfmpeg, correrFfmpeg: correr, duracionDe,
   aLaPapelera, deshacerBorrado, finalizarBorrados, SUFIJO_BORRANDO,
   matarFfmpeg, listar, miniatura, dentroDeCarpeta, enviarGuardado, renombrar, recortar, enviarRecorte,
-  deshacerRecorte, terminarRecortesPendientes, enCarpeta, transformar, vistaPrevia, TRANSFORMACIONES, SUFIJO_DESHACER,
+  deshacerRecorte, terminarRecortesPendientes, enCarpeta, marcarFavorito, VELOCIDADES, transformar, vistaPrevia, TRANSFORMACIONES, SUFIJO_DESHACER,
   configurar, usarAtajos, sincronizar, apagar, guardar, guardarYAvisar, capturar, capturarYAvisar, capturaParaEnviar, ultimaDeCaptura, marcarPedidoDeVoz, olvidarPedido, finDelPedido, elegirPedazos, silenciarJarvis, jarvisHabla, mudosEnLinea, argumentosDeUnion, _reiniciarJarvis: () => { intervalosJarvis = []; jarvisDesde = 0; }, prepararParaEnviar, empezarGrabacion, cancelarGrabacion, pausarGrabacion, terminarGrabacion,
   recibirPedazo, recibirTrozo, finDeTrozos, recibirEstado, estado, ultimo, registrarAtajo, permitidoAhora,
-  _pruebas: { argumentosDeTransformar, infoDe, filtroDeRecorte, argumentosDeRecorte, nombreSeguro, argumentosDeUnion, elegirJuego, nombreDeJuego, lineaAMuestra, nombreDeArchivo, destinoDe, limpiarNombre, correr, duracionDe, recibirPedazo, setActiva: (v) => { activa = v; }, setMuestras: (m) => { muestras = m; }, setOrdenar: (f) => { ordenar = f; }, pedazos: () => pedazos },
+  _pruebas: { partesQueQuedan, argumentosDeEdicion, largoEditado, argumentosDeTransformar, infoDe, filtroDeRecorte, argumentosDeRecorte, nombreSeguro, argumentosDeUnion, elegirJuego, nombreDeJuego, lineaAMuestra, nombreDeArchivo, destinoDe, limpiarNombre, correr, duracionDe, recibirPedazo, setActiva: (v) => { activa = v; }, setMuestras: (m) => { muestras = m; }, setOrdenar: (f) => { ordenar = f; }, pedazos: () => pedazos },
 };

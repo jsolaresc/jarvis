@@ -30,6 +30,7 @@ export const TIPOS = {
   notas: { grupo: 'Avisos y agenda', nombre: 'Mis notas', icono: 'nota', tams: [2, 3, 4], altos: [1, 2], unico: true, color: true, ayuda: 'Tus últimas notas (primero las que tienen aviso). Tocá una para abrir Notas.' },
   // Info
   reloj: { grupo: 'Info', nombre: 'Reloj', icono: 'reloj', tams: BOTON, altos: [1, 2], unico: true, color: true, ayuda: 'La hora y la fecha.' },
+  pc: { grupo: 'Info', nombre: 'Estado de la PC', icono: 'chip', tams: [2, 3, 4], altos: [1, 2], unico: true, color: true, ayuda: 'Procesador, memoria y placa de video (temperatura con NVIDIA); en doble alto, también lo que gasta Jarvis.' },
   clima: { grupo: 'Info', nombre: 'Clima', icono: 'sol', tams: BOTON, altos: [1, 2], unico: true, color: true, ayuda: 'Temperatura y cielo de tu ciudad (Ajustes → Asistente → Básico); en doble alto, máxima, mínima y lluvia.' },
   titulo: { grupo: 'Info', nombre: 'Título', icono: 'interfaz', tams: [4], ayuda: 'Un texto chico para separar el panel en partes ("Juegos", "Trabajo"…).', datos: ['texto'] },
   // Música y clips

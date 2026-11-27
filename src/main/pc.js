@@ -126,7 +126,8 @@ function listarJuegosSteam({ forzar = false } = {}) {
           const texto = fs.readFileSync(path.join(carpeta, f), 'utf8');
           const id = Number((/"appid"\s+"(\d+)"/.exec(texto) || [])[1]);
           const nombre = (/"name"\s+"([^"]+)"/.exec(texto) || [])[1];
-          if (id && nombre && !NO_SON_JUEGOS.has(id) && !/^Steam(works)? /i.test(nombre) && !/Proton|Steam Linux Runtime/i.test(nombre)) juegos.set(id, { id, nombre });
+          const dir = (/"installdir"\s+"([^"]+)"/.exec(texto) || [])[1];
+          if (id && nombre && !NO_SON_JUEGOS.has(id) && !/^Steam(works)? /i.test(nombre) && !/Proton|Steam Linux Runtime/i.test(nombre)) juegos.set(id, { id, nombre, carpeta: dir ? path.join(carpeta, 'common', dir) : '' });
         } catch {}
       }
     }
@@ -205,6 +206,16 @@ function audio(accion, valor = '') {
     '-File', rutaDelGuion(), '-Accion', accion, '-Valor', String(valor)]);
 }
 
+// Los programas abiertos (ruta completa del .exe): para las rutinas que se hacen solas al abrir un juego o un programa.
+function listarProcesos() {
+  return new Promise((ok) => {
+    if (process.platform !== 'win32') {
+      execFile('ps', ['-eo', 'comm='], { timeout: 5000 }, (e, salida) => ok(e ? [] : String(salida).split('\n').map((x) => x.trim()).filter(Boolean)));
+      return;
+    }
+    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', 'Get-Process | Where-Object { $_.Path } | ForEach-Object { $_.Path }'], { windowsHide: true, timeout: 8000, maxBuffer: 4 * 1024 * 1024 }, (e, salida) => ok(e ? [] : String(salida).split(/\r?\n/).map((x) => x.trim()).filter(Boolean)));
+  });
+}
 async function listarSalidas() {
   const texto = await audio('listar');
   const lista = JSON.parse(texto || '[]');
@@ -236,4 +247,5 @@ async function silenciar(activar) {
   return activar ? 'PC silenciada.' : 'PC con sonido.';
 }
 
-module.exports = { listarJuegosSteam, abrirJuego, buscarJuegoDeSteam, rutaDelGuion, configurar, listarProgramas, abrirPrograma, cerrarPrograma, listarSalidas, cambiarSalida, volumen, silenciar, normalizar };
+module.exports = {
+  listarProcesos, listarJuegosSteam, abrirJuego, buscarJuegoDeSteam, rutaDelGuion, configurar, listarProgramas, abrirPrograma, cerrarPrograma, listarSalidas, cambiarSalida, volumen, silenciar, normalizar };

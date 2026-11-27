@@ -488,14 +488,15 @@ class Sesion {
     this.reloj = setTimeout(() => this.cerrar(), (Number(leerConfig().escucha.segundosExtra) || 7) * 1000);
   }
 
-  async alSegmento(pcm) {
+  async alSegmento(pcm, inicioVoz) {
     if (this.cerrada || !this.escuchando) return;
     this.escuchando = false;
     clearTimeout(this.reloj);
-    // Desde cuándo habló (aprox.): un clip pedido en esta charla termina ahí, así no se oye el pedido ni la respuesta de Jarvis.
-    // Ya no se silencia tu voz en los clips: perder audio del juego es peor que oír un "ey Jarvis" al final.
-    const desdeHablo = Date.now() - (muestras(pcm).length / 16000) * 1000 - 250;
-    clips.marcarPedidoDeVoz(desdeHablo, { primeraDeLaCharla: !this.yaHablo });
+    // Desde cuándo habló: un clip pedido en esta charla termina ahí, así no se oye el pedido ni la respuesta de Jarvis.
+    // Si se despertó con la palabra clave, la marca buena es la de la palabra clave (puesta en activar): esa no se pisa.
+    const desdeHablo = Number(inicioVoz) > 0 ? Number(inicioVoz) : Date.now() - (muestras(pcm).length / 16000) * 1000 - 250;
+    if (!this.marcaPorPalabraClave) clips.marcarPedidoDeVoz(desdeHablo, { primeraDeLaCharla: !this.yaHablo });
+    this.marcaPorPalabraClave = false;
     this.yaHablo = true;
     puente.estado('pensando');
     let dicho = '';
@@ -570,18 +571,20 @@ class Sesion {
 
 oido.alHabla(() => { if (sesion && sesion.escuchando) { clearTimeout(sesion.reloj); sesion.reloj = setTimeout(() => sesion && sesion.cerrar(), 40000); } });
 oido.alNada(() => { if (sesion && sesion.escuchando) sesion.esperarVoz(); });
-oido.alSegmento((pcm) => { if (sesion) sesion.alSegmento(pcm).catch((e) => console.error('[cerebro]', e)); });
+oido.alSegmento((pcm, segundos, inicio) => { if (sesion) sesion.alSegmento(pcm, inicio).catch((e) => console.error('[cerebro]', e)); });
 
 const activa = () => !!sesion;
 
 const FALTA_OIDO = 'Para escucharte falta bajar el modelo de escucha (una sola vez). Pasá el mouse por el notch y tocá "Bajar".';
 
 // Empieza a escuchar (por la palabra clave, el atajo o el botón del micrófono).
-async function activar() {
+async function activar({ porPalabraClave = false } = {}) {
   if (sesion) { if (sesion.escuchando) sesion.esperarVoz(); return true; }
   if (!puedeEscuchar()) { puente.estado('error', FALTA_OIDO); return false; }
   const nueva = new Sesion();
   sesion = nueva;
+  // "Hey Jarvis" por la palabra clave: se detecta apenas termina de decirse (~0,9 s después de empezar). El clip termina antes de eso.
+  if (porPalabraClave) { clips.marcarPedidoDeVoz(Date.now() - 1100, { primeraDeLaCharla: true }); nueva.marcaPorPalabraClave = true; nueva.yaHablo = true; }
   puente.estado('escuchando');
   try {
     await oido.preparar();
@@ -626,15 +629,23 @@ function loLlaman(texto, segundos) {
     llamado = comandos.despertarEnMedio(texto, { extras });
     if (llamado) motivo = 'oí mi nombre en medio de la música';
   }
-  return llamado ? { resto: llamado.resto, nota: `Me desperté porque ${motivo}: "${texto}"` } : null;
+  if (!llamado) return null;
+  // Qué parte de la frase vino antes del nombre (0 = arrancó con "che Jarvis").
+  const t = String(texto || '');
+  const quedan = String(llamado.resto || '').length;
+  const antesDelNombre = Math.max(0, t.length - quedan - 14);
+  return { resto: llamado.resto, nota: `Me desperté porque ${motivo}: "${texto}"`, antes: t.length ? Math.max(0, antesDelNombre / t.length) : 0 };
 }
-oido.alVigilia((texto, segundos) => {
+oido.alVigilia((texto, segundos, inicio) => {
   if (sesion || !leerConfig().voz.porTranscripcion) return;
   const llamado = loLlaman(texto, segundos);
   if (!llamado) return;
   ultimaPista = { cuando: 0, valor: 0 };
-  // La frase ya terminó y se pasó a texto: habló hace (su duración + el silencio de corte + la transcripción), más o menos.
-  const desdeHablo = Date.now() - (Number(segundos) || 3) * 1000 - 1500;
+  // A qué hora exacta empezó la frase (la mide el detector de voz). Si "Jarvis" vino en el medio ("…y bueno, che Jarvis, clipeá"),
+  // se calcula dónde cae dentro de la frase por la cantidad de letras de antes. Sin la hora exacta, la estimación de siempre.
+  const dur = (Number(segundos) || 3) * 1000;
+  let desdeHablo = Number(inicio) > 0 ? Number(inicio) : Date.now() - dur - 1500;
+  if (Number(inicio) > 0 && llamado.antes) desdeHablo += dur * Math.min(0.95, llamado.antes);
   clips.marcarPedidoDeVoz(desdeHablo, { primeraDeLaCharla: true });
   if (comandos.limpiar(llamado.resto)) {
     const nueva = new Sesion();

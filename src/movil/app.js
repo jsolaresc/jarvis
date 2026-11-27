@@ -1,6 +1,24 @@
 // Jarvis en el celular. Todo lo que hace pasa por /api de la PC con el token de este celular.
 const $ = (s) => document.querySelector(s);
 const ICONOS = {
+  cafe: '<path d="M4 9h12v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5z"/><path d="M16 10h1.5a2.5 2.5 0 0 1 0 5H16M8 3.5c-.6.8-.6 1.7 0 2.5M12 3.5c-.6.8-.6 1.7 0 2.5"/>',
+  cama: '<path d="M3 18V7M3 13h18v5M21 13a3 3 0 0 0-3-3h-7v3"/><circle cx="7" cy="10.5" r="1.8"/>',
+  auto: '<path d="M5 16V12l1.6-4.2A2 2 0 0 1 8.5 6.5h7a2 2 0 0 1 1.9 1.3L19 12v4"/><path d="M4 12h16v4H4z"/><circle cx="7.5" cy="17.5" r="1.5"/><circle cx="16.5" cy="17.5" r="1.5"/>',
+  pesa: '<path d="M6 8v8M18 8v8M3.5 10v4M20.5 10v4M6 12h12"/>',
+  pelota: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5l3.5 2.5-1.3 4h-4.4l-1.3-4zM12 3.5v4M15.5 10l4-1.5M14.2 14l2.3 3.8M9.8 14l-2.3 3.8M8.5 10l-4-1.5"/>',
+  libro: '<path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H11v15H5.5A1.5 1.5 0 0 0 4 20.5zM20 5.5A1.5 1.5 0 0 0 18.5 4H13v15h5.5a1.5 1.5 0 0 1 1.5 1.5z"/>',
+  comida: '<path d="M7 3v8M5 3v4a2 2 0 0 0 4 0V3M7 11v10M16 21V3c-2 1.5-3 4-3 7h3"/>',
+  avion: '<path d="M10.5 13.5L4 11l1.5-1.5 6.5.5 4-4.5a1.8 1.8 0 0 1 2.5 2.5l-4.5 4 .5 6.5L13 20l-2.5-6.5z"/>',
+  campana: '<path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20a2 2 0 0 0 4 0"/>',
+  corazon: '<path d="M12 20s-7.5-4.6-7.5-10A4.3 4.3 0 0 1 12 7.3 4.3 4.3 0 0 1 19.5 10c0 5.4-7.5 10-7.5 10z"/>',
+  codigo: '<path d="M8 8l-4 4 4 4M16 8l4 4-4 4M13.5 5l-3 14"/>',
+  pincel: '<path d="M14.5 4.5l5 5L11 18l-5-5z"/><path d="M6 13c-2 0-3 1.5-3 3.5V20h3.5c2 0 3.5-1 3.5-3"/>',
+  pata: '<circle cx="7" cy="9" r="1.8"/><circle cx="17" cy="9" r="1.8"/><circle cx="10" cy="5.5" r="1.6"/><circle cx="14" cy="5.5" r="1.6"/><path d="M8.5 16.5c0-2.5 1.6-4.5 3.5-4.5s3.5 2 3.5 4.5c0 1.6-1.5 2.5-3.5 2.5s-3.5-.9-3.5-2.5z"/>',
+  personas: '<circle cx="9" cy="8" r="3"/><path d="M3.5 19a5.5 5.5 0 0 1 11 0M16 5.5a3 3 0 0 1 0 5.5M17.5 14a5 5 0 0 1 3 5"/>',
+  cohete: '<path d="M12 3c3 2.5 4.5 6 4 10l-2 3h-4l-2-3c-.5-4 1-7.5 4-10z"/><circle cx="12" cy="9.5" r="1.6"/><path d="M8 13l-2.5 2.5V19l3-1.5M16 13l2.5 2.5V19l-3-1.5M11 19.5h2"/>',
+  fuego: '<path d="M12 21c-3.6 0-6-2.4-6-5.6 0-3.4 2.6-5 3.6-8.4 1 1.4 1.6 2.6 1.6 4 1.6-1 2.4-3 2.4-5.5C17 7.5 18 10.5 18 15.4 18 18.6 15.6 21 12 21z"/>',
+  alarma: '<circle cx="12" cy="13" r="7"/><path d="M12 9.5V13l2.5 1.5M4 5.5L6.5 3M20 5.5L17.5 3"/>',
+  regalo: '<rect x="4" y="9" width="16" height="11" rx="1.5"/><path d="M3 9h18M12 9v11M12 9S10.5 4.5 8 4.8 7.2 9 12 9zM12 9s1.5-4.5 4-4.2.8 4.2-4 4.2z"/>',
   charla: '<path d="M4 5h16v11H9l-5 4z"/>',
   rayo: '<path d="M13 2L4 14h7l-1 8 9-12h-7z"/>',
   actualizar: '<path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/>',
@@ -1732,7 +1750,7 @@ $('#c-mas').addEventListener('click', () => { diasCal = Math.min(360, diasCal + 
 
 // ----- Rutinas -----
 let rutinasLista = null; let opcionesRutina = null; let opcionesCuando = 0;
-const ICONOS_RUTINA = ['juego', 'tele', 'mensaje', 'luz', 'musica', 'casa', 'luna', 'estrella', 'camara', 'auriculares', 'parlante', 'rayo', 'apagar', 'trabajo'];
+const ICONOS_RUTINA = ['juego', 'tele', 'mensaje', 'luz', 'musica', 'casa', 'luna', 'estrella', 'camara', 'auriculares', 'parlante', 'rayo', 'apagar', 'trabajo', 'cafe', 'cama', 'auto', 'pesa', 'pelota', 'libro', 'comida', 'avion', 'campana', 'corazon', 'codigo', 'pincel', 'mic', 'pata', 'personas', 'cohete', 'fuego', 'alarma', 'pc', 'regalo'];
 async function cargarRutinas() {
   try { rutinasLista = await pedirPC('rutinas:leer'); } catch (e) { if (!(e instanceof NoVinculado) && !rutinasLista) $('#lista-rutinas').replaceChildren(vacio(errorDe(e))); return; }
   pintarRutinas();

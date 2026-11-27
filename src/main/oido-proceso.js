@@ -67,8 +67,11 @@ function cargar({ rutaVad, rutaOido, silencioMs, numHilos }) {
   }).then((r) => { reconocedor = r; oidoCargado = rutaOido.encoder; listo(); }, (e) => enviar({ tipo: 'error', donde: 'cargar', mensaje: e.message }));
 }
 
+// Cuántas muestras entraron al detector de la vigilia desde el último reinicio: con eso y la hora de la última, se sabe
+// a qué hora exacta (del reloj) empezó cada frase. Los clips "de lo último" terminan justo ahí.
+let muestrasVigilia = 0;
 function fijarEscucha(activo) {
-  if (activo && vadVigilia) vadVigilia.reset(); // empieza una conversación: la vigilia descansa
+  if (activo && vadVigilia) { vadVigilia.reset(); muestrasVigilia = 0; } // empieza una conversación: la vigilia descansa
   escuchando = !!activo && !!vad;
   hablando = false;
   previo = []; frase = [];
@@ -97,7 +100,7 @@ function entraAudio(pcm) {
     let pos = 0;
     for (const t of frase) { total.set(t, pos); pos += t.length; }
     fijarEscucha(false);
-    enviar({ tipo: 'segmento', pcm: aEnteros(total), segundos: total.length / HZ });
+    enviar({ tipo: 'segmento', pcm: aEnteros(total), segundos: total.length / HZ, inicio: Date.now() - (total.length / HZ) * 1000 });
   } else if (hablando && !detectado) {
     // Fue un ruido corto, no una frase: seguimos esperando.
     hablando = false; previo = frase.slice(-6); frase = [];
@@ -110,7 +113,7 @@ function entraAudio(pcm) {
 // con una, la más nueva espera su turno (en vez de tirarse), porque lo último que se dijo suele ser tu "Hey Jarvis".
 let conMusica = false;
 let vigiliaPendiente = null;
-function transcribirVigilia(muestras) {
+function transcribirVigilia(muestras, inicio = 0) {
   vigiliaOcupada = true;
   // Medio segundo de silencio adelante: al modelo le cuesta la primera sílaba si arranca en seco.
   const conAire = new Float32Array(muestras.length + HZ * 0.3);
@@ -118,25 +121,29 @@ function transcribirVigilia(muestras) {
   const flujo = reconocedor.createStream();
   flujo.acceptWaveform({ samples: conAire, sampleRate: HZ });
   reconocedor.decodeAsync(flujo)
-    .then((r) => { const texto = String(r.text || '').trim(); if (texto) enviar({ tipo: 'vigilia', texto, segundos: muestras.length / HZ }); })
+    .then((r) => { const texto = String(r.text || '').trim(); if (texto) enviar({ tipo: 'vigilia', texto, segundos: muestras.length / HZ, inicio }); })
     .catch(() => {})
     .finally(() => {
       vigiliaOcupada = false;
       const siguiente = vigiliaPendiente; vigiliaPendiente = null;
-      if (siguiente && conMusica && !escuchando) transcribirVigilia(siguiente);
+      if (siguiente && conMusica && !escuchando) transcribirVigilia(siguiente.muestras, siguiente.inicio);
     });
 }
 function entraVigilia(pcm) {
   if (!vadVigilia || !reconocedor || escuchando) return;
-  vadVigilia.acceptWaveform(aFlotante(pcm));
+  const entra = aFlotante(pcm);
+  vadVigilia.acceptWaveform(entra);
+  muestrasVigilia += entra.length;
+  const ahora = Date.now();
   while (!vadVigilia.isEmpty()) {
     const tramo = vadVigilia.front(false); // false: sin "buffers externos", que Electron no admite
     vadVigilia.pop();
     const muestras = tramo && tramo.samples;
+    const inicio = tramo && Number.isFinite(tramo.start) ? ahora - ((muestrasVigilia - tramo.start) / HZ) * 1000 : 0;
     // Muy corto es un ruido; muy largo es una charla, no alguien llamando (con música, el corte del detector ya limita el largo).
     if (!muestras || muestras.length < HZ * 0.3 || (!conMusica && muestras.length > HZ * 11)) continue;
-    if (vigiliaOcupada) { if (conMusica) vigiliaPendiente = muestras; continue; }
-    transcribirVigilia(muestras);
+    if (vigiliaOcupada) { if (conMusica) vigiliaPendiente = { muestras, inicio }; continue; }
+    transcribirVigilia(muestras, inicio);
   }
 }
 

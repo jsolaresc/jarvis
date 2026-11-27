@@ -86,7 +86,10 @@ async function hasta(fn, ms = 20000, que = '') {
     ajustes.on('console', (m) => { if (m.type() === 'error') errores.push(`ajustes: ${m.text()}`); });
     ajustes.on('pageerror', (e) => errores.push(`ajustes: ${e.message}`));
     await ajustes.setViewportSize({ width: 1100, height: 900 }).catch(() => {});
-    await hasta(() => ajustes.locator('text=Listo para usar desde el celular').count(), 15000, 'estado de Tailscale en Ajustes');
+    await hasta(() => ajustes.locator('text=Listo para usar desde el celular').count(), 15000, 'estado de Tailscale en Ajustes').catch(async (e) => {
+      await ajustes.screenshot({ path: path.join(SALIDA, '0-ajustes-falla.png') }).catch(() => {});
+      throw new Error(`${e.message} — ${(await ajustes.evaluate(() => document.body.innerText.slice(0, 400)).catch(() => ''))}`);
+    });
     await ajustes.screenshot({ path: path.join(SALIDA, '1-ajustes-celular.png') });
     await ajustes.getByRole('button', { name: 'Vincular un celular' }).click();
     const codigo = (await hasta(() => ajustes.locator('.cel-numero').textContent(), 10000, 'código')).replace(/\D/g, '');
@@ -638,7 +641,51 @@ async function hasta(fn, ms = 20000, que = '') {
     assert.ok(await ajustes.locator('.panel-comprimir').isVisible());
     await ajustes.screenshot({ path: path.join(SALIDA, '18d-pc-clip-comprimir.png'), fullPage: true });
     await ajustes.locator('.panel-comprimir button', { hasText: 'Cancelar' }).click();
+    // Más edición: vertical 9:16 (con el recuadro sobre el video), velocidad y sacar un pedazo del medio.
+    await ajustes.click('.panel-edicion > summary');
+    await ajustes.click('.panel-edicion button:has-text("Vertical 9:16")');
+    assert.ok(await ajustes.locator('.mascara-formato:not([hidden])').count(), 'recuadro 9:16 sobre el video');
+    await ajustes.click('.panel-edicion button:has-text("1,5x")');
+    await ajustes.fill('.panel-edicion input[aria-label="Sacar desde (segundos)"]', '1');
+    await ajustes.fill('.panel-edicion input[aria-label="Sacar hasta (segundos)"]', '2');
+    await ajustes.click('.panel-edicion button:has-text("Sacar")');
+    assert.ok(await ajustes.locator('.lt-quitar span').count(), 'pedazo marcado en la línea de tiempo');
+    assert.ok(!(await ajustes.locator('.editor-pie .boton-dividido > button').first().isDisabled()), 'con edición, Guardar se prende');
+    await ajustes.click('.editor-cabeza .estrella');
+    await ajustes.screenshot({ path: path.join(SALIDA, '18f-pc-clip-mas-edicion.png'), fullPage: true });
     await ajustes.click('.editor-cabeza button:has-text("Clips")');
+
+    // Almacenamiento: elegir con Shift un rango de videos (ordenados por tamaño) y ver la barra de acciones.
+    await ajustes.click('#menu button[data-grupo="sistema"]');
+    await ajustes.click('.pestanas button:has-text("Almacenamiento")').catch(() => ajustes.click('button:has-text("Almacenamiento")'));
+    await hasta(() => ajustes.locator('.tabla-lote .fila-lote:not(.cabeza)').count(), 15000, 'videos en Almacenamiento');
+    const filasLote = ajustes.locator('.tabla-lote .fila-lote:not(.cabeza)');
+    const nLote = await filasLote.count();
+    await filasLote.nth(0).click();
+    await filasLote.nth(nLote - 1).click({ modifiers: ['Shift'] });
+    await hasta(async () => /(\d+) elegidos/.test(await ajustes.textContent('.lote-barra').catch(() => '')) && Number(/(\d+) elegidos/.exec(await ajustes.textContent('.lote-barra'))[1]) === nLote, 3000, 'shift elige todos los del medio');
+    await ajustes.screenshot({ path: path.join(SALIDA, '21-pc-almacenamiento-lote.png') });
+    await ajustes.click('.lote-barra button:has-text("Ninguno")');
+    // Estado de la PC.
+    await ajustes.click('.pestanas button:has-text("Estado de la PC")').catch(() => ajustes.click('button:has-text("Estado de la PC")'));
+    await hasta(() => ajustes.locator('.tarjeta-pc').count(), 8000, 'estado de la PC');
+    await hasta(() => ajustes.locator('.fila-pc:not(.cabeza)').count(), 8000, 'procesos de Jarvis');
+    await esperar(2500);
+    await ajustes.screenshot({ path: path.join(SALIDA, '22-pc-estado.png'), fullPage: true });
+    // Rutinas: que se haga sola a una hora, de lunes a viernes.
+    await ajustes.click('#menu button[data-grupo="rutinas"]');
+    await ajustes.selectOption('.disparadores select', 'hora');
+    for (const d of ['L', 'M', 'X', 'J', 'V']) await ajustes.click(`.disparador .dia:text-is("${d}")`);
+    await esperar(900);
+    const rutPc = (await notch.evaluate(() => window.jarvis.pedir('rutinas:leer'))).dato;
+    assert.ok(rutPc.some((r) => (r.disparadores || []).some((d) => d.tipo === 'hora' && d.dias.join() === '1,2,3,4,5')), 'disparador guardado');
+    await ajustes.screenshot({ path: path.join(SALIDA, '23-pc-rutina-disparador.png'), fullPage: true });
+    // Historial: "Hacer rutina" con un pedido.
+    await ajustes.click('#menu button[data-grupo="historial"]');
+    await hasta(() => ajustes.locator('.registro button:has-text("Hacer rutina")').count(), 8000, 'historial con botones');
+    const antesR = rutPc.length;
+    await ajustes.locator('.registro button:has-text("Hacer rutina")').first().click();
+    await hasta(async () => (await notch.evaluate(() => window.jarvis.pedir('rutinas:leer'))).dato.length === antesR + 1, 5000, 'rutina armada desde el historial');
 
     // Inicio de Ajustes: el aviso de yt-dlp viejo, con su botón; y en Sistema → Componentes, "Actualizar".
     await ajustes.click('#menu button[data-grupo="resumen"]');
