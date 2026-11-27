@@ -2166,6 +2166,11 @@ prueba('clips: renombrar y recortar un clip guardado (clip nuevo, reemplazo y so
     assert.ok(Math.abs(largo(ed9.archivo) - 3) < 0.4, `dura ${largo(ed9.archivo)}`);
     assert.match(String(spawnSync('ffmpeg', ['-hide_banner', '-i', ed9.archivo]).stderr), /202x360/);
     assert.strictEqual(path.basename(ed9.archivo), 'Ace en Mirage 1v4 (vertical).mp4');
+    // Con la PC bloqueada, la repetición instantánea queda en pausa (y vuelve al desbloquear).
+    await clips.pausarPorBloqueo(true);
+    assert.deepStrictEqual([clips.estado().enPausa, clips.estado().permitido], [true, false]);
+    await clips.pausarPorBloqueo(false);
+    assert.strictEqual(clips.estado().enPausa, false);
     // Montaje: pedazos de dos clips (uno repetido, uno al doble y otro sin sonido), vertical, un texto y fundido.
     // nuevo1 [1–3] a 2x = 1 s; rec.archivo [0–1] mudo = 1 s; nuevo1 [1–3] de nuevo a 2x = 1 s → 3 s en total.
     const pngDatos = `data:image/png;base64,${spawnSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i', 'color=c=red@0.5:s=202x360,format=rgba', '-frames:v', '1', '-f', 'image2pipe', '-vcodec', 'png', '-']).stdout.toString('base64')}`;

@@ -41,7 +41,15 @@ function configurar(f) {
 }
 const cfg = () => leerConfig().clips;
 const modoActual = () => { const c = leerConfig(); return (c.modos || []).find((m) => m.id === c.modo); };
-const permitidoAhora = () => !!cfg().activo && panelDeModo(modoActual()).clips;
+// En pausa mientras la PC está bloqueada o suspendida (no tiene sentido grabar la pantalla de bloqueo, y ahorra placa de video).
+let enPausaPorBloqueo = false;
+const permitidoAhora = () => !!cfg().activo && panelDeModo(modoActual()).clips && !enPausaPorBloqueo;
+function pausarPorBloqueo(si) {
+  if (si && cfg().pausarBloqueada === false) return Promise.resolve();
+  if (si && grabacion) return Promise.resolve(); // una grabación a mano sigue
+  enPausaPorBloqueo = !!si;
+  return sincronizar();
+}
 
 // ---------- ffmpeg ----------
 let huerfanosLimpios = false;
@@ -1073,7 +1081,7 @@ async function enviarRecorte(archivo, { desde, hasta, edicion = {} } = {}, conta
 
 function estado() {
   return {
-    activo: cfg().activo, permitido: permitidoAhora(), corriendo: activa, grabando: !!grabacion, pausado: !!(grabacion && grabacion.pausado),
+    activo: cfg().activo, permitido: permitidoAhora(), enPausa: enPausaPorBloqueo, corriendo: activa, grabando: !!grabacion, pausado: !!(grabacion && grabacion.pausado),
     segundos: pedazos.length ? Math.round((Date.now() - pedazos[0].inicio) / 1000) : 0, ultimo: ultimoClip ? path.basename(ultimoClip.archivo) : '',
     error: ultimoError, captura: estadoVentana.captura || '', formato: estadoVentana.formato || '',
   };
@@ -1084,7 +1092,7 @@ const ultimo = () => ultimoClip;
 module.exports = {
   asegurarFfmpeg, rutaFfmpeg, correrFfmpeg: correr, duracionDe,
   aLaPapelera, deshacerBorrado, finalizarBorrados, SUFIJO_BORRANDO,
-  matarFfmpeg, listar, miniatura, medidas, argumentosDeMontaje, validarMontaje, dentroDeCarpeta, enviarGuardado, renombrar, recortar, enviarRecorte,
+  matarFfmpeg, pausarPorBloqueo, listar, miniatura, medidas, argumentosDeMontaje, validarMontaje, dentroDeCarpeta, enviarGuardado, renombrar, recortar, enviarRecorte,
   deshacerRecorte, terminarRecortesPendientes, enCarpeta, marcarFavorito, VELOCIDADES, transformar, vistaPrevia, TRANSFORMACIONES, SUFIJO_DESHACER,
   configurar, usarAtajos, sincronizar, apagar, guardar, guardarYAvisar, capturar, capturarYAvisar, capturaParaEnviar, ultimaDeCaptura, marcarPedidoDeVoz, olvidarPedido, finDelPedido, elegirPedazos, silenciarJarvis, jarvisHabla, mudosEnLinea, argumentosDeUnion, _reiniciarJarvis: () => { intervalosJarvis = []; jarvisDesde = 0; }, prepararParaEnviar, empezarGrabacion, cancelarGrabacion, pausarGrabacion, terminarGrabacion,
   recibirPedazo, recibirTrozo, finDeTrozos, recibirEstado, estado, ultimo, registrarAtajo, permitidoAhora,

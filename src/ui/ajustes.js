@@ -194,7 +194,7 @@ const campo = (etiqueta, control, ayuda) => {
   if (ayudaEl && objetivo) { ayudaEl.id = `${id}-a`; objetivo.setAttribute('aria-describedby', ayudaEl.id); }
   return h('div', { class: 'campo' }, label, fila, ayudaEl);
 };
-const boton = (nombre, alTocar, clase = '') => h('button', { type: 'button', class: `boton ${clase}`, onclick: alTocar }, nombre);
+const boton = (nombre, alTocar, clase = '', deshabilitado = false) => h('button', { type: 'button', class: `boton ${clase}`, onclick: alTocar, disabled: !!deshabilitado }, nombre);
 // [C19] Quitar: ícono de tacho con color de peligro, con nombre accesible.
 const botonQuitar = (alTocar, que = '') => h('button', { type: 'button', class: 'boton icono-solo quitar', title: que ? `Quitar ${que}` : 'Quitar', 'aria-label': que ? `Quitar ${que}` : 'Quitar', html: icono('tacho', 16), onclick: alTocar });
 const botonIcono = (nombreIcono, etiqueta, alTocar) => h('button', { type: 'button', class: 'boton icono-solo', title: etiqueta, 'aria-label': etiqueta, html: icono(nombreIcono, 16), onclick: alTocar });
@@ -826,12 +826,19 @@ function abrirEditor(x) {
   pintar(true);
 }
 function cerrarEditor() { if (document.body.classList.contains('con-cine')) { document.body.classList.remove('con-cine'); pedir('ventana:pantallaCompleta', false).catch(() => {}); } clipEditor = null; pintar(true); cargarClips(); }
+// Un pedazo copiado en el editor: se puede pegar en el mismo clip o en otro.
+let portapapelesClip = null;
 function editorDeClip() {
   const ed = clipEditor;
   if (ed.nodo) return ed.nodo;
   const c = cfg.clips;
   const T = { dur: 0, desde: 0, hasta: 0 };
   const MIN = 0.5;
+  // La edición: los pedazos (de este clip u otros, en orden, repetibles), formato, textos/recuadros y fundido.
+  // La línea de tiempo y las manijas muestran el pedazo elegido (y el video, su clip).
+  const nuevaEdicion = () => ({ tramos: [], sel: 0, formato: 'original', encuadre: 0.5, capas: [], fundido: false });
+  const E = nuevaEdicion();
+  let fuente = ed.archivo;
   const mensaje = h('div', { class: 'nota', style: 'min-height:20px' });
   const decir = (texto, clase = '') => { mensaje.className = `nota ${clase}`; mensaje.textContent = texto; };
   const video = h('video', { class: 'editor-video', controls: true, preload: 'metadata', controlsList: 'nofullscreen', disablePictureInPicture: true });
@@ -857,12 +864,15 @@ function editorDeClip() {
     if (document.activeElement !== nDesde) nDesde.value = T.desde.toFixed(1);
     if (document.activeElement !== nHasta) nHasta.value = T.hasta.toFixed(1);
     const largo = T.hasta - T.desde;
-    resumen.textContent = T.dur ? `Se queda con ${tiempoTexto(largo)} de ${tiempoTexto(T.dur)} (${tiempoTexto(T.desde)} → ${tiempoTexto(T.hasta)})` : '';
+    resumen.textContent = !T.dur ? '' : E.tramos.length > 1 ? `Pedazo ${E.sel + 1} de ${E.tramos.length}: ${tiempoTexto(T.desde)} → ${tiempoTexto(T.hasta)} · el clip editado dura ${tiempoTexto(largoTotal())}` : `Se queda con ${tiempoTexto(largo)} de ${tiempoTexto(T.dur)} (${tiempoTexto(T.desde)} → ${tiempoTexto(T.hasta)})`;
     manijaDesde.style.left = pct(T.desde); manijaHasta.style.left = pct(T.hasta);
     manijaDesde.setAttribute('aria-valuenow', T.desde.toFixed(1)); manijaHasta.setAttribute('aria-valuenow', T.hasta.toFixed(1));
     sombraIzq.style.left = '0'; sombraIzq.style.width = pct(T.desde);
     sombraDer.style.left = pct(T.hasta); sombraDer.style.right = '0';
     marco.style.left = pct(T.desde); marco.style.width = `${T.dur ? (largo / T.dur) * 100 : 100}%`;
+    const tr = E.tramos[E.sel];
+    if (tr && tr.fuente === fuente && T.dur) { tr.desde = T.desde; tr.hasta = T.hasta; }
+    pintarTiras();
   };
   const moverCabezal = () => { cabezal.style.left = pct(video.currentTime || 0); };
   const tiempoEn = (x) => { const r = pista.getBoundingClientRect(); return T.dur && r.width ? Math.max(0, Math.min(T.dur, ((x - r.left) / r.width) * T.dur)) : 0; };
@@ -928,19 +938,24 @@ function editorDeClip() {
       const antes = { ...T };
       T.dur = dur;
       [nDesde, nHasta].forEach((n) => { n.max = dur; });
-      if (conservar && antes.dur) { T.desde = Math.min(antes.desde, dur - MIN); T.hasta = Math.min(antes.hasta, dur); } else { T.desde = 0; T.hasta = dur; }
-      refrescar(); moverCabezal(); armarLinea(url, dur); ok();
+      if (!E.tramos.length) E.tramos = [{ fuente, desde: 0, hasta: dur, velocidad: 1, mudo: false }];
+      const tr = E.tramos[E.sel];
+      if (tr && tr.fuente === fuente) { T.desde = Math.min(tr.desde, dur - MIN); T.hasta = Math.min(tr.hasta, dur); }
+      else if (conservar && antes.dur) { T.desde = Math.min(antes.desde, dur - MIN); T.hasta = Math.min(antes.hasta, dur); } else { T.desde = 0; T.hasta = dur; }
+      refrescar(); moverCabezal(); armarLinea(url, dur); pintarCapas(); ok();
     }, { once: true });
   });
   // Si el visor no puede con el formato (por ejemplo los clips HEVC de la app de NVIDIA), se arma una vista previa liviana:
   // se ve y se recorta igual; el recorte se hace sobre el original, sin perder calidad.
   let probóVista = false;
-  const cargar = async (conservar) => { probóVista = false; await usarUrl(await pedir('clips:vista', ed.archivo), conservar); };
+  const cargar = async (conservar) => { probóVista = false; await usarUrl(await pedir('clips:vista', fuente), conservar); };
+  // Mostrar otro clip en el visor (un pedazo que viene de otro clip).
+  const cambiarFuente = async (f) => { if (f === fuente && video.getAttribute('src')) return; fuente = f; T.dur = 0; await cargar(true); };
   const usarVistaPrevia = async (motivo) => {
     if (probóVista) return;
     probóVista = true;
     progreso('vista', 0, motivo);
-    try { await usarUrl(await pedir('clips:vistaPrevia', ed.archivo), true); decir('Estás viendo una vista previa más liviana: al guardar, el recorte sale del original, con su calidad.', ''); }
+    try { await usarUrl(await pedir('clips:vistaPrevia', fuente), true); decir('Estás viendo una vista previa más liviana: al guardar, el recorte sale del original, con su calidad.', ''); }
     catch (er) { decir(`No pude preparar la vista previa: ${er.message}`, 'mal'); }
     barra.hidden = true;
   };
@@ -953,15 +968,36 @@ function editorDeClip() {
   });
   // Lee la duración pero no la imagen (sin decodificador para ese formato): también va la vista previa.
   video.addEventListener('loadeddata', () => { if (!probóVista && video.videoWidth === 0 && video.getAttribute('src')) usarVistaPrevia(NO_LEE); });
-  let viendo = false;
-  video.addEventListener('timeupdate', () => {
-    moverCabezal();
-    // Viendo el recorte: los pedazos sacados se saltean, como va a quedar.
-    const q = viendo && enRango(video.currentTime); if (q) video.currentTime = q[1];
-    if (viendo && video.currentTime >= T.hasta) { video.pause(); viendo = false; }
-  });
-  video.addEventListener('seeked', moverCabezal);
-  video.addEventListener('pause', () => { viendo = false; });
+  // "Ver cómo queda": pedazo por pedazo (cambiando de clip si hace falta), cada uno con su velocidad y sonido.
+  let viendo = null; // { i } mientras se reproduce el montaje
+  let saltando = false;
+  const reproducirPedazo = async (i) => {
+    const tr = E.tramos[i];
+    if (!tr) return;
+    saltando = true;
+    viendo = { i };
+    if (tr.fuente !== fuente) await cambiarFuente(tr.fuente);
+    video.currentTime = tr.desde;
+    video.playbackRate = tr.velocidad; video.muted = !!tr.mudo;
+    saltando = false;
+    await video.play().catch(() => {});
+  };
+  const terminarDeVer = async () => {
+    const v = viendo; viendo = null;
+    video.pause(); video.playbackRate = 1; video.muted = false;
+    const tr = E.tramos[E.sel];
+    if (v && tr && tr.fuente !== fuente) { await cambiarFuente(tr.fuente); }
+  };
+  const vigilarMontaje = () => {
+    if (!viendo || saltando) return;
+    const tr = E.tramos[viendo.i];
+    if (!tr || video.currentTime >= tr.hasta - 0.04) { if (viendo.i + 1 < E.tramos.length) reproducirPedazo(viendo.i + 1); else terminarDeVer(); }
+  };
+  const bucle = () => { if (!viendo) return; vigilarMontaje(); moverCabezal(); pintarCapas(); requestAnimationFrame(bucle); };
+  video.addEventListener('play', () => { if (viendo) requestAnimationFrame(bucle); });
+  video.addEventListener('timeupdate', () => { moverCabezal(); vigilarMontaje(); pintarCapas(); });
+  video.addEventListener('seeked', () => { moverCabezal(); pintarCapas(); });
+  video.addEventListener('pause', () => { if (viendo && !saltando && !video.ended) { viendo = null; video.playbackRate = 1; video.muted = false; } });
   nDesde.addEventListener('input', () => { if (nDesde.value === '') return; T.desde = Number(nDesde.value); refrescar(); });
   nHasta.addEventListener('input', () => { if (nHasta.value === '') return; T.hasta = Number(nHasta.value); refrescar(); });
   nDesde.addEventListener('change', () => { refrescar(); nDesde.value = T.desde.toFixed(1); irA(T.desde); });
@@ -970,38 +1006,35 @@ function editorDeClip() {
   const barra = h('div', { class: 'progreso fino', hidden: true }, h('i'));
   const progreso = (tipo, p, texto) => { barra.hidden = false; barra.firstChild.style.width = `${p}%`; if (texto) decir(texto); else if (p != null) decir(`${TAREAS_CLIP[tipo] || 'Trabajando'}… ${p} %`); };
   ed.progreso = (d) => { if (d.archivo !== ed.archivo) return; if (d.fin) { barra.hidden = true; return; } progreso(d.tipo, d.porcentaje); };
-  // Más edición: pedazos del medio que se sacan, formato (vertical 9:16 / cuadrado con encuadre) y velocidad.
-  const E = { quitar: [], formato: 'original', encuadre: 0.5, velocidad: 1 };
-  const editado = () => E.quitar.length > 0 || E.formato !== 'original' || E.velocidad !== 1;
+  const editado = () => E.tramos.length > 1 || E.tramos.some((x) => x.velocidad !== 1 || x.mudo || x.fuente !== ed.archivo) || E.formato !== 'original' || E.capas.length > 0 || E.fundido;
   const recortado = () => (T.dur && (T.desde > 0.05 || T.hasta < T.dur - 0.05)) || editado();
-  const enRango = (t) => E.quitar.find(([a, b]) => t >= a && t < b);
   const todos = [];
   const ocupado = (si) => { todos.forEach((x) => { x.disabled = si; }); if (!si) estadoGuardar(); };
   const acciones = (nombreBoton, clase, hacer) => { const b = boton(nombreBoton, async () => { ocupado(true); try { await hacer(b); } catch (er) { decir(er.message, 'mal'); barra.hidden = true; } ocupado(false); }, clase); todos.push(b); return b; };
-  const aVer = acciones('▶ Ver el recorte', 'chico', async () => { video.currentTime = T.desde; viendo = true; await video.play().catch(() => {}); });
+  const aVer = acciones('▶ Ver cómo queda', 'chico', async () => { if (E.tramos.length) await reproducirPedazo(0); });
   const acaDesde = boton('Acá', () => { T.desde = Math.min(video.currentTime, T.hasta - MIN); refrescar(); }, 'chico');
   const acaHasta = boton('Acá', () => { T.hasta = Math.max(video.currentTime, T.desde + MIN); refrescar(); }, 'chico');
   // Guardar = el recorte queda en lugar del original (con "Deshacer" un rato). La otra opción, en la flechita: guardar una copia.
   const guardarRecorte = async () => {
     decir('Recortando…');
-    const hechos = { desde: T.desde, hasta: T.hasta };
     await soltarVideos();
     let r;
-    try { r = await pedir('clips:recortar', { archivo: ed.archivo, ...hechos, reemplazar: true, edicion: { ...E } }); } catch (er) { await cargar(true).catch(() => {}); throw er; }
+    const edicion = await edicionFinal();
+    try { r = await pedir('clips:recortar', { archivo: ed.archivo, ...rangoParaGuardar(), reemplazar: true, edicion }); } catch (er) { await cargar(true).catch(() => {}); throw er; }
     const antes = ed.archivo;
     ed.archivo = r.archivo; ed.base = r.archivo.split(/[\\/]/).pop().replace(/\.[^.]+$/, ''); nombre.value = ed.base;
-    T.dur = 0; Object.assign(E, { quitar: [], formato: 'original', encuadre: 0.5, velocidad: 1 }); pintarEdicion(); await cargar(false);
+    T.dur = 0; Object.assign(E, nuevaEdicion()); fuente = ed.archivo; pintarEdicion(); await cargar(false);
     decir('Guardado: el clip quedó recortado.', 'bien'); cargarClips();
     avisarConAccion('Guardé el recorte en lugar del original.', 'Deshacer', async () => {
       await soltarVideos();
       const d = await pedir('clips:deshacerRecorte', r.deshacer);
-      if (clipEditor === ed) { ed.archivo = d.archivo || antes; ed.base = ed.archivo.split(/[\\/]/).pop().replace(/\.[^.]+$/, ''); nombre.value = ed.base; T.dur = 0; await cargar(false); decir('Volvió a como estaba.', 'bien'); }
+      if (clipEditor === ed) { ed.archivo = d.archivo || antes; fuente = ed.archivo; Object.assign(E, nuevaEdicion()); pintarEdicion(); ed.base = ed.archivo.split(/[\\/]/).pop().replace(/\.[^.]+$/, ''); nombre.value = ed.base; T.dur = 0; await cargar(false); decir('Volvió a como estaba.', 'bien'); }
       cargarClips(); return d.texto;
     }, r.plazo);
   };
   const guardarCopia = async () => {
     decir('Recortando…');
-    const r = await pedir('clips:recortar', { archivo: ed.archivo, desde: T.desde, hasta: T.hasta, edicion: { ...E } });
+    const r = await pedir('clips:recortar', { archivo: ed.archivo, ...rangoParaGuardar(), edicion: await edicionFinal() });
     const n = r.archivo.split(/[\\/]/).pop();
     decir(`Listo: guardé "${n}" (el original sigue igual).`, 'bien'); cargarClips();
     avisarConAccion(`Guardé la copia "${n}".`, 'Abrirla', () => { abrirEditor({ archivo: r.archivo, nombre: n }); return ''; }, 8000);
@@ -1017,7 +1050,7 @@ function editorDeClip() {
   const destino = h('input', { type: 'text', value: c.enviarA || '', placeholder: 'Contacto o grupo', list: 'contactos-clips', 'aria-label': 'A quién se lo mando por WhatsApp', style: 'width:170px', oninput: (e) => { c.enviarA = e.target.value; guardar(); } });
   const enviar = acciones('Enviar', 'principal', async () => {
     if (!String(c.enviarA || '').trim()) { destino.focus(); throw new Error('Escribí a quién se lo mando.'); }
-    if (recortado()) { decir('Recortando y enviando…'); decir(await pedir('clips:enviarRecorte', { archivo: ed.archivo, desde: T.desde, hasta: T.hasta, contacto: c.enviarA, edicion: { ...E } }), 'bien'); }
+    if (recortado()) { decir('Recortando y enviando…'); decir(await pedir('clips:enviarRecorte', { archivo: ed.archivo, ...rangoParaGuardar(), contacto: c.enviarA, edicion: await edicionFinal() }), 'bien'); }
     else { decir('Enviando…'); decir(await pedir('clips:enviar', { archivo: ed.archivo, contacto: c.enviarA }), 'bien'); }
   });
   // El nombre se guarda solo al apretar Enter o al salir del campo.
@@ -1029,55 +1062,227 @@ function editorDeClip() {
     await soltarVideos();
     try {
       const r = await pedir('clips:renombrar', { archivo: ed.archivo, nombre: nuevo });
+      E.tramos.forEach((x) => { if (x.fuente === ed.archivo) x.fuente = r; });
+      if (fuente === ed.archivo) fuente = r;
       ed.archivo = r; ed.base = r.split(/[\\/]/).pop().replace(/\.[^.]+$/, ''); nombre.value = ed.base;
       avisarGuardado('Guardado');
     } catch (er) { decir(er.message, 'mal'); nombre.value = ed.base; }
-    await (vistaUrl && probóVista ? usarUrl(await pedir('clips:vistaPrevia', ed.archivo), true) : cargar(true)).catch(() => {});
+    await (vistaUrl && probóVista ? usarUrl(await pedir('clips:vistaPrevia', fuente), true) : cargar(true)).catch(() => {});
     video.currentTime = t; cargarClips(); ocupado(false);
   };
   nombre.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); nombre.blur(); } if (e.key === 'Escape') { nombre.value = ed.base; nombre.blur(); } });
   nombre.addEventListener('blur', renombrar);
-  // ---- Panel "Más edición" ----
-  const qDesde = h('input', { type: 'number', min: 0, step: 0.1, class: 'seg', 'aria-label': 'Sacar desde (segundos)' });
-  const qHasta = h('input', { type: 'number', min: 0, step: 0.1, class: 'seg', 'aria-label': 'Sacar hasta (segundos)' });
-  const marcasQuitar = h('div', { class: 'lt-quitar' });
-  pista.append(marcasQuitar);
+  // ---- Panel "Edición": pedazos (cortar, copiar/pegar, mover, de otros clips), velocidad, sonido, formato, textos y recuadros ----
+  var marcasTramos = h('div', { class: 'lt-quitar lt-tramos' });
+  pista.append(marcasTramos);
   const mascara = h('div', { class: 'mascara-formato', hidden: true }, h('i', { class: 'mf-izq' }), h('i', { class: 'mf-marco' }), h('i', { class: 'mf-der' }));
-  const pintarMascara = () => {
-    if (E.formato === 'original' || !video.videoWidth) { mascara.hidden = true; return; }
-    // El recuadro que queda, sobre el video tal como se ve (object-fit: contain).
+  // El rectángulo del video que queda (sobre el video tal como se ve, object-fit: contain), en píxeles de la pantalla.
+  const marcoVisible = () => {
+    if (!video.videoWidth) return null;
     const caja = video.getBoundingClientRect(); const vr = video.videoWidth / video.videoHeight; const cr = caja.width / caja.height;
     const ancho = vr > cr ? caja.width : caja.height * vr; const alto = vr > cr ? caja.width / vr : caja.height;
-    const proporcion = E.formato === 'vertical' ? 9 / 16 : 1;
+    const proporcion = E.formato === 'vertical' ? 9 / 16 : E.formato === 'cuadrado' ? 1 : ancho / alto;
     const anchoMarco = Math.min(ancho, alto * proporcion);
-    const x0 = (caja.width - ancho) / 2 + (ancho - anchoMarco) * E.encuadre;
-    mascara.hidden = false;
-    mascara.style.setProperty('--x', `${x0}px`); mascara.style.setProperty('--w', `${anchoMarco}px`);
-    mascara.style.setProperty('--top', `${(caja.height - alto) / 2}px`); mascara.style.setProperty('--h', `${alto}px`);
+    return { x: (caja.width - ancho) / 2 + (ancho - anchoMarco) * E.encuadre, y: (caja.height - alto) / 2, w: anchoMarco, h: alto };
   };
-  new ResizeObserver(pintarMascara).observe(video);
-  video.addEventListener('loadedmetadata', pintarMascara);
+  const pintarMascara = () => {
+    const m = marcoVisible();
+    if (E.formato === 'original' || !m) { mascara.hidden = true; return; }
+    mascara.hidden = false;
+    mascara.style.setProperty('--x', `${m.x}px`); mascara.style.setProperty('--w', `${m.w}px`);
+    mascara.style.setProperty('--top', `${m.y}px`); mascara.style.setProperty('--h', `${m.h}px`);
+  };
+  // Tiempo en el clip editado (lo que va a durar): sirve para los textos y recuadros.
+  const durDe = (x) => (x.hasta - x.desde) / x.velocidad;
+  function largoTotal() { return E.tramos.reduce((t, x) => t + durDe(x), 0); }
+  const inicioDe = (i) => E.tramos.slice(0, i).reduce((t, x) => t + durDe(x), 0);
+  const tSalida = () => {
+    const i = viendo ? viendo.i : E.sel; const x = E.tramos[i];
+    if (!x) return 0;
+    return inicioDe(i) + Math.max(0, Math.min(durDe(x), (video.currentTime - x.desde) / x.velocidad));
+  };
+  const rangoParaGuardar = () => (editado() ? { desde: 0, hasta: Math.max(0.5, largoTotal()) } : { desde: T.desde, hasta: T.hasta });
+  // Textos y recuadros: se ven y se acomodan arriba del video; al guardar se dibujan del tamaño justo del clip.
+  const COLORES_CAPA = ['#ffffff', '#ffd60a', '#ff3b30', '#34c759', '#0a84ff', '#000000'];
+  var capasCaja = h('div', { class: 'capas-video' });
+  let capaSel = -1;
+  function pintarCapas() {
+    if (!capasCaja) return;
+    const m = marcoVisible();
+    if (!m || !E.capas.length) { capasCaja.replaceChildren(); return; }
+    Object.assign(capasCaja.style, { left: `${m.x}px`, top: `${m.y}px`, width: `${m.w}px`, height: `${m.h}px` });
+    const t = tSalida();
+    capasCaja.replaceChildren(...E.capas.map((c, k) => {
+      const visible = t >= c.desde && t <= c.hasta;
+      if (!visible && k !== capaSel) return null;
+      const el = c.tipo === 'texto'
+        ? h('div', { class: `capa capa-texto${c.fondo ? ' con-fondo' : ''}${k === capaSel ? ' elegida' : ''}${visible ? '' : ' fuera'}`, style: `left:${c.x * 100}%;top:${c.y * 100}%;font-size:${c.tam * m.h}px;color:${c.color};${c.fondo ? `background:${c.color === '#000000' ? '#ffffffd9' : '#000000b3'}` : ''}` }, c.texto || 'Texto')
+        : h('div', { class: `capa capa-cuadro${c.relleno ? ' relleno' : ''}${k === capaSel ? ' elegida' : ''}${visible ? '' : ' fuera'}`, style: `left:${c.x * 100}%;top:${c.y * 100}%;width:${c.w * 100}%;height:${c.h * 100}%;${c.relleno ? `background:${c.color}` : `border:${Math.max(2, 0.006 * m.h)}px solid ${c.color}`}` },
+          h('i', { class: 'capa-esquina', title: 'Agrandar' }));
+      // Arrastrar para moverla (o desde la esquina, para agrandar un recuadro).
+      el.addEventListener('pointerdown', (e) => {
+        e.preventDefault(); e.stopPropagation();
+        capaSel = k;
+        const esquina = e.target.classList.contains('capa-esquina');
+        const x0 = e.clientX; const y0 = e.clientY; const antes = { ...c };
+        try { el.setPointerCapture(e.pointerId); } catch {}
+        const mover = (ev) => {
+          const dx = (ev.clientX - x0) / m.w; const dy = (ev.clientY - y0) / m.h;
+          if (esquina) { c.w = Math.max(0.03, Math.min(1 - c.x, antes.w + dx)); c.h = Math.max(0.03, Math.min(1 - c.y, antes.h + dy)); }
+          else if (c.tipo === 'texto') { c.x = Math.max(0, Math.min(1, antes.x + dx)); c.y = Math.max(0, Math.min(1, antes.y + dy)); }
+          else { c.x = Math.max(0, Math.min(1 - c.w, antes.x + dx)); c.y = Math.max(0, Math.min(1 - c.h, antes.y + dy)); }
+          pintarCapas();
+        };
+        const soltar = () => { el.removeEventListener('pointermove', mover); el.removeEventListener('pointerup', soltar); pintarEdicion(); };
+        el.addEventListener('pointermove', mover); el.addEventListener('pointerup', soltar);
+        pintarCapas();
+      });
+      return el;
+    }).filter(Boolean));
+  }
+  // Dibujar cada capa en un PNG transparente del tamaño del video que sale (lo mismo que se ve acá).
+  const dibujarCapa = (c, W, H) => {
+    const lienzo = document.createElement('canvas'); lienzo.width = W; lienzo.height = H;
+    const g = lienzo.getContext('2d');
+    if (c.tipo === 'texto') {
+      const tam = Math.round(c.tam * H);
+      g.font = `800 ${tam}px "Segoe UI", system-ui, sans-serif`;
+      g.textAlign = 'center'; g.textBaseline = 'middle';
+      const lineas = String(c.texto || 'Texto').split('\n');
+      const alto = tam * 1.18; const x = c.x * W; const y0 = c.y * H - ((lineas.length - 1) * alto) / 2;
+      if (c.fondo) {
+        const ancho = Math.max(...lineas.map((l) => g.measureText(l).width));
+        const pad = tam * 0.35;
+        g.fillStyle = c.color === '#000000' ? 'rgba(255,255,255,.85)' : 'rgba(0,0,0,.7)';
+        const rx = x - ancho / 2 - pad; const ry = y0 - alto / 2 - pad * 0.4; const rw = ancho + pad * 2; const rh = alto * lineas.length + pad * 0.8;
+        g.beginPath(); (g.roundRect ? g.roundRect(rx, ry, rw, rh, tam * 0.25) : g.rect(rx, ry, rw, rh)); g.fill();
+      } else { g.shadowColor = 'rgba(0,0,0,.85)'; g.shadowBlur = tam * 0.12; g.lineWidth = Math.max(2, tam * 0.08); g.strokeStyle = 'rgba(0,0,0,.75)'; lineas.forEach((l, i) => g.strokeText(l, x, y0 + i * alto)); g.shadowBlur = 0; }
+      g.fillStyle = c.color;
+      lineas.forEach((l, i) => g.fillText(l, x, y0 + i * alto));
+    } else if (c.relleno) { g.fillStyle = c.color; g.fillRect(c.x * W, c.y * H, c.w * W, c.h * H); }
+    else { const lw = Math.max(3, Math.round(0.006 * H)); g.lineWidth = lw; g.strokeStyle = c.color; g.strokeRect(c.x * W + lw / 2, c.y * H + lw / 2, c.w * W - lw, c.h * H - lw); }
+    return lienzo.toDataURL('image/png');
+  };
+  async function edicionFinal() {
+    if (!editado()) return {};
+    let capas = [];
+    if (E.capas.length) {
+      const md = await pedir('clips:medidas', ed.archivo);
+      const H = Math.round((md.alto || 1080) / 2) * 2; const W0 = Math.round((md.ancho || 1920) / 2) * 2;
+      const W = E.formato === 'vertical' ? Math.floor((H * 9) / 16 / 2) * 2 : E.formato === 'cuadrado' ? Math.floor(H / 2) * 2 : W0;
+      capas = E.capas.map((c) => ({ png: dibujarCapa(c, W, H), desde: c.desde, hasta: c.hasta }));
+    }
+    return { tramos: E.tramos.map(({ fuente: f, desde, hasta, velocidad, mudo }) => ({ fuente: f, desde, hasta, velocidad, mudo })), formato: E.formato, encuadre: E.encuadre, fundido: E.fundido, capas };
+  }
+  // En la línea de tiempo: los otros pedazos que salen de este mismo clip (el elegido es el que tiene manijas).
+  var tiras = h('div', { class: 'tiras', role: 'listbox', 'aria-label': 'Pedazos del clip, en orden' });
+  const nombreDe = (f) => f.split(/[\\/]/).pop().replace(/\.[^.]+$/, '');
+  function pintarTiras() {
+    if (!tiras || !marcasTramos) return;
+    marcasTramos.replaceChildren(...E.tramos.map((x, i) => (i !== E.sel && x.fuente === fuente && T.dur ? h('span', { style: `left:${pct(x.desde)};width:${((x.hasta - x.desde) / T.dur) * 100}%`, title: `Pedazo ${i + 1}` }, h('b', {}, String(i + 1))) : null)).filter(Boolean));
+    const total = largoTotal() || 1;
+    tiras.replaceChildren(...E.tramos.map((x, i) => h('button', {
+      type: 'button', role: 'option', 'aria-selected': String(i === E.sel), class: `tira${i === E.sel ? ' elegida' : ''}${x.fuente !== ed.archivo ? ' otra' : ''}`,
+      style: `flex-grow:${Math.max(0.06, durDe(x) / total)}`,
+      title: `${x.fuente !== ed.archivo ? `De "${nombreDe(x.fuente)}" · ` : ''}${tiempoTexto(x.desde)} → ${tiempoTexto(x.hasta)}`,
+      onclick: () => elegirPedazo(i),
+    }, h('b', {}, String(i + 1)), h('span', {}, [tiempoTexto(durDe(x)), x.velocidad !== 1 ? `${String(x.velocidad).replace('.', ',')}x` : '', x.mudo ? 'sin sonido' : ''].filter(Boolean).join(' · ')))));
+  }
+  const elegirPedazo = async (i) => {
+    if (!E.tramos[i]) return;
+    E.sel = i;
+    const x = E.tramos[i];
+    if (x.fuente !== fuente) await cambiarFuente(x.fuente);
+    T.desde = x.desde; T.hasta = x.hasta;
+    refrescar(); irA(x.desde); pintarEdicion();
+  };
+  // Después de reordenar: las manijas pasan a mostrar el pedazo elegido (antes de refrescar, que guarda las manijas en él).
+  const ordenar = (fn) => {
+    fn(); E.sel = Math.max(0, Math.min(E.sel, E.tramos.length - 1));
+    const x = E.tramos[E.sel];
+    if (x && x.fuente === fuente) { T.desde = x.desde; T.hasta = x.hasta; }
+    refrescar(); pintarEdicion();
+  };
+  // Cortar el pedazo elegido donde está el video: quedan dos (y se puede borrar o mover cada uno).
+  const cortarAca = () => {
+    const x = E.tramos[E.sel]; const t = video.currentTime;
+    if (!x || x.fuente !== fuente || t <= x.desde + 0.2 || t >= x.hasta - 0.2) { decir('Poné el video adentro del pedazo elegido (lejos de las puntas) y cortá ahí.', 'mal'); return; }
+    ordenar(() => { E.tramos.splice(E.sel, 1, { ...x, hasta: t }, { ...x, desde: t }); E.sel += 1; });
+    decir('Cortado: ahora son dos pedazos. Elegí uno para borrarlo, moverlo o cambiarle la velocidad.', 'bien');
+  };
+  const copiar = () => { portapapelesClip = { ...E.tramos[E.sel] }; decir(`Copiado el pedazo ${E.sel + 1}. Pegalo acá o en otro clip.`, 'bien'); pintarEdicion(); };
+  const pegar = () => { if (!portapapelesClip) return; ordenar(() => { E.tramos.splice(E.sel + 1, 0, { ...portapapelesClip }); E.sel += 1; }); elegirPedazo(E.sel); };
+  const sumarClip = (archivo) => {
+    const x = (clipsGuardados || []).find((c) => c.archivo === archivo);
+    if (!x) return;
+    pedir('clips:medidas', archivo).then((md) => {
+      ordenar(() => { E.tramos.push({ fuente: archivo, desde: 0, hasta: Math.max(0.5, md.duracion || 1), velocidad: 1, mudo: false }); });
+      elegirPedazo(E.tramos.length - 1);
+      decir(`Sumé "${nombreDe(archivo)}" al final: recortalo con las manijas.`, 'bien');
+    }).catch((er) => decir(er.message, 'mal'));
+  };
+  new ResizeObserver(() => { pintarMascara(); pintarCapas(); }).observe(video);
+  video.addEventListener('loadedmetadata', () => { pintarMascara(); pintarCapas(); });
   const panelEdicion = h('details', { class: 'panel-edicion' });
   function pintarEdicion() {
-    marcasQuitar.replaceChildren(...E.quitar.map(([a, b]) => h('span', { style: `left:${pct(a)};width:${T.dur ? ((b - a) / T.dur) * 100 : 0}%`, title: `Se saca de ${tiempoTexto(a)} a ${tiempoTexto(b)}` })));
-    video.playbackRate = E.velocidad;
-    pintarMascara();
-    const seg = (opciones, valor, alElegir, etiqueta) => h('div', { class: 'segmentado chico', role: 'radiogroup', 'aria-label': etiqueta }, opciones.map(([v, t]) => h('button', { type: 'button', role: 'radio', 'aria-checked': String(v === valor), class: v === valor ? 'elegido' : '', onclick: () => { alElegir(v); refrescar(); pintarEdicion(); } }, t)));
-    const resumenEd = [E.quitar.length ? `${E.quitar.length} ${E.quitar.length === 1 ? 'pedazo sacado' : 'pedazos sacados'}` : '', E.formato !== 'original' ? (E.formato === 'vertical' ? 'vertical 9:16' : 'cuadrado') : '', E.velocidad !== 1 ? `${String(E.velocidad).replace('.', ',')}x` : ''].filter(Boolean).join(' · ');
+    pintarTiras();
+    pintarMascara(); pintarCapas();
+    estadoGuardar();
+    const x = E.tramos[E.sel] || { velocidad: 1, mudo: false };
+    const seg = (opciones, valor, alElegir, etiqueta) => h('div', { class: 'segmentado chico', role: 'radiogroup', 'aria-label': etiqueta }, opciones.map(([v, t]) => h('button', { type: 'button', role: 'radio', 'aria-checked': String(v === valor), class: v === valor ? 'on' : '', onclick: () => { alElegir(v); refrescar(); pintarEdicion(); } }, t)));
+    const nTextos = E.capas.filter((c) => c.tipo === 'texto').length; const nCuadros = E.capas.length - nTextos;
+    const resumenEd = [E.tramos.length > 1 ? `${E.tramos.length} pedazos` : '', E.tramos.some((y) => y.velocidad !== 1) ? 'velocidad' : '', E.tramos.some((y) => y.mudo) ? 'sin sonido' : '', E.formato !== 'original' ? (E.formato === 'vertical' ? 'vertical 9:16' : 'cuadrado') : '',
+      nTextos ? `${nTextos} ${nTextos === 1 ? 'texto' : 'textos'}` : '', nCuadros ? `${nCuadros} ${nCuadros === 1 ? 'recuadro' : 'recuadros'}` : '', E.fundido ? 'fundido' : ''].filter(Boolean).join(' · ');
+    const otros = (clipsGuardados || []).filter((c) => c.archivo !== ed.archivo && /\.(mp4|webm|mkv|mov)$/i.test(c.archivo || c.nombre || '')).slice(0, 80);
+    const t = tSalida(); const total = largoTotal();
+    const sumarCapa = (c) => { E.capas.push({ desde: Math.min(t, Math.max(0, total - 0.5)), hasta: Math.min(total, t + 3), ...c }); capaSel = E.capas.length - 1; refrescar(); pintarEdicion(); };
+    const filaCapa = (c, k) => h('div', { class: `capa-fila${k === capaSel ? ' elegida' : ''}`, onclick: () => { if (capaSel !== k) { capaSel = k; pintarCapas(); } } },
+      c.tipo === 'texto'
+        ? h('input', { type: 'text', value: c.texto, maxlength: 80, 'aria-label': 'Texto', oninput: (e) => { c.texto = e.target.value; pintarCapas(); } })
+        : h('span', { class: 'et' }, 'Recuadro'),
+      h('div', { class: 'colores', role: 'radiogroup', 'aria-label': 'Color' }, COLORES_CAPA.map((col) => h('button', { type: 'button', role: 'radio', 'aria-checked': String(c.color === col), 'aria-label': col, class: `color${c.color === col ? ' elegido' : ''}`, style: `--c:${col}`, onclick: () => { c.color = col; pintarCapas(); pintarEdicion(); } }))),
+      c.tipo === 'texto'
+        ? h('label', { class: 'casilla-texto' }, h('input', { type: 'checkbox', checked: !!c.fondo, onchange: (e) => { c.fondo = e.target.checked; pintarCapas(); } }), h('span', {}, 'Fondo'))
+        : h('label', { class: 'casilla-texto' }, h('input', { type: 'checkbox', checked: !!c.relleno, onchange: (e) => { c.relleno = e.target.checked; pintarCapas(); } }), h('span', {}, 'Relleno (tapar)')),
+      c.tipo === 'texto' ? h('input', { type: 'range', min: 0.03, max: 0.2, step: 0.005, value: c.tam, 'aria-label': 'Tamaño del texto', oninput: (e) => { c.tam = Number(e.target.value); pintarCapas(); } }) : null,
+      h('span', { class: 'nota' }, `${tiempoTexto(c.desde)} → ${tiempoTexto(c.hasta)}`),
+      boton('Desde acá', () => { c.desde = Math.min(tSalida(), c.hasta - 0.2); pintarEdicion(); }, 'chico'),
+      boton('Hasta acá', () => { c.hasta = Math.max(tSalida(), c.desde + 0.2); pintarEdicion(); }, 'chico'),
+      botonQuitar(() => { E.capas.splice(k, 1); capaSel = -1; refrescar(); pintarEdicion(); }, c.tipo === 'texto' ? 'el texto' : 'el recuadro'));
     panelEdicion.replaceChildren(
-      h('summary', {}, h('b', {}, 'Más edición'), h('span', { class: 'nota' }, resumenEd || 'sacar pedazos del medio, vertical para Shorts/TikTok, velocidad')),
+      h('summary', {}, h('b', {}, 'Edición'), h('span', { class: 'nota' }, resumenEd || 'cortar en pedazos, copiar y pegar, velocidad, vertical para Shorts, textos y recuadros')),
       h('div', { class: 'pe-bloque' },
-        h('span', { class: 'et' }, 'Sacar un pedazo del medio'),
-        h('div', { class: 'fila-recorte' }, h('span', { class: 'nota' }, 'De'), qDesde, boton('Acá', () => { qDesde.value = video.currentTime.toFixed(1); }, 'chico'), h('span', { class: 'nota' }, 'a'), qHasta, boton('Acá', () => { qHasta.value = video.currentTime.toFixed(1); }, 'chico'),
-          boton('Sacar', () => { const a = Number(qDesde.value); const b = Number(qHasta.value); if (!(b > a)) { decir('Elegí de dónde a dónde sacar (el segundo número más grande).', 'mal'); return; } E.quitar.push([Math.max(0, a), Math.min(T.dur, b)]); E.quitar.sort((x, y) => x[0] - y[0]); qDesde.value = ''; qHasta.value = ''; refrescar(); pintarEdicion(); }, 'chico principal')),
-        E.quitar.length ? h('div', { class: 'quitados' }, E.quitar.map(([a, b], i) => h('span', { class: 'chip-q' }, `${tiempoTexto(a)} → ${tiempoTexto(b)}`, h('button', { type: 'button', 'aria-label': 'Volver a ponerlo', title: 'Volver a ponerlo', html: icono('cerrar', 12), onclick: () => { E.quitar.splice(i, 1); refrescar(); pintarEdicion(); } })))) : null),
+        h('span', { class: 'et' }, 'Pedazos, en orden'),
+        tiras,
+        h('div', { class: 'fila' },
+          boton('Cortar acá', cortarAca, 'chico'),
+          boton('Copiar', copiar, 'chico'),
+          boton('Pegar', pegar, 'chico', !portapapelesClip),
+          boton('← Antes', () => ordenar(() => { const [y] = E.tramos.splice(E.sel, 1); E.tramos.splice(E.sel - 1, 0, y); E.sel -= 1; }), 'chico', E.sel === 0),
+          boton('Después →', () => ordenar(() => { const [y] = E.tramos.splice(E.sel, 1); E.tramos.splice(E.sel + 1, 0, y); E.sel += 1; }), 'chico', E.sel >= E.tramos.length - 1),
+          boton('Borrar pedazo', () => { ordenar(() => { E.tramos.splice(E.sel, 1); }); elegirPedazo(E.sel); }, 'chico', E.tramos.length < 2),
+          otros.length ? h('select', { class: 'chico', 'aria-label': 'Sumar otro clip al final', onchange: (e) => { const v = e.target.value; e.target.value = ''; if (v) sumarClip(v); } },
+            h('option', { value: '' }, '+ Sumar otro clip…'), otros.map((c) => h('option', { value: c.archivo }, c.nombre || nombreDe(c.archivo)))) : null),
+        h('p', { class: 'nota' }, 'Elegí un pedazo para recortarlo con las manijas. "Cortar acá" lo parte donde está el video; con Copiar y Pegar se repite (también en otro clip).')),
+      h('div', { class: 'pe-bloque' },
+        h('span', { class: 'et' }, `Velocidad del pedazo ${E.sel + 1}`),
+        h('div', { class: 'fila' },
+          seg([[0.5, '0,5x'], [0.75, '0,75x'], [1, 'Normal'], [1.25, '1,25x'], [1.5, '1,5x'], [2, '2x']], x.velocidad, (v) => { x.velocidad = v; }, 'Velocidad'),
+          E.tramos.length > 1 ? boton('A todos', () => { E.tramos.forEach((y) => { y.velocidad = x.velocidad; }); refrescar(); pintarEdicion(); }, 'chico') : null),
+        h('label', { class: 'casilla-texto' }, h('input', { type: 'checkbox', checked: !!x.mudo, onchange: (e) => { x.mudo = e.target.checked; refrescar(); pintarEdicion(); } }), h('span', {}, 'Sin sonido en este pedazo'))),
       h('div', { class: 'pe-bloque' },
         h('span', { class: 'et' }, 'Formato'),
         seg([['original', 'Original'], ['vertical', 'Vertical 9:16'], ['cuadrado', 'Cuadrado']], E.formato, (v) => { E.formato = v; }, 'Formato'),
-        E.formato !== 'original' ? h('label', { class: 'fila' }, h('span', { class: 'nota' }, 'Encuadre'), h('input', { type: 'range', min: 0, max: 1, step: 0.01, value: E.encuadre, 'aria-label': 'Encuadre de izquierda a derecha', oninput: (e) => { E.encuadre = Number(e.target.value); pintarMascara(); } })) : null),
+        E.formato !== 'original' ? h('label', { class: 'fila' }, h('span', { class: 'nota' }, 'Encuadre'), h('input', { type: 'range', min: 0, max: 1, step: 0.01, value: E.encuadre, 'aria-label': 'Encuadre de izquierda a derecha', oninput: (e) => { E.encuadre = Number(e.target.value); pintarMascara(); pintarCapas(); } })) : null),
       h('div', { class: 'pe-bloque' },
-        h('span', { class: 'et' }, 'Velocidad'),
-        seg([[0.5, '0,5x'], [0.75, '0,75x'], [1, 'Normal'], [1.25, '1,25x'], [1.5, '1,5x'], [2, '2x']], E.velocidad, (v) => { E.velocidad = v; }, 'Velocidad')));
+        h('span', { class: 'et' }, 'Textos y recuadros'),
+        h('div', { class: 'fila' },
+          boton('+ Texto', () => sumarCapa({ tipo: 'texto', texto: 'Texto', x: 0.5, y: 0.15, tam: 0.08, color: '#ffffff', fondo: false }), 'chico'),
+          boton('+ Recuadro', () => sumarCapa({ tipo: 'recuadro', x: 0.35, y: 0.35, w: 0.3, h: 0.3, color: '#ff3b30', relleno: false }), 'chico'),
+          h('span', { class: 'nota' }, 'Arrastralos sobre el video. Aparecen desde donde está el video, 3 segundos.')),
+        E.capas.map(filaCapa)),
+      h('div', { class: 'pe-bloque' },
+        h('label', { class: 'casilla-texto' }, h('input', { type: 'checkbox', checked: E.fundido, onchange: (e) => { E.fundido = e.target.checked; refrescar(); pintarEdicion(); } }), h('span', {}, 'Fundido a negro al empezar y al terminar'))));
   }
   pintarEdicion();
   ed.favorito = !!ed.favorito;
@@ -1124,7 +1329,7 @@ function editorDeClip() {
     } },
   ], 'Más opciones del clip');
   // Pantalla completa propia (la del reproductor no anda bien adentro de Ajustes): doble clic, el botón o la tecla F; Esc sale.
-  const cine = h('div', { class: 'video-caja' }, video, mascara,
+  const cine = h('div', { class: 'video-caja' }, video, mascara, capasCaja,
     h('button', { type: 'button', class: 'boton-cine', title: 'Pantalla completa (F)', 'aria-label': 'Pantalla completa', html: icono('expandir', 18), onclick: () => alternarCine() }));
   const alternarCine = async (forzar) => {
     const si = forzar !== undefined ? forzar : !cine.classList.contains('cine');
@@ -1159,7 +1364,7 @@ function editorDeClip() {
       h('span', { style: 'flex:1' }),
       h('span', { class: 'nota', html: `${icono('whatsapp', 16)}` }), destino, enviar),
     h('div', { class: 'editor-mensaje' }, mensaje, barra),
-    h('p', { class: 'nota' }, 'Arrastrá las manijas para elegir el recorte; tocá la línea para moverte. "Guardar" reemplaza el clip (con Deshacer); en la flechita está "Guardar una copia". Doble clic en el video: pantalla completa.'));
+    h('p', { class: 'nota' }, 'Arrastrá las manijas para elegir el recorte; tocá la línea para moverte. En "Edición": cortar en pedazos, copiar y pegar, velocidad, textos y recuadros. "Guardar" reemplaza el clip (con Deshacer); en la flechita está "Guardar una copia". Doble clic en el video: pantalla completa.'));
   refrescar();
   cargar(false).catch((er) => decir(er.message, 'mal'));
   return ed.nodo;
@@ -2133,6 +2338,7 @@ const secciones = {
       h('h1', {}, 'Clips'),
       h('p', { class: 'bajada' }, 'Repetición instantánea: Jarvis va guardando en segundo plano los últimos segundos de tu pantalla (con el sonido de Windows y tu micrófono) y, cuando lo pedís, los convierte en un video. Se usa con el atajo, con la voz ("guardá el último minuto", "enviá el último minuto a Tomi") o con los botones del notch. Corre solo en los modos que lo tengan habilitado (Ajustes → Modos).'),
       campo('Usar clips', [casilla(c, 'activo', () => { guardar(); setTimeout(refrescarClips, 1500); }), h('span', {}, 'Grabar en segundo plano en los modos que lo permitan')], 'La primera vez baja una herramienta de video (ffmpeg, ~80 MB, gratis).'),
+      campo('Pausar con la PC bloqueada', [casilla(c, 'pausarBloqueada', guardar, true), h('span', {}, 'Ahorra placa de video y procesador')], 'Mientras la PC está bloqueada o suspendida no graba en segundo plano; al desbloquearla vuelve sola (el buffer empieza de cero).'),
       campo('Herramienta de video', estadoDeModelo('ffmpeg')),
       campo('Estado', h('span', { class: `nota ${e.error ? 'mal' : e.corriendo ? 'bien' : ''}` }, e.error ? e.error : e.corriendo ? `Grabando en segundo plano${e.captura ? ` · ${e.captura}` : ''}${e.formato ? ` · ${/h264/i.test(e.formato) ? 'H.264' : /vp9/i.test(e.formato) ? 'VP9' : 'VP8'}` : ''} · buffer de ${e.segundos || 0} s` : e.activo ? 'Prendido, pero este modo no usa clips (Ajustes → Modos).' : 'Apagado')),
       h('div', { class: 'fila', style: 'margin-top:10px' },

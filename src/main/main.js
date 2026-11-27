@@ -1531,6 +1531,13 @@ app.whenReady().then(async () => {
   const interfaz = await servidor.iniciarInterfaz();
   urlBase = interfaz.url;
   camara.configurar({ urlBase });
+  // Optimización: la repetición instantánea se pausa con la PC bloqueada o suspendida, y vuelve sola al desbloquear.
+  try {
+    const { powerMonitor } = require('electron');
+    const pausa = (si) => () => { clips.pausarPorBloqueo(si).catch(() => {}); };
+    powerMonitor.on('lock-screen', pausa(true)); powerMonitor.on('suspend', pausa(true));
+    powerMonitor.on('unlock-screen', pausa(false)); powerMonitor.on('resume', () => { if (powerMonitor.getSystemIdleState(1) !== 'locked') clips.pausarPorBloqueo(false).catch(() => {}); });
+  } catch {}
   if (!PRUEBA || process.env.JARVIS_VIGILAR) setTimeout(() => aplicarVigilancia(), 15000);
 
   // Micrófono y cámara: solo para las páginas de Jarvis.

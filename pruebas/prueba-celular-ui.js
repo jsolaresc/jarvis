@@ -699,18 +699,36 @@ async function hasta(fn, ms = 20000, que = '') {
     assert.ok(await ajustes.locator('.panel-comprimir').isVisible());
     await ajustes.screenshot({ path: path.join(SALIDA, '18d-pc-clip-comprimir.png'), fullPage: true });
     await ajustes.locator('.panel-comprimir button', { hasText: 'Cancelar' }).click();
-    // Más edición: vertical 9:16 (con el recuadro sobre el video), velocidad y sacar un pedazo del medio.
+    // Edición: vertical 9:16, 1,5x, cortar en dos, copiar y pegar un pedazo, un texto y un recuadro; se guarda una copia.
     await ajustes.click('.panel-edicion > summary');
     await ajustes.click('.panel-edicion button:has-text("Vertical 9:16")');
     assert.ok(await ajustes.locator('.mascara-formato:not([hidden])').count(), 'recuadro 9:16 sobre el video');
     await ajustes.click('.panel-edicion button:has-text("1,5x")');
-    await ajustes.fill('.panel-edicion input[aria-label="Sacar desde (segundos)"]', '1');
-    await ajustes.fill('.panel-edicion input[aria-label="Sacar hasta (segundos)"]', '2');
-    await ajustes.click('.panel-edicion button:has-text("Sacar")');
-    assert.ok(await ajustes.locator('.lt-quitar span').count(), 'pedazo marcado en la línea de tiempo');
+    await ajustes.evaluate(() => { const v = document.querySelector('.editor-video'); v.currentTime = v.duration / 2; });
+    await esperar(400);
+    await ajustes.click('.panel-edicion button:has-text("Cortar acá")');
+    await hasta(async () => (await ajustes.locator('.tiras .tira').count()) === 2, 3000, 'dos pedazos');
+    await ajustes.click('.panel-edicion button:has-text("Copiar")');
+    await ajustes.click('.panel-edicion button:has-text("Pegar")');
+    await hasta(async () => (await ajustes.locator('.tiras .tira').count()) === 3, 3000, 'tres pedazos (uno repetido)');
+    const largos = await ajustes.locator('.tiras .tira span').allTextContents();
+    assert.strictEqual(largos[1], largos[2], `el pegado es igual al copiado: ${largos}`);
+    assert.notStrictEqual(largos[0], '0:02.7 · 1,5x', 'cortar no deja el clip entero en un pedazo');
+    await ajustes.click('.panel-edicion button:has-text("+ Texto")');
+    await ajustes.fill('.capa-fila input[aria-label="Texto"]', 'QUE JUGADA');
+    await ajustes.click('.panel-edicion button:has-text("+ Recuadro")');
+    await hasta(() => ajustes.locator('.capas-video .capa-texto:has-text("QUE JUGADA")').count(), 3000, 'texto sobre el video');
+    assert.ok(await ajustes.locator('.capas-video .capa-cuadro').count(), 'recuadro sobre el video');
     assert.ok(!(await ajustes.locator('.editor-pie .boton-dividido > button').first().isDisabled()), 'con edición, Guardar se prende');
-    await ajustes.click('.editor-cabeza .estrella');
     await ajustes.screenshot({ path: path.join(SALIDA, '18f-pc-clip-mas-edicion.png'), fullPage: true });
+    await ajustes.locator('.video-caja').scrollIntoViewIfNeeded();
+    await ajustes.screenshot({ path: path.join(SALIDA, '18g-pc-clip-capas.png') });
+    await ajustes.click('.editor-pie .dividido-flecha');
+    await ajustes.locator('.boton-dividido .menu-desplegable:not([hidden]) button', { hasText: 'Guardar una copia' }).click();
+    await hasta(() => fs.readdirSync(path.join(CLIPS, '7 Days to Die')).some((n) => /\(vertical\)\.mp4$/.test(n)), 90000, 'copia editada guardada');
+    const editada = path.join(CLIPS, '7 Days to Die', fs.readdirSync(path.join(CLIPS, '7 Days to Die')).find((n) => /\(vertical\)\.mp4$/.test(n)));
+    assert.match(String(require('child_process').spawnSync('ffmpeg', ['-hide_banner', '-i', editada]).stderr), /Video: h264.* \d+x\d+/);
+    await ajustes.click('.editor-cabeza .estrella');
     await ajustes.click('.editor-cabeza button:has-text("Clips")');
 
     // Almacenamiento: elegir con Shift un rango de videos (ordenados por tamaño) y ver la barra de acciones.
