@@ -2,6 +2,13 @@
 
 Cada Release de GitHub toma de acá la sección de su versión. Al subir de versión, sumar la sección nueva arriba de todo.
 
+## 1.1.12
+
+**Celular**
+- Arreglado: el celular podía olvidarse de la dirección para entrar desde afuera. Si la app se abría en casa justo cuando la PC todavía estaba conectando Tailscale (por ejemplo, recién prendida o actualizada), la borraba, y al salir de casa decía "Tu PC no responde". Ahora no se borra nunca, y la PC le pasa la última que anduvo.
+- Ajustes → Tu PC muestra la dirección de afuera, con un botón "Probar".
+- Si la PC no responde, el aviso dice si falta aprender la dirección de afuera (abrir la app una vez en casa) o si la PC no contesta por ningún lado.
+
 ## 1.1.11
 
 **Celular**

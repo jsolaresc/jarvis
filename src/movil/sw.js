@@ -1,6 +1,6 @@
 // Guarda la "cáscara" de la app en el celular: así abre aunque la PC esté apagada (y avisa que no responde).
 // Lo de /api nunca se guarda: siempre va a la PC.
-const CACHE = 'jarvis-movil-4';
+const CACHE = 'jarvis-movil-5';
 const ARCHIVOS = 'jarvis-archivos'; // lo que se guardó en el celular (no se toca al actualizar la app)
 const CASCARA = ['/', '/index.html', '/app.js', '/app.css', '/manifest.webmanifest', '/icono-192.png', '/icono-512.png', '/icono-maskable.png'];
 

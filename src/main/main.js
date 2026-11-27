@@ -1275,7 +1275,7 @@ function estadoParaCelular() {
     aparatos: [...new Set((c.teles || []).map((t) => nombrePrincipal(t.nombre)).filter(Boolean))],
     conexion: { sin: !!conexion.estado().sin },
     // Para que la app de Android sepa cómo llegar a esta PC desde afuera (por la red de Tailscale).
-    afuera: red.publica() ? { publica: red.publica() } : null,
+    afuera: publicaParaCelular(),
     camara: { permitida: !!c.celular.camara, mirando: camara.estado().mirando.length, vigilando: camara.estado().vigilando },
     despertar: datosParaDespertar(),
     escritorio: { permitido: !!c.celular.escritorio, mirando: !!escritorio.estado().mirando }, // para prender la PC por la red estando en casa
@@ -1374,6 +1374,15 @@ manejar('camara:vigilar', async (o = {}) => {
   if (notch && !notch.isDestroyed()) notch.webContents.send('decir', { texto: c.celular.vigilar.activo ? 'La cámara de seguridad está vigilando.' : 'La cámara dejó de vigilar.', voz: false });
   return camara.estado();
 });
+// La dirección pública que se le da al celular: la de ahora, o la última que anduvo (si Tailscale todavía está conectando,
+// el celular igual la tiene que conocer para cuando salga de casa). Es la misma mientras no cambie el nombre de la PC.
+function publicaParaCelular() {
+  const c = leerConfig();
+  const ahora = red.publica();
+  if (ahora && (c.celular || {}).publicaConocida !== ahora) guardarConfig({ ...c, celular: { ...c.celular, publicaConocida: ahora } });
+  const p = ahora || (c.celular && c.celular.afuera ? c.celular.publicaConocida : '');
+  return p ? { publica: p, lista: !!ahora } : null;
+}
 // Avisos "al instante" para el celular: la app (o su servicio en segundo plano) los recibe por /api/novedades.
 function avisarAlCelular(titulo, texto, tipo = 'aviso') { try { celular.publicar('aviso', { titulo, texto, tipo, id: `a${Date.now().toString(36)}` }); } catch {} }
 const presencia = new Map(); // celular → { enCasa, cuando }

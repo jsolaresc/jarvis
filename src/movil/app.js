@@ -223,7 +223,9 @@ async function refrescar({ silencioso = false } = {}) {
     estado = await api('/api/estado', { espera: 8000 });
     if (!conectado) { conectado = true; aviso(''); }
     pintarEstado();
-    if (NATIVO) { const pc = pcElegida(); const pub = (estado.afuera && estado.afuera.publica) || ''; if (pc && (pc.publica || '') !== pub) guardado.escribir('pc', { ...pc, publica: pub }); }
+    // La dirección para entrar desde afuera se aprende en casa. Nunca se borra por un momento en que la PC no la tenía lista
+    // (por ejemplo, recién prendida o recién actualizada): antes eso dejaba al celular sin camino al salir de casa.
+    if (NATIVO) { const pc = pcElegida(); const pub = (estado.afuera && estado.afuera.publica) || ''; if (pc && pub && pc.publica !== pub) guardado.escribir('pc', { ...pc, publica: pub }); }
     $('#estado-pc').textContent += modoAfuera ? ' · desde afuera' : '';
     if (NATIVO && Date.now() - ultimaSincro > 5 * 60000) { ultimaSincro = Date.now(); sincronizarAvisos(); }
     if (pastilla.dataset.fase === 'dormido') fase('reposo');
@@ -238,9 +240,16 @@ async function refrescar({ silencioso = false } = {}) {
       $('#estado-pc').textContent = 'Tu PC no responde';
       $('#arriba').classList.add('sin-pc');
       fase('dormido');
-      if (!silencioso) aviso(SIN_PC, { tipo: 'mal', ms: 0, accion: { texto: 'Reintentar', hacer: () => refrescar() } });
+      if (!silencioso) aviso(textoSinPC(), { tipo: 'mal', ms: 0, accion: { texto: 'Reintentar', hacer: () => refrescar() } });
     }
   }
+}
+// Por qué no contesta, lo más concreto posible.
+function textoSinPC() {
+  const pc = pcElegida();
+  if (!NATIVO || !pc) return SIN_PC;
+  if (!pc.publica) return 'Tu PC no responde. Si estás fuera de casa: este celular todavía no sabe cómo llegar a la PC desde afuera. Abrí la app una vez en la Wi-Fi de casa, con la PC prendida y "Usar Jarvis desde afuera" en verde, y desde ahí ya anda afuera.';
+  return 'Tu PC no responde, ni en la Wi-Fi de casa ni desde afuera. Revisá que esté prendida, con Jarvis abierto y, en la PC, Ajustes → Dispositivos → Celular → "Desde afuera" en verde.';
 }
 function pintarEstado() {
   const e = estado;
@@ -2450,6 +2459,8 @@ function pintarAjustes() {
     seccion('Tu PC',
       fila(e.pc || (pc && pc.nombre) || 'Jarvis', conectado ? (modoAfuera ? 'Conectado desde afuera (por internet)' : 'Conectado en la Wi-Fi de casa') : 'No responde'),
       NATIVO && pc ? fila('Dirección en casa', pc.base.replace(/^https?:\/\//, '')) : null,
+      NATIVO && pc ? fila('Desde afuera', pc.publica ? pc.publica.replace(/^https?:\/\//, '') : 'Todavía no la sé: abrí la app en casa con "Usar Jarvis desde afuera" prendido en la PC',
+        pc.publica ? h('button', { type: 'button', class: 'chico', onclick: async (ev) => { const b = ev.currentTarget; b.disabled = true; const ok = await responde(pc.publica, 10000); b.disabled = false; aviso(ok ? 'La PC contesta desde afuera.' : 'La PC no contesta por esa dirección. Revisá en la PC: Ajustes → Dispositivos → Celular → Desde afuera.', { tipo: ok ? 'bien' : 'mal', ms: 6000 }); } }, 'Probar') : null) : null,
       NATIVO ? fila('Prenderla a distancia', guardado.leer('despertar', null) ? 'Con Wake-on-LAN, estando en la misma Wi-Fi' : 'Abrí la app con la PC prendida para aprenderlo', h('button', { type: 'button', class: 'chico', onclick: (ev) => prenderPC(ev.currentTarget) }, 'Prender')) : null,
       cola.length ? fila(`${cola.length} ${cola.length === 1 ? 'pedido esperando' : 'pedidos esperando'} a la PC`, cola.map((x) => x.titulo).join(' · ').slice(0, 140),
         h('div', { class: 'fila' }, h('button', { type: 'button', class: 'chico', onclick: () => mandarCola() }, 'Mandar'), h('button', { type: 'button', class: 'chico texto peligro', onclick: () => { cola = []; guardado.escribir('cola', cola); pintarAjustes(); } }, 'Descartar'))) : null),

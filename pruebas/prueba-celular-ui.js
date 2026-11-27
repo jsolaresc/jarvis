@@ -559,12 +559,18 @@ async function hasta(fn, ms = 20000, que = '') {
     await pA.screenshot({ path: path.join(SALIDA, '17-android-desde-afuera.png') });
     enCasa = true;
     await notch.evaluate((c) => window.jarvis.pedir('cfg:guardar', c), { ...cfgAntes, celular: { ...cfgAntes.celular, afuera: false }, modo: 'normal' });
+    // Con la PC sin dirección pública por un rato (Tailscale conectando, recién actualizada), el celular no se olvida de la que sabía.
+    await pA.evaluate(() => window.dispatchEvent(new Event('online')));
+    await pA.click('#abajo button[data-hoja="inicio"]');
+    await esperar(3000);
+    assert.strictEqual((JSON.parse(await pA.evaluate(() => localStorage.getItem('jarvis.pc'))) || {}).publica, 'https://jarvis-pc.tail1234.ts.net', 'el celular se acuerda de la dirección de afuera');
 
     // Ajustes del celular (desde el menú ⋮): avisos al instante y huella opcional.
     await pA.click('#boton-menu');
     await pA.click('#m-ajustes');
     await hasta(() => pA.locator('#s-ajustes:not([hidden]) .grupo-ajustes').count(), 5000, 'android: Ajustes');
     assert.ok(await pA.locator('.grupo-ajustes h3:text-is("Seguridad")').count(), 'sección Seguridad');
+    assert.ok(await pA.locator('.ajuste-fila:has-text("Desde afuera"):has-text("jarvis-pc.tail1234.ts.net")').count(), 'Ajustes muestra la dirección de afuera');
     await pA.locator('.ajuste label:has-text("Avisos al instante") input').check();
     await hasta(() => pA.evaluate(() => window.androidFalso.alInstante && window.androidFalso.alInstante.activo), 3000, 'android: avisos al instante');
     await pA.locator('.ajuste label:has-text("Pedir la huella") input').check();
