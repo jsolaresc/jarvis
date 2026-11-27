@@ -4,4 +4,9 @@
     <string name="title_activity_main">Jarvis</string>
     <string name="package_name">ar.jsolares.jarvis.movil</string>
     <string name="custom_url_scheme">ar.jsolares.jarvis.movil</string>
+    <string name="widget_descripcion">Hablarle a Jarvis, la cámara, guardar un clip y controlar la PC</string>
+    <string name="atajo_hablar">Hablar</string>
+    <string name="atajo_camara">Cámara</string>
+    <string name="atajo_clip">Guardar clip</string>
+    <string name="atajo_archivos">Archivos de la PC</string>
 </resources>
