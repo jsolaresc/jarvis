@@ -69,6 +69,9 @@ jobs:
           V=$(node -p "require('./package.json').version")
           T="v$V"
           NOTAS=$'**Para instalar:** bajá `Jarvis-Setup-'"$V"$'.exe` (no el .blockmap ni el .yml), abrilo y seguí los pasos.\n\nSi Windows muestra "Windows protegió su PC", tocá **Más información → Ejecutar de todas formas** (el instalador no está firmado).\n\nLa primera vez que abre, baja solo los componentes elegidos (la voz son ~530 MB). Después se actualiza solo.\n\n**App de Android:** bajá `Jarvis-'"$V"$'.apk` desde el celular e instalala (Android pide permiso para instalar apps de otros orígenes). En la PC: Ajustes → Dispositivos → Celular → Vincular un celular.'
+          # Qué cambió: la sección de esta versión en CAMBIOS.md, arriba de las instrucciones.
+          CAMBIOS=$(node -e "const s=require('fs').readFileSync('CAMBIOS.md','utf8');const v=process.argv[1];const p=s.split(/^## /m).find((x)=>x.split('\n')[0].trim()===v);process.stdout.write(p?p.slice(p.indexOf('\n')+1).trim():'')" "$V")
+          [ -n "$CAMBIOS" ] && NOTAS="## Qué cambió"$'\n\n'"$CAMBIOS"$'\n\n---\n\n'"$NOTAS"
           gh release view "$T" > /dev/null 2>&1 || gh release create "$T" --title "Jarvis $V" --notes "$NOTAS" --target "$GITHUB_SHA"
           gh release edit "$T" --notes "$NOTAS" --draft=false
           ARCHIVOS=("dist/Jarvis-Setup-$V.exe" "dist/Jarvis-Setup-$V.exe.blockmap" "dist/latest.yml")

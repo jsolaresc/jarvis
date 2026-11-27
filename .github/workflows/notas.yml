@@ -1,0 +1,32 @@
+# Pone "Qué cambió" (la sección de CAMBIOS.md de cada versión) arriba de las notas de cada Release que ya existe.
+# Corre cuando cambia CAMBIOS.md en main, o a mano. Si una Release ya tiene la sección, la reemplaza por la de ahora.
+name: Notas de las versiones
+
+on:
+  push:
+    branches: [main]
+    paths: ['CAMBIOS.md', '.github/workflows/notas.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  notas:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Actualizar las notas
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for V in $(grep -oP '^## \K[0-9]+\.[0-9]+\.[0-9]+' CAMBIOS.md); do
+            T="v$V"
+            gh release view "$T" > /dev/null 2>&1 || { echo "Sin Release $T"; continue; }
+            CAMBIOS=$(node -e "const s=require('fs').readFileSync('CAMBIOS.md','utf8');const v=process.argv[1];const p=s.split(/^## /m).find((x)=>x.split('\n')[0].trim()===v);process.stdout.write(p?p.slice(p.indexOf('\n')+1).trim():'')" "$V")
+            CUERPO=$(gh release view "$T" --json body -q .body)
+            # Lo que estaba debajo de la línea divisoria (las instrucciones para instalar) se conserva.
+            RESTO=$(node -e "const b=process.argv[1];const i=b.indexOf('\n---\n');process.stdout.write(b.startsWith('## Qué cambió')&&i>=0?b.slice(i+5).trim():b.trim())" "$CUERPO")
+            printf '## Qué cambió\n\n%s\n\n---\n\n%s\n' "$CAMBIOS" "$RESTO" > notas.md
+            gh release edit "$T" --notes-file notas.md && echo "Listo $T"
+          done
