@@ -317,4 +317,4 @@ async function youtube(pedido, videoId, { lista = '' } = {}) {
 // La frase que se dice según haya o no confirmación de que arrancó.
 const dichoDeYoutube = (r, que) => (r.confirmado ? `${que} en ${r.dispositivo}.` : `Le mandé ${que} a ${r.dispositivo}, pero no arrancó (no confirmó que esté sonando). El detalle quedó en el Historial.`);
 
-module.exports = { dichoDeYoutube, descubrir, refrescar, dispositivos, resolver, reproducir, controlar, youtube, mandarAYoutube, pantallaDeYoutube, controlarYoutube, tieneSesion, olvidarSesion };
+module.exports = { esGrupo, conectar, dichoDeYoutube, descubrir, refrescar, dispositivos, resolver, reproducir, controlar, youtube, mandarAYoutube, pantallaDeYoutube, controlarYoutube, tieneSesion, olvidarSesion };

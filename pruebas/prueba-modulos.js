@@ -131,6 +131,40 @@ prueba('una rutina sigue aunque un paso falle, y cuenta qué falló', async () =
   await assert.rejects(() => acciones.ejecutarRutina('no existe'), /No existe la rutina/);
 });
 
+prueba('música en un grupo de Google Home: baja el audio, lo manda con el reproductor común y sigue la lista sola', async () => {
+  const g = require('../src/main/grupocast');
+  const { EventEmitter } = require('events');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'grupo-'));
+  const yt = path.join(dir, 'yt-dlp');
+  fs.writeFileSync(yt, `#!/usr/bin/env node
+const a = process.argv.slice(2);
+if (a.includes('--flat-playlist')) { console.log(JSON.stringify({ entries: [{ id: 'AAAAAAAAAAA', title: 'Uno', channel: 'Banda' }, { id: 'BBBBBBBBBBB', title: 'Dos', channel: 'Banda' }] })); process.exit(0); }
+const o = a[a.indexOf('-o') + 1]; const id = a[a.length - 1].slice(-11);
+require('fs').writeFileSync(o.replace('%(id)s', id).replace('%(ext)s', 'm4a'), 'audio');
+`, { mode: 0o755 });
+  const cargados = [];
+  const rep = Object.assign(new EventEmitter(), {
+    load: (m, o, cb) => { cargados.push(m); cb(null, {}); },
+    pause: (cb) => cb(null), play: (cb) => cb(null), stop: (cb) => cb(null),
+  });
+  const cliente = Object.assign(new EventEmitter(), { launch: (_r, cb) => cb(null, rep), close: () => {} });
+  const avisos = [];
+  g.configurar({ ytdlp: async () => yt, conectar: async () => cliente, compartir: async (a) => ({ url: `http://pc/${path.basename(a)}` }), alCambiar: (x) => avisos.push(x) });
+  const dicho = await g.tocar({ nombre: 'Toda la casa', host: '10.0.0.9' }, { videoId: 'AAAAAAAAAAA', titulo: 'Uno', canal: 'Banda' });
+  assert.match(dicho, /Toda la casa.*1 temas más/);
+  assert.strictEqual(cargados[0].contentId, 'http://pc/AAAAAAAAAAA.m4a');
+  assert.strictEqual(cargados[0].contentType, 'audio/mp4');
+  assert.strictEqual(cargados[0].metadata.title, 'Uno');
+  // Termina el tema: sigue solo con el próximo de la lista.
+  rep.emit('status', { playerState: 'IDLE', idleReason: 'FINISHED' });
+  await new Promise((r) => setTimeout(r, 400));
+  assert.strictEqual(cargados[1] && cargados[1].metadata.title, 'Dos');
+  assert.strictEqual(await g.controlar('pausar'), 'Pausado.');
+  assert.ok(avisos.some((x) => x.cancion === 'Dos' && x.sonando === false));
+  assert.match(await g.controlar('siguiente'), /terminó la lista/);
+  assert.ok(!g.activo());
+});
+
 prueba('rutinas que se hacen solas: hora y días, juego, programa, aparato de audio, llegar y prender', async () => {
   const d = require('../src/main/disparadores');
   d._reiniciar();

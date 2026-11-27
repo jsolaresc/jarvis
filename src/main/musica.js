@@ -319,7 +319,7 @@ function fijarDestino(nombre, datos) {
   try { avisar(estado()); } catch {}
 }
 // Vuelve la tarjeta al reproductor de la PC.
-function soltarDestino() { if (!destino) return; destino = null; try { avisar(estado()); } catch {} }
+function soltarDestino() { if (!destino) return; if (destino.grupo) grupo().detener().catch(() => {}); destino = null; try { avisar(estado()); } catch {} }
 // El video (y la lista) que está sonando en la PC, de la dirección de YouTube Music.
 function videoEnPC() {
   if (!ventana || ventana.isDestroyed()) return null;
@@ -327,9 +327,31 @@ function videoEnPC() {
   const v = /[?&]v=([\w-]{11})/.exec(url);
   return v ? { id: v[1], lista: idDeLista(url) || '' } : null;
 }
+// Grupos de Google Home: no aceptan YouTube; va el audio con el reproductor común (ver grupocast.js).
+let grupoListo = false;
+function grupo() {
+  const g = require('./grupocast');
+  if (!grupoListo) {
+    grupoListo = true;
+    const cast = require('./cast');
+    g.configurar({
+      ytdlp: () => require('./descargas').buscarYtdlp(),
+      conectar: (d) => cast.conectar(d),
+      compartir: (archivo, ip) => require('./servidor').compartirArchivo(archivo, ip),
+      alCambiar: (x) => { if (destino && destino.grupo) { Object.assign(destino, x, { grupo: true }); try { avisar(estado()); } catch {} } },
+    });
+  }
+  return g;
+}
+async function aGrupo(d, v) {
+  const r = await grupo().tocar(d, v);
+  fijarDestino(d.nombre, { cancion: v.titulo || 'Música', artista: v.canal || '', tapa: `https://i.ytimg.com/vi/${v.videoId}/hqdefault.jpg`, grupo: true });
+  return r;
+}
 async function reproducirEnCast(pedido, dispositivo, { delPC = null } = {}) {
   const cast = require('./cast');
   const d = await cast.resolver(dispositivo);
+  const esGrupo = cast.esGrupo(d);
   if (!delPC && (!pedido || /^(mi |el |tu )?super\s*mix$/i.test(pedido))) {
     // El Supermix es una lista automática (cada cuenta tiene la suya) y la app de YouTube del aparato no arranca una lista sin un
     // video: se la pone un instante en la PC (con tu sesión de YouTube Music) para saber con qué canción empieza, y se manda eso.
@@ -342,12 +364,14 @@ async function reproducirEnCast(pedido, dispositivo, { delPC = null } = {}) {
     if (!arranque) throw new Error('No pude saber con qué canción empieza tu Supermix. Probá de nuevo en un rato.');
     return reproducirEnCast('', dispositivo, { delPC: { ...arranque, lista: arranque.lista || lista, cancion: elegida ? 'Tu lista' : 'Tu Supermix' } });
   }
+  if (delPC && esGrupo) return aGrupo(d, { videoId: delPC.id, listaId: delPC.lista || '', titulo: delPC.cancion || '', canal: delPC.artista || '' });
   if (delPC) {
     const r = await cast.youtube(d.nombre, delPC.id, { lista: delPC.lista });
     fijarDestino(d.nombre, { cancion: delPC.cancion || 'Música', artista: delPC.artista || '', tapa: delPC.tapa || `https://i.ytimg.com/vi/${delPC.id}/mqdefault.jpg` });
     return r.confirmado ? `${delPC.cancion || 'La música'} en ${d.nombre}.` : cast.dichoDeYoutube(r, delPC.cancion ? `"${delPC.cancion}"` : 'la música');
   }
   const video = await buscarVideo(pedido, { soloMusica: true });
+  if (esGrupo) return aGrupo(d, { videoId: video.id, titulo: video.titulo, canal: video.canal || '' });
   const r = await cast.youtube(d.nombre, video.id);
   fijarDestino(d.nombre, { cancion: video.titulo, artista: video.canal || '', tapa: video.tapa || (video.id ? `https://i.ytimg.com/vi/${video.id}/mqdefault.jpg` : '') });
   const nombre = video.titulo.length > 70 ? pedido : video.titulo;
@@ -382,6 +406,10 @@ async function reproducir(busqueda, dispositivo) {
 const TECLAS = { siguiente: 'MediaNextTrack', anterior: 'MediaPreviousTrack' };
 async function controlar(accion) {
   if (!['pausar', 'reanudar', 'alternar', 'siguiente', 'anterior'].includes(accion)) throw new Error(`Acción de música desconocida: ${accion}`);
+  if (destino && destino.grupo) {
+    const que = accion === 'alternar' ? (destino.sonando ? 'pausar' : 'reanudar') : accion;
+    return grupo().controlar(que);
+  }
   if (destino) {
     const cast = require('./cast');
     const que = accion === 'alternar' ? (destino.sonando ? 'pausar' : 'reanudar') : accion;
