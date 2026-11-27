@@ -52,7 +52,12 @@ const puente = {
   descarga: () => null, // id -> { estado, pct, nombre, archivo, error, … }
   guardarSubida: async () => 'Listo.', // (ruta, nombre) lo que mandó el celular, a la carpeta de Descargas de la PC
   camara: async () => { throw conCodigo(403, 'No disponible.'); },
-  presencia: async () => ({ hechas: [] }), // ({ enCasa }, quien) el celular avisa si está en la Wi-Fi de casa (rutinas "al llegar a casa") // (res, { video, audio, calidad }, quien) deja res abierta con el video en vivo
+  presencia: async () => ({ hechas: [] }),
+  carpetas: () => [], // [{ id, nombre, ruta }] carpetas de la PC que el celular puede ver (Ajustes → Celular)
+  abrirEnPC: async () => 'No disponible.', // (ruta) abre un archivo de esas carpetas en la PC
+  guardadoEnPC: () => {}, // (ruta, quien) para avisar en el notch
+  remoto: async () => { throw conCodigo(403, 'No disponible.'); }, // ({ tipo, ... }) mouse, teclado, música, bloquear, suspender
+  despertarPC: () => null, // datos para prender la PC por la red (Wake-on-LAN): { mac, broadcast } // ({ enCasa }, quien) el celular avisa si está en la Wi-Fi de casa (rutinas "al llegar a casa") // (res, { video, audio, calidad }, quien) deja res abierta con el video en vivo
   pc: async () => { throw conCodigo(403, 'No disponible.'); }, // (canal, args, quien) lo mismo que Ajustes de la PC: notas, calendario, rutinas, historial
   inicio: async () => ({}), // datos de los widgets de Inicio: { clima, agenda, notas }
   avisos: () => [], // lo que el celular tiene que avisar: [{ id, cuando, titulo, texto, tipo }] (si el usuario lo quiere ahí)
@@ -245,7 +250,7 @@ function cors(req) {
   const o = req.headers.origin;
   return ORIGENES_APP.has(o) ? {
     'Access-Control-Allow-Origin': o, Vary: 'Origin', 'Access-Control-Allow-Headers': 'Authorization, Content-Type, Range',
-    'Access-Control-Allow-Methods': 'GET, POST, HEAD, OPTIONS', 'Access-Control-Expose-Headers': 'Content-Length, Content-Type, Content-Range', 'Access-Control-Max-Age': '600',
+    'Access-Control-Allow-Methods': 'GET, POST, HEAD, OPTIONS', 'Access-Control-Expose-Headers': 'Content-Length, Content-Type, Content-Range, Content-Disposition, X-Jarvis-Codec', 'Access-Control-Max-Age': '600',
   } : {};
 }
 
@@ -491,6 +496,40 @@ async function atender(req, res, { casa = false } = {}) {
       } finally { borrarCarpetaTemporal(carpeta); }
       return;
     }
+    // Archivos de la PC (las carpetas compartidas): ver, bajar, subir y abrir en la PC. En casa y desde afuera.
+    if (ruta === '/api/pc-archivos' && metodo === 'GET') { json(res, 200, { carpetas: (puente.carpetas() || []).map(({ id, nombre }) => ({ id, nombre })) }); return; }
+    if (ruta === '/api/pc-archivos/lista' && metodo === 'GET') { json(res, 200, listarCarpeta(url.searchParams.get('c'), url.searchParams.get('r') || '')); return; }
+    if (ruta === '/api/pc-archivos/bajar' && (metodo === 'GET' || metodo === 'HEAD')) {
+      const { objetivo } = enCarpetaCompartida(url.searchParams.get('c'), url.searchParams.get('r') || '');
+      servirArchivo(req, res, objetivo, { 'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(path.basename(objetivo))}` });
+      return;
+    }
+    if (ruta === '/api/pc-archivos/subir' && metodo === 'POST') {
+      const { objetivo } = enCarpetaCompartida(url.searchParams.get('c'), url.searchParams.get('r') || '');
+      if (!fs.existsSync(objetivo) || !fs.statSync(objetivo).isDirectory()) { req.resume(); throw conCodigo(404, 'Esa carpeta ya no existe.'); }
+      const nombre = nombreSubido(url.searchParams.get('nombre'));
+      const temporal = path.join(TEMP_SUBIDAS(), `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`);
+      const { ruta: subido, bytes } = await recibirArchivo(req, temporal, nombre);
+      const destino = nombreLibreEn(objetivo, nombre);
+      try { fs.renameSync(subido, destino); } catch { fs.copyFileSync(subido, destino); }
+      borrarCarpetaTemporal(temporal);
+      try { puente.guardadoEnPC(destino, { id: yo.id, nombre: yo.nombre }); } catch {}
+      json(res, 200, { nombre: path.basename(destino), bytes, texto: `Listo: quedó en la PC como "${path.basename(destino)}".` });
+      return;
+    }
+    if (ruta === '/api/pc-archivos/abrir' && metodo === 'POST') {
+      const b = await leerCuerpo(req);
+      const { objetivo } = enCarpetaCompartida(b.c, b.r || '');
+      json(res, 200, { texto: await puente.abrirEnPC(objetivo) });
+      return;
+    }
+    // Control de la PC: mouse, teclado, música, volumen, bloquear, suspender.
+    if (ruta === '/api/remoto' && metodo === 'POST') {
+      const b = await leerCuerpo(req);
+      json(res, 200, { texto: (await puente.remoto(b, { id: yo.id, nombre: yo.nombre })) || '' });
+      return;
+    }
+    if (ruta === '/api/despertar' && metodo === 'GET') { json(res, 200, puente.despertarPC() || {}); return; }
     if (ruta === '/api/desvincular' && metodo === 'POST') { revocar(yo.id); json(res, 200, { ok: true }); return; }
     throw conCodigo(404, 'No existe.');
   } catch (e) {
@@ -500,6 +539,41 @@ async function atender(req, res, { casa = false } = {}) {
     else res.end();
   }
 }
+// ---------- Archivos de la PC: solo dentro de las carpetas elegidas en Ajustes → Celular ----------
+function enCarpetaCompartida(carpetaId, sub = '') {
+  const c = (puente.carpetas() || []).find((x) => x.id === carpetaId);
+  if (!c) throw conCodigo(404, 'Esa carpeta no está compartida con el celular.');
+  const raiz = path.resolve(c.ruta);
+  const objetivo = path.resolve(raiz, String(sub || '').replace(/^[\\/]+/, ''));
+  if (objetivo !== raiz && !objetivo.startsWith(raiz + path.sep)) throw conCodigo(403, 'Eso está fuera de la carpeta compartida.');
+  // Un acceso directo o enlace que apunte afuera tampoco vale.
+  try { const real = fs.realpathSync(objetivo); const realRaiz = fs.realpathSync(raiz); if (real !== realRaiz && !real.startsWith(realRaiz + path.sep)) throw conCodigo(403, 'Eso está fuera de la carpeta compartida.'); } catch (e) { if (e.status) throw e; }
+  return { c, raiz, objetivo, relativa: path.relative(raiz, objetivo) };
+}
+const OCULTOS = /^(desktop\.ini|thumbs\.db|\$recycle\.bin|system volume information)$/i;
+function listarCarpeta(carpetaId, sub) {
+  const { c, objetivo, relativa } = enCarpetaCompartida(carpetaId, sub);
+  let entradas = [];
+  try { entradas = fs.readdirSync(objetivo, { withFileTypes: true }); } catch { throw conCodigo(404, 'No pude abrir esa carpeta.'); }
+  const lista = [];
+  for (const e of entradas) {
+    if (e.name.startsWith('.') || OCULTOS.test(e.name) || e.name.endsWith('.parte.mp4') || e.name.endsWith('.jarvis-deshacer')) continue;
+    try {
+      const st = fs.statSync(path.join(objetivo, e.name));
+      lista.push({ nombre: e.name, dir: st.isDirectory(), bytes: st.isFile() ? st.size : 0, fecha: st.mtimeMs });
+    } catch {}
+    if (lista.length >= 3000) break;
+  }
+  lista.sort((a, b) => (b.dir - a.dir) || (b.fecha - a.fecha));
+  return { carpeta: { id: c.id, nombre: c.nombre }, ruta: relativa.split(path.sep).filter(Boolean).join('/'), entradas: lista };
+}
+function nombreLibreEn(dir, nombre) {
+  const ext = path.extname(nombre); const base = path.basename(nombre, ext);
+  let destino = path.join(dir, nombre);
+  for (let i = 2; fs.existsSync(destino); i++) destino = path.join(dir, `${base} (${i})${ext}`);
+  return destino;
+}
+
 function tokenDe(req) {
   const m = /^Bearer\s+(\S+)$/i.exec(req.headers.authorization || '');
   return m ? m[1] : '';

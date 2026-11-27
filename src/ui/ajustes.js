@@ -3059,6 +3059,9 @@ const secciones = {
       pasoVincular(),
       h('h2', {}, 'Celulares vinculados'),
       lista,
+      h('h2', {}, 'Archivos de la PC'),
+      h('p', { class: 'ayuda' }, 'Las carpetas que el celular vinculado puede ver: desde ahí bajás cualquier archivo o subís uno, en casa y desde afuera, sin pasar por Drive.'),
+      bloqueCarpetasCelular(),
       h('h2', {}, 'Cámara de seguridad'),
       campo('Ver la cámara y escuchar el micrófono desde el celular', casilla(c, 'camara', guardar),
         'Solo para los celulares vinculados, y solo mientras miran: la cámara y el micrófono se prenden ahí y se apagan cuando cierran. Cada vez que alguien empieza a mirar, el notch lo avisa y queda en el Historial. Usa la cámara de Asistente → Dispositivos y el micrófono de Escucha.'),
@@ -3390,6 +3393,20 @@ const TIPOS_PASO = {
   pedido: { titulo: 'Pedirle algo a Jarvis', campos: (p) => [texto(p, 'texto', guardarRutinas, { placeholder: 'Lo que le dirías, por ejemplo "apagá la tele del comedor"' })] },
 };
 
+// Carpetas compartidas con el celular (sin elegir: Descargas, Escritorio, Documentos, Imágenes y Clips).
+let carpetasCel = null;
+function bloqueCarpetasCelular() {
+  const c = cfg.celular;
+  if (!carpetasCel) { pedir('celular:carpetas').then((l) => { carpetasCel = l; pintar(); }).catch(() => { carpetasCel = []; }); return h('p', { class: 'nota' }, 'Cargando…'); }
+  const guardarLista = (l) => { c.carpetas = l.map(({ id, nombre, ruta }) => ({ id, nombre, ruta })); carpetasCel = c.carpetas; guardar(); pintar(); };
+  return h('div', { class: 'carpetas-cel' },
+    carpetasCel.map((x, i) => h('div', { class: 'renglon' },
+      h('div', { class: 'quien-espacio' }, h('input', { type: 'text', value: x.nombre, 'aria-label': 'Nombre que ve el celular', onchange: (e) => { const l = carpetasCel.slice(); l[i] = { ...x, nombre: e.target.value.trim() || x.nombre }; guardarLista(l); } }), h('div', { class: 'nota' }, x.ruta)),
+      botonQuitar(() => guardarLista(carpetasCel.filter((_, k) => k !== i)), `la carpeta ${x.nombre}`))),
+    h('div', { class: 'fila' },
+      boton('Agregar una carpeta', async () => { const r = await pedir('celular:elegirCarpeta'); if (!r) return; const nombre = r.split(/[\\/]/).filter(Boolean).pop() || r; guardarLista([...carpetasCel, { id: `c${Date.now().toString(36)}`, nombre, ruta: r }]); }, 'chico'),
+      Array.isArray(c.carpetas) ? boton('Volver a las de siempre', () => { delete c.carpetas; carpetasCel = null; guardar(); pintar(); }, 'chico') : null));
+}
 // "Se hace sola": a una hora, al abrir un juego o programa, al conectar un aparato de audio, al llegar a casa, al prender la PC.
 const TIPOS_DISPARADOR = [['hora', 'A una hora'], ['juego', 'Al abrir un juego'], ['programa', 'Al abrir un programa'], ['audio', 'Al conectar un aparato de audio'], ['llegar', 'Al llegar a casa (con el celular)'], ['inicio', 'Al prender la PC']];
 const DIAS_CORTOS = [[1, 'L'], [2, 'M'], [3, 'X'], [4, 'J'], [5, 'V'], [6, 'S'], [0, 'D']];

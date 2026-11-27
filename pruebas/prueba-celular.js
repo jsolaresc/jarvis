@@ -324,6 +324,43 @@ prueba('el celular se puede desvincular solo', async () => {
   assert.deepStrictEqual(celular.dispositivos(), []);
 });
 
+prueba('archivos de la PC: listar, bajar, subir, abrir y no salirse de la carpeta', async () => {
+  const comp = path.join(process.env.JARVIS_DATOS, 'Compartida'); const afuera = path.join(process.env.JARVIS_DATOS, 'secreto.txt');
+  fs.mkdirSync(path.join(comp, 'Sub'), { recursive: true });
+  fs.writeFileSync(path.join(comp, 'hola.txt'), 'hola mundo'); fs.writeFileSync(path.join(comp, '.oculto'), 'x'); fs.writeFileSync(afuera, 'no');
+  try { fs.symlinkSync(afuera, path.join(comp, 'atajo.txt')); } catch {}
+  const { codigo } = celular.nuevoCodigo();
+  const token = (await jsonDe(await pedir('/api/vincular', { metodo: 'POST', cuerpo: { codigo, nombre: 'Archivos' } }))).dato.token;
+  const abiertos = []; const remotos = [];
+  celular.configurar({ carpetas: () => [{ id: 'c1', nombre: 'Compartida', ruta: comp }], abrirEnPC: async (r) => { abiertos.push(r); return 'Abierto.'; }, guardadoEnPC: () => {}, remoto: async (b) => { remotos.push(b.tipo); return 'ok'; }, despertarPC: () => ({ mac: 'aa:bb:cc:dd:ee:ff', broadcast: '192.168.0.255' }) });
+  let r = await jsonDe(await pedir('/api/pc-archivos', { token }));
+  if (!r.dato.carpetas) throw new Error(JSON.stringify(r));
+  assert.deepStrictEqual(r.dato.carpetas, [{ id: 'c1', nombre: 'Compartida' }]);
+  r = await jsonDe(await pedir('/api/pc-archivos/lista?c=c1', { token }));
+  assert.strictEqual(r.status, 200);
+  const nombres = (r.dato.entradas || r.dato.lista || r.dato).map ? (r.dato.entradas || r.dato.lista || r.dato).map((e) => e.nombre) : [];
+  assert.strictEqual(nombres[0], 'Sub', 'carpetas primero');
+  assert.ok(nombres.includes('hola.txt') && !nombres.includes('.oculto'), nombres.join());
+  let b = await pedir(`/api/pc-archivos/bajar?c=c1&r=${encodeURIComponent('hola.txt')}`, { token });
+  assert.strictEqual(await b.text(), 'hola mundo');
+  assert.match(b.headers.get('content-disposition'), /attachment/);
+  for (const malo of ['../secreto.txt', '..%2Fsecreto.txt', 'atajo.txt', '/etc/passwd']) {
+    b = await pedir(`/api/pc-archivos/bajar?c=c1&r=${encodeURIComponent(malo)}`, { token });
+    assert.ok(b.status >= 400, `${malo} → ${b.status}`); await b.text();
+  }
+  assert.ok((await pedir('/api/pc-archivos/lista?c=nada', { token })).status >= 400);
+  const s = await jsonDe(await fetch(`${base}/api/pc-archivos/subir?c=c1&r=Sub&nombre=${encodeURIComponent('foto.jpg')}`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: Buffer.alloc(2048, 9) }));
+  assert.strictEqual(s.status, 200, JSON.stringify(s.dato));
+  assert.strictEqual(fs.statSync(path.join(comp, 'Sub', 'foto.jpg')).size, 2048);
+  const s2 = await jsonDe(await fetch(`${base}/api/pc-archivos/subir?c=c1&r=Sub&nombre=foto.jpg`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: Buffer.alloc(10, 1) }));
+  assert.notStrictEqual(s2.dato.nombre, 'foto.jpg', 'no pisa el que ya estaba');
+  assert.strictEqual((await jsonDe(await pedir('/api/pc-archivos/abrir', { metodo: 'POST', token, cuerpo: { c: 'c1', r: 'hola.txt' } }))).status, 200);
+  assert.strictEqual(abiertos[0], path.join(comp, 'hola.txt'));
+  assert.strictEqual((await jsonDe(await pedir('/api/remoto', { metodo: 'POST', token, cuerpo: { tipo: 'bloquear' } }))).status, 200);
+  assert.deepStrictEqual(remotos, ['bloquear']);
+  assert.strictEqual((await jsonDe(await pedir('/api/despertar', { token }))).dato.mac, 'aa:bb:cc:dd:ee:ff');
+});
+
 prueba('demasiados intentos sin token se frenan', async () => {
   let ultimo = 0;
   for (let i = 0; i < 40; i++) ultimo = (await pedir('/api/estado', { token: `x${'y'.repeat(30)}${i}` })).status;

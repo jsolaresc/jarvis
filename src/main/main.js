@@ -42,6 +42,7 @@ const red = require('./red');
 const camara = require('./camara');
 const estadopc = require('./estadopc');
 const disparadores = require('./disparadores');
+const remoto = require('./remoto');
 const descargas = require('./descargas');
 
 const ANCHO = 380; // tamaño de la ventana del notch (la pastilla y el panel viven adentro)
@@ -1266,6 +1267,7 @@ function estadoParaCelular() {
     // Para que la app de Android sepa cómo llegar a esta PC desde afuera (por la red de Tailscale).
     afuera: red.publica() ? { publica: red.publica() } : null,
     camara: { permitida: !!c.celular.camara, mirando: camara.estado().mirando.length },
+    despertar: datosParaDespertar(), // para prender la PC por la red estando en casa
   };
 }
 // Inicio del celular: lo que muestran los widgets que necesitan datos de la PC.
@@ -1324,7 +1326,49 @@ camara.configurar({
   avisar: (texto) => { if (!texto) return; historial.terminar(historial.empezar('Cámara de seguridad', 'celular'), { respuesta: texto }); if (notch && !notch.isDestroyed()) notch.webContents.send('decir', { texto, voz: false }); },
 });
 const presencia = new Map(); // celular → { enCasa, cuando }
+// Carpetas de la PC que el celular puede ver (Ajustes → Celular). Sin elegir: Descargas, Escritorio, Documentos, Imágenes y los clips.
+function carpetasCompartidas() {
+  const c = leerConfig();
+  const elegidas = Array.isArray(c.celular.carpetas) ? c.celular.carpetas : null;
+  const porDefecto = () => {
+    const l = [];
+    const sumar = (id, nombre, fn) => { try { const r = fn(); if (r && require('fs').existsSync(r)) l.push({ id, nombre, ruta: r }); } catch {} };
+    sumar('descargas', 'Descargas', () => app.getPath('downloads'));
+    sumar('escritorio', 'Escritorio', () => app.getPath('desktop'));
+    sumar('documentos', 'Documentos', () => app.getPath('documents'));
+    sumar('imagenes', 'Imágenes', () => app.getPath('pictures'));
+    sumar('clips', 'Clips', () => c.clips.carpeta);
+    return l;
+  };
+  return (elegidas || porDefecto()).filter((x) => x && x.ruta).map((x, i) => ({ id: x.id || `c${i}`, nombre: x.nombre || require('path').basename(x.ruta), ruta: x.ruta }));
+}
+manejar('celular:carpetas', () => carpetasCompartidas());
+manejar('celular:elegirCarpeta', async () => {
+  const r = await dialog.showOpenDialog(ajustes && !ajustes.isDestroyed() ? ajustes : undefined, { properties: ['openDirectory'], title: 'Carpeta para ver desde el celular' });
+  return r.canceled ? null : r.filePaths[0];
+});
+// Prender la PC desde el celular (Wake-on-LAN): la placa de red de casa y la dirección de difusión de esa red.
+function datosParaDespertar() {
+  const os = require('os');
+  for (const [nombre, l] of Object.entries(os.networkInterfaces())) {
+    for (const x of l || []) {
+      if (x.family !== 'IPv4' || x.internal || !/^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(x.address) || !x.mac || /^00:00:00/.test(x.mac)) continue;
+      const ip = x.address.split('.').map(Number); const m = x.netmask.split('.').map(Number);
+      return { mac: x.mac, ip: x.address, broadcast: ip.map((b, i) => (b & m[i]) | (~m[i] & 255)).join('.'), placa: nombre };
+    }
+  }
+  return null;
+}
 celular.configurar({
+  carpetas: carpetasCompartidas,
+  abrirEnPC: async (ruta) => { const e = await shell.openPath(ruta); if (e) throw new Error(e); return 'Lo abrí en la PC.'; },
+  guardadoEnPC: (ruta, quien) => { const texto = `${quien.nombre || 'El celular'} dejó "${require('path').basename(ruta)}" en la PC.`; historial.terminar(historial.empezar('Archivo desde el celular', 'celular'), { respuesta: texto }); if (notch && !notch.isDestroyed()) notch.webContents.send('decir', { texto, voz: false }); },
+  remoto: async (o, quien) => {
+    const r = await remoto.hacer(o);
+    if (r) historial.terminar(historial.empezar(`Control de la PC: ${o.tipo}`, 'celular'), { respuesta: `${r} (${quien.nombre || 'celular'})` });
+    return r;
+  },
+  despertarPC: datosParaDespertar,
   presencia: async ({ enCasa }, quien) => {
     const antes = presencia.get(quien.id);
     presencia.set(quien.id, { enCasa: !!enCasa, cuando: Date.now() });
@@ -1433,7 +1477,7 @@ manejar('celular:renombrar', ({ id, nombre }) => celular.renombrar(String(id), n
 manejar('celular:publicar', async () => { await sincronizarCelular(); if (!celular.puerto()) throw new Error('Primero prendé "Usar Jarvis desde el celular".'); return celular.publicarEnTailscale(Number((leerConfig().celular || {}).https) || 443); });
 manejar('celular:despublicar', () => celular.despublicarDeTailscale(Number((leerConfig().celular || {}).https) || 443));
 
-app.on('will-quit', () => { camara.cortarTodo(); clips.terminarRecortesPendientes().catch(() => {}); red.detener(); celular.detener().catch(() => {}); globalShortcut.unregisterAll(); oido.apagar(); clips.apagar(); clips.matarFfmpeg(); });
+app.on('will-quit', () => { remoto.cerrar(); camara.cortarTodo(); clips.terminarRecortesPendientes().catch(() => {}); red.detener(); celular.detener().catch(() => {}); globalShortcut.unregisterAll(); oido.apagar(); clips.apagar(); clips.matarFfmpeg(); });
 
 app.whenReady().then(async () => {
   arranque.iniciar(DATOS);
