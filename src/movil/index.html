@@ -232,6 +232,7 @@
 
     <section id="s-control" class="hoja" aria-label="Control de la PC" hidden>
       <div class="fila-titulo"><h2>Control de la PC</h2><button type="button" class="texto volver-mas">Más</button></div>
+      <button type="button" id="ctl-escritorio" class="ancho principal">Ver la pantalla de la PC</button>
       <div id="tp" class="touchpad" role="application" aria-label="Touchpad: deslizá para mover el mouse, tocá para hacer clic, con dos dedos para desplazar"><span class="tenue">Deslizá para mover · tocá para clic · dos dedos para desplazar · mantené para arrastrar</span></div>
       <div class="botonera dos">
         <button type="button" data-rem='{"tipo":"clic"}'>Clic</button>
@@ -317,6 +318,28 @@
         <button type="button" id="cam-calidad" class="cam-calidad"></button>
         <button type="button" id="cam-completa" class="icono" aria-label="Pantalla completa"></button>
       </div>
+    </div>
+  </dialog>
+
+  <dialog id="hoja-escritorio" aria-label="Escritorio de la PC">
+    <div id="esc-lienzo" class="esc-lienzo">
+      <div id="esc-marco" class="esc-marco"><video id="esc-video" playsinline autoplay></video></div>
+      <p id="esc-estado" class="esc-estado" role="status">Conectando…</p>
+      <div class="esc-arriba">
+        <button type="button" id="esc-cerrar" class="icono" aria-label="Cerrar el escritorio remoto"></button>
+        <span id="esc-info" class="esc-info"></span>
+        <button type="button" id="esc-modo" class="esc-chip" aria-label="Cambiar cómo se maneja el mouse"></button>
+      </div>
+      <div class="esc-abajo">
+        <button type="button" id="esc-teclado" class="icono" aria-label="Teclado"></button>
+        <button type="button" id="esc-derecho" class="esc-chip" aria-label="Próximo toque: clic derecho">Clic der.</button>
+        <button type="button" id="esc-teclas" class="esc-chip" aria-label="Teclas especiales">Teclas</button>
+        <button type="button" id="esc-pantalla" class="esc-chip" hidden aria-label="Cambiar de pantalla"></button>
+        <button type="button" id="esc-sonido" class="icono" aria-label="Sonido"></button>
+        <button type="button" id="esc-girar" class="icono" aria-label="Girar"></button>
+      </div>
+      <div id="esc-panel-teclas" class="esc-panel-teclas" hidden></div>
+      <input id="esc-entrada" class="esc-entrada" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" aria-label="Escribir en la PC">
     </div>
   </dialog>
 

@@ -1552,11 +1552,12 @@ $('#mas-lista').replaceChildren(...[
   ['rutinas', 'rayo', 'Rutinas', 'Hacerlas, cambiarlas o armar nuevas'],
   ['historial', 'reloj', 'Historial', 'Lo que pediste y qué hizo Jarvis'],
   ['@camara', 'camara', 'Cámara de seguridad', 'Ver la webcam, escuchar y hablar por los parlantes'],
+  ['@escritorio', 'tele', 'Escritorio de la PC', 'Ver la pantalla y manejarla tocando (como AnyDesk)'],
   ['control', 'pc', 'Control de la PC', 'Mouse, teclado, música, bloquear, suspender y prender'],
   ['@carpetas', 'carpeta', 'Archivos de la PC', 'Bajar o subir cualquier archivo, sin pasar por Drive'],
   ['descargar', 'bajar', 'Descargar', 'Videos y audios de YouTube, Instagram…'],
   ['ajustes', 'ajustes', 'Ajustes', 'Avisos, huella, voz, cámara y la app'],
-].map(([hoja, ic, t, sub]) => h('button', { type: 'button', class: 'mas-item', onclick: () => (hoja === '@camara' ? abrirCamara() : hoja === '@carpetas' ? irACarpetas() : irA(hoja)) },
+].map(([hoja, ic, t, sub]) => h('button', { type: 'button', class: 'mas-item', onclick: () => (hoja === '@camara' ? abrirCamara() : hoja === '@carpetas' ? irACarpetas() : hoja === '@escritorio' ? abrirEscritorio() : irA(hoja)) },
   h('span', { class: 'ic', html: svg(ic) }), h('span', { class: 'datos' }, h('b', {}, t), h('span', {}, sub)))));
 document.querySelectorAll('.volver-mas').forEach((b) => b.addEventListener('click', () => irA('mas')));
 ['#n-actualizar', '#c-actualizar', '#h-actualizar'].forEach((s) => { $(s).innerHTML = svg('actualizar', 20); });
@@ -2552,6 +2553,207 @@ function botonesHistorial(x) {
   ];
 }
 
+// ---------- Escritorio remoto: ver la pantalla de la PC y manejarla tocando ----------
+// WebRTC directo con la PC (la oferta y la respuesta pasan por /api/escritorio). Dos formas de manejar el mouse:
+//  - Touchpad (por defecto): deslizar mueve el cursor, tocar hace clic, dos dedos desplazan, mantener arrastra.
+//  - Tocar: el clic va donde tocás; deslizar arrastra.
+// Con dos dedos se hace zoom (pellizcar) y el zoom sigue al cursor solo.
+const hojaEsc = $('#hoja-escritorio');
+const escVideo = $('#esc-video'); const escMarco = $('#esc-marco'); const escLienzo = $('#esc-lienzo');
+const ESC = { pc: null, canal: null, modo: guardado.leer('escritorio.modo', 'touchpad'), zoom: 1, tx: 0, ty: 0, cursor: { x: 0.5, y: 0.5 }, derecho: false, pantallas: [], pantalla: 0, conectado: false, mudo: false, base: null };
+const ICE_ESC = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun.cloudflare.com:3478'] }];
+const mandarEsc = (o) => { const c = ESC.canal; if (c && c.readyState === 'open') { try { c.send(JSON.stringify(o)); } catch {} } };
+function estadoEsc(texto) { const e = $('#esc-estado'); e.textContent = texto || ''; e.hidden = !texto; }
+function pintarEscBotones() {
+  $('#esc-modo').textContent = ESC.modo === 'touchpad' ? 'Touchpad' : 'Tocar';
+  $('#esc-derecho').classList.toggle('on', ESC.derecho);
+  $('#esc-sonido').innerHTML = svg(ESC.mudo ? 'mudo' : 'parlante', 22);
+  $('#esc-sonido').setAttribute('aria-label', ESC.mudo ? 'Activar el sonido' : 'Silenciar');
+  const p = ESC.pantallas;
+  $('#esc-pantalla').hidden = p.length < 2;
+  if (p.length > 1) $('#esc-pantalla').textContent = `Pantalla ${ESC.pantalla + 1} de ${p.length}`;
+}
+// El video ocupa lo que puede sin deformarse; el zoom y el corrimiento se aplican al marco.
+function medirEsc() {
+  const W = escLienzo.clientWidth; const H = escLienzo.clientHeight;
+  const vw = escVideo.videoWidth || 16; const vh = escVideo.videoHeight || 9;
+  const k = Math.min(W / vw, H / vh);
+  ESC.base = { w: vw * k, h: vh * k, x: (W - vw * k) / 2, y: (H - vh * k) / 2, W, H };
+  Object.assign(escMarco.style, { width: `${ESC.base.w}px`, height: `${ESC.base.h}px`, left: `${ESC.base.x}px`, top: `${ESC.base.y}px` });
+  aplicarZoom();
+}
+function aplicarZoom() {
+  const b = ESC.base; if (!b) return;
+  if (ESC.zoom <= 1.01) { ESC.zoom = 1; ESC.tx = 0; ESC.ty = 0; }
+  // El centro del marco está en el centro de la pantalla; con zoom se puede correr hasta que el borde del video toque el de la pantalla.
+  const libreX = Math.max(0, (b.w * ESC.zoom - b.W) / 2); const libreY = Math.max(0, (b.h * ESC.zoom - b.H) / 2);
+  ESC.tx = Math.max(-libreX, Math.min(libreX, ESC.tx)); ESC.ty = Math.max(-libreY, Math.min(libreY, ESC.ty));
+  escMarco.style.transform = `translate(${ESC.tx}px, ${ESC.ty}px) scale(${ESC.zoom})`;
+}
+// Con zoom, la vista acompaña al cursor cuando se acerca al borde.
+function seguirCursorEsc() {
+  const b = ESC.base; if (!b || ESC.zoom <= 1) return;
+  const px = b.x + b.w / 2 + ESC.tx + (ESC.cursor.x - 0.5) * b.w * ESC.zoom;
+  const py = b.y + b.h / 2 + ESC.ty + (ESC.cursor.y - 0.5) * b.h * ESC.zoom;
+  const m = 0.22;
+  if (px < b.W * m) ESC.tx += b.W * m - px; else if (px > b.W * (1 - m)) ESC.tx -= px - b.W * (1 - m);
+  if (py < b.H * m) ESC.ty += b.H * m - py; else if (py > b.H * (1 - m)) ESC.ty -= py - b.H * (1 - m);
+  aplicarZoom();
+}
+// Punto tocado → coordenadas de la pantalla de la PC (0 a 1).
+function puntoEsc(cx, cy) { const r = escMarco.getBoundingClientRect(); return { x: Math.max(0, Math.min(1, (cx - r.left) / r.width)), y: Math.max(0, Math.min(1, (cy - r.top) / r.height)) }; }
+
+async function abrirEscritorio() {
+  if (!guardado.token) return;
+  if (estado && estado.escritorio && !estado.escritorio.permitido) { aviso('El escritorio remoto está apagado en la PC. Se prende en Ajustes → Dispositivos → Celular → Escritorio remoto.', { tipo: 'mal', ms: 8000 }); return; }
+  cerrarEscritorio(false);
+  hojaEsc.showModal();
+  estadoEsc('Conectando con la PC…'); pintarEscBotones();
+  $('#esc-info').textContent = '';
+  const pc = new RTCPeerConnection({ iceServers: ICE_ESC });
+  ESC.pc = pc; ESC.conectado = false; ESC.zoom = 1; ESC.tx = 0; ESC.ty = 0;
+  pc.addTransceiver('video', { direction: 'recvonly' });
+  pc.addTransceiver('audio', { direction: 'recvonly' });
+  const canal = pc.createDataChannel('control', { ordered: true });
+  ESC.canal = canal;
+  canal.onmessage = (m) => {
+    let d; try { d = JSON.parse(m.data); } catch { return; }
+    if (d.t === 'cursor') { ESC.cursor = { x: d.x, y: d.y }; seguirCursorEsc(); }
+    else if (d.t === 'pantalla') { ESC.pantalla = d.n; ESC.pantallas = d.pantallas || ESC.pantallas; pintarEscBotones(); }
+    else if (d.t === 'fin') { aviso('La PC cortó el escritorio remoto.', { ms: 5000 }); cerrarEscritorio(false); hojaEsc.close(); }
+  };
+  pc.ontrack = (e) => { if (!escVideo.srcObject) escVideo.srcObject = e.streams[0] || new MediaStream([e.track]); else if (e.track.kind === 'audio') escVideo.srcObject.addTrack(e.track); escVideo.muted = ESC.mudo; escVideo.play().catch(() => {}); };
+  pc.onconnectionstatechange = () => {
+    if (ESC.pc !== pc) return;
+    if (pc.connectionState === 'connected') { ESC.conectado = true; estadoEsc(''); vibrar(15); }
+    if (pc.connectionState === 'failed') { estadoEsc(modoAfuera ? 'No se pudo conectar desde esta red. Desde afuera, algunas redes (datos móviles, Wi-Fi de oficinas) no dejan conexiones directas: probá con otra red o en casa.' : 'No se pudo conectar con la PC.'); }
+    if (pc.connectionState === 'disconnected') estadoEsc('Se cortó un momento, reconectando…');
+  };
+  try {
+    await pc.setLocalDescription(await pc.createOffer());
+    await new Promise((ok) => { if (pc.iceGatheringState === 'complete') ok(); pc.addEventListener('icegatheringstatechange', () => { if (pc.iceGatheringState === 'complete') ok(); }); setTimeout(ok, 2500); });
+    if (ESC.pc !== pc) return;
+    const r = await api('/api/escritorio', { metodo: 'POST', cuerpo: { sdp: pc.localDescription.sdp, afuera: modoAfuera, calidad: guardado.leer('escritorio.calidad', 'auto') }, espera: 30000 });
+    if (ESC.pc !== pc) return;
+    ESC.pantallas = r.pantallas || []; ESC.pantalla = r.pantalla || 0; pintarEscBotones();
+    await pc.setRemoteDescription({ type: 'answer', sdp: r.sdp });
+    setTimeout(() => { if (ESC.pc === pc && !ESC.conectado && pc.connectionState !== 'failed') estadoEsc('Esto está tardando… (desde afuera puede no conectar en algunas redes)'); }, 12000);
+  } catch (e) {
+    if (ESC.pc !== pc) return;
+    estadoEsc(e instanceof SinPC ? 'Tu PC no responde.' : e.message);
+  }
+}
+function cerrarEscritorio(avisarPC = true) {
+  const pc = ESC.pc;
+  ESC.pc = null; ESC.canal = null; ESC.conectado = false;
+  if (pc) { try { pc.close(); } catch {} if (avisarPC) api('/api/escritorio/cortar', { metodo: 'POST', espera: 5000 }).catch(() => {}); }
+  try { escVideo.srcObject = null; } catch {}
+  $('#esc-panel-teclas').hidden = true;
+  try { if (document.fullscreenElement) document.exitFullscreen(); } catch {}
+  try { screen.orientation.unlock(); } catch {}
+}
+hojaEsc.addEventListener('close', () => cerrarEscritorio(true));
+$('#esc-cerrar').innerHTML = svg('cerrar', 22);
+$('#esc-cerrar').addEventListener('click', () => hojaEsc.close());
+$('#esc-teclado').innerHTML = svg('mensaje', 22);
+$('#esc-girar').innerHTML = svg('actualizar', 22);
+escVideo.addEventListener('loadedmetadata', medirEsc);
+escVideo.addEventListener('resize', medirEsc);
+new ResizeObserver(medirEsc).observe(escLienzo);
+$('#esc-modo').addEventListener('click', () => { ESC.modo = ESC.modo === 'touchpad' ? 'tocar' : 'touchpad'; guardado.escribir('escritorio.modo', ESC.modo); pintarEscBotones(); aviso(ESC.modo === 'touchpad' ? 'Touchpad: deslizá para mover el cursor, tocá para hacer clic.' : 'Tocar: el clic va donde tocás; deslizá para arrastrar.', { ms: 3500 }); });
+$('#esc-derecho').addEventListener('click', () => { ESC.derecho = !ESC.derecho; pintarEscBotones(); });
+$('#esc-sonido').addEventListener('click', () => { ESC.mudo = !ESC.mudo; escVideo.muted = ESC.mudo; pintarEscBotones(); });
+$('#esc-pantalla').addEventListener('click', () => { if (ESC.pantallas.length > 1) mandarEsc({ t: 'pantalla', n: (ESC.pantalla + 1) % ESC.pantallas.length }); });
+$('#esc-girar').addEventListener('click', async () => {
+  try {
+    if (!document.fullscreenElement) await hojaEsc.requestFullscreen();
+    const ahora = (screen.orientation && screen.orientation.type) || '';
+    await screen.orientation.lock(ahora.startsWith('landscape') ? 'portrait' : 'landscape');
+  } catch { aviso('Girá el celular (con la rotación automática prendida).', { ms: 3000 }); }
+});
+// Teclado: lo que se escribe va directo; Borrar y Enter, como teclas.
+const escEntrada = $('#esc-entrada');
+$('#esc-teclado').addEventListener('click', () => { escEntrada.value = ''; escEntrada.focus(); });
+escEntrada.addEventListener('beforeinput', (e) => {
+  if (e.inputType === 'deleteContentBackward') { e.preventDefault(); mandarEsc({ t: 'tecla', tecla: 'borrar' }); return; }
+  if (e.inputType === 'insertLineBreak' || e.inputType === 'insertParagraph') { e.preventDefault(); mandarEsc({ t: 'tecla', tecla: 'enter' }); return; }
+});
+escEntrada.addEventListener('input', () => { const t = escEntrada.value; escEntrada.value = ''; if (t) mandarEsc({ t: 'escribir', texto: t }); });
+escEntrada.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); mandarEsc({ t: 'tecla', tecla: 'enter' }); } else if (e.key === 'Backspace' && !escEntrada.value) { e.preventDefault(); mandarEsc({ t: 'tecla', tecla: 'borrar' }); } });
+const TECLAS_ESC = [['esc', 'Esc'], ['tab', 'Tab'], ['alt-tab', 'Alt+Tab'], ['win', 'Inicio'], ['escritorio', 'Escritorio'], ['alt-f4', 'Cerrar'], ['izquierda', '←'], ['arriba', '↑'], ['abajo', '↓'], ['derecha', '→'], ['repag', 'Re Pág'], ['avpag', 'Av Pág'], ['copiar', 'Ctrl+C'], ['pegar', 'Ctrl+V'], ['deshacer', 'Ctrl+Z'], ['ctrl-a', 'Ctrl+A'], ['f5', 'F5'], ['f11', 'F11'], ['suprimir', 'Supr'], ['ctrl-shift-esc', 'Adm. tareas']];
+$('#esc-panel-teclas').replaceChildren(...TECLAS_ESC.map(([t, n]) => h('button', { type: 'button', onclick: () => { vibrar(8); mandarEsc({ t: 'tecla', tecla: t }); } }, n)));
+$('#esc-teclas').addEventListener('click', () => { $('#esc-panel-teclas').hidden = !$('#esc-panel-teclas').hidden; });
+
+// Gestos sobre la pantalla.
+(function gestosEsc() {
+  const dedos = new Map();
+  let g = null; // gesto en curso
+  let pendiente = null; // mover acumulado (se manda una vez por cuadro)
+  const mandarMover = () => { if (pendiente && (Math.abs(pendiente.dx) >= 1 || Math.abs(pendiente.dy) >= 1)) { mandarEsc({ t: 'mover', dx: Math.round(pendiente.dx), dy: Math.round(pendiente.dy) }); pendiente.dx -= Math.round(pendiente.dx); pendiente.dy -= Math.round(pendiente.dy); } pendiente = null; };
+  const mover = (dx, dy) => { if (!pendiente) { pendiente = { dx: 0, dy: 0 }; requestAnimationFrame(mandarMover); } pendiente.dx += dx; pendiente.dy += dy; };
+  // Cuántos píxeles de la PC es un píxel del dedo (con zoom, más fino).
+  const escala = () => { const vw = escVideo.videoWidth || 1920; const b = ESC.base; return b ? (vw / b.w) / ESC.zoom : 1; };
+  const distancia = () => { const [a, b] = [...dedos.values()]; return Math.hypot(a.x - b.x, a.y - b.y); };
+  const centro = () => { const [a, b] = [...dedos.values()]; return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }; };
+  escLienzo.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('button, input, .esc-panel-teclas')) return;
+    if (!ESC.conectado) return;
+    try { escLienzo.setPointerCapture(e.pointerId); } catch {}
+    dedos.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (dedos.size === 1) {
+      g = { t: Date.now(), x0: e.clientX, y0: e.clientY, movio: 0, dos: false, arrastrando: false };
+      if (ESC.modo === 'tocar') { const p = puntoEsc(e.clientX, e.clientY); mandarEsc({ t: 'ir', x: p.x, y: p.y }); }
+      g.reloj = setTimeout(() => {
+        if (!g || g.movio > 10 || dedos.size !== 1) return;
+        if (ESC.modo === 'tocar') { g.largo = true; vibrar(25); mandarEsc({ t: 'clic', boton: 'derecho' }); }
+        else { g.arrastrando = true; vibrar(25); mandarEsc({ t: 'apretar' }); }
+      }, 520);
+    } else if (dedos.size === 2 && g) { g.dos = true; clearTimeout(g.reloj); g.d0 = distancia(); g.c0 = centro(); g.z0 = ESC.zoom; g.t0 = { x: ESC.tx, y: ESC.ty }; g.pellizco = false; g.rueda = 0; }
+  });
+  escLienzo.addEventListener('pointermove', (e) => {
+    const d = dedos.get(e.pointerId); if (!d || !g) return;
+    const dx = e.clientX - d.x; const dy = e.clientY - d.y;
+    d.x = e.clientX; d.y = e.clientY;
+    g.movio += Math.abs(dx) + Math.abs(dy);
+    if (g.dos && dedos.size === 2) {
+      const dist = distancia(); const c = centro();
+      if (!g.pellizco && Math.abs(dist - g.d0) > 28) g.pellizco = true;
+      if (g.pellizco) {
+        // Zoom alrededor del punto entre los dedos.
+        const z = Math.max(1, Math.min(4, g.z0 * (dist / g.d0)));
+        const b = ESC.base; const cx = g.c0.x - (b.x + b.w / 2); const cy = g.c0.y - (b.y + b.h / 2);
+        ESC.tx = cx - ((cx - g.t0.x) * z) / g.z0 + (c.x - g.c0.x);
+        ESC.ty = cy - ((cy - g.t0.y) * z) / g.z0 + (c.y - g.c0.y);
+        ESC.zoom = z; aplicarZoom();
+      } else if (e.pointerId === [...dedos.keys()][0]) {
+        g.rueda += dy;
+        if (Math.abs(g.rueda) > 14) { mandarEsc({ t: 'rueda', cuanto: Math.round(g.rueda * 5) }); g.rueda = 0; }
+      }
+      return;
+    }
+    if (ESC.modo === 'tocar') {
+      if (!g.arrastrando && g.movio > 12 && !g.largo) { g.arrastrando = true; mandarEsc({ t: 'apretar' }); }
+      if (g.arrastrando) { const p = puntoEsc(e.clientX, e.clientY); mandarEsc({ t: 'ir', x: p.x, y: p.y }); }
+      return;
+    }
+    const k = escala() * Math.min(2.2, 1 + Math.hypot(dx, dy) / 25);
+    mover(dx * k, dy * k);
+  });
+  const soltar = (e) => {
+    if (!dedos.has(e.pointerId)) return;
+    dedos.delete(e.pointerId);
+    if (dedos.size || !g) return;
+    clearTimeout(g.reloj);
+    const toque = g.movio < 12 && Date.now() - g.t < 320;
+    if (g.arrastrando) mandarEsc({ t: 'apretar', soltar: true });
+    else if (g.dos) { if (!g.pellizco && toque) { vibrar(10); mandarEsc({ t: 'clic', boton: 'derecho' }); } }
+    else if (toque && !g.largo) { vibrar(8); mandarEsc({ t: 'clic', boton: ESC.derecho ? 'derecho' : 'izquierdo' }); if (ESC.derecho) { ESC.derecho = false; pintarEscBotones(); } }
+    g = null;
+  };
+  escLienzo.addEventListener('pointerup', soltar);
+  escLienzo.addEventListener('pointercancel', soltar);
+}());
+
 // ---------- Atajos de Android (mantener apretado el ícono, o los widgets de la pantalla de inicio) ----------
 function abrirAtajo(atajo) {
   if (!atajo || !guardado.token) return;
@@ -2560,6 +2762,7 @@ function abrirAtajo(atajo) {
   else if (que === 'camara') abrirCamara();
   else if (que === 'clip') accion({ tipo: 'clip', accion: 'guardar' });
   else if (que === 'control') irA('control');
+  else if (que === 'escritorio') abrirEscritorio();
   else if (que === 'archivos') irACarpetas();
   else if (que === 'rutina' && dato) accion({ tipo: 'rutina', id: dato });
 }
@@ -2594,3 +2797,4 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden && gu
   seguirDescargas();
   if (cola.length) setTimeout(() => mandarCola(), 3000); // por si quedó algo bajado para el celular mientras la app estaba cerrada
 }());
+$('#ctl-escritorio').addEventListener('click', () => abrirEscritorio());

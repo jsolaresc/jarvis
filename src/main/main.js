@@ -43,6 +43,7 @@ const camara = require('./camara');
 const estadopc = require('./estadopc');
 const disparadores = require('./disparadores');
 const remoto = require('./remoto');
+const escritorio = require('./escritorio');
 const descargas = require('./descargas');
 
 const ANCHO = 380; // tamaño de la ventana del notch (la pastilla y el panel viven adentro)
@@ -73,6 +74,8 @@ process.on('uncaughtException', (e) => anotarError('principal', e));
 process.on('unhandledRejection', (e) => anotarError('promesa', e));
 
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
+// Escritorio remoto: la PC ofrece su dirección real en la red de casa (no un nombre ".local" que el celular quizás no resuelve).
+app.commandLine.appendSwitch('disable-features', 'WebRtcHideLocalIpsWithMdns');
 if (process.env.JARVIS_MEDIOS_FALSOS) app.commandLine.appendSwitch('use-fake-device-for-media-stream'); // pruebas: cámara y micrófono de mentira
 if (!app.requestSingleInstanceLock()) app.quit();
 
@@ -736,6 +739,8 @@ manejar('clips:enviar', ({ archivo, contacto }) => clips.enviarGuardado(archivo,
 manejar('clips:vista', (archivo) => { if (!clips.dentroDeCarpeta(archivo)) throw new Error('Ese video no está en la carpeta de clips.'); return servidor.compartirLocal(archivo); });
 manejar('clips:renombrar', ({ archivo, nombre }) => clips.renombrar(archivo, nombre));
 manejar('clips:recortar', ({ archivo, desde, hasta, reemplazar, edicion }) => clips.recortar(archivo, { desde, hasta, reemplazar: !!reemplazar, edicion: edicion || {}, mandar: (ruta) => shell.trashItem(ruta) }));
+manejar('escritorio:estado', () => escritorio.estado());
+manejar('escritorio:cortar', () => { escritorio.cortar(); return escritorio.estado(); });
 manejar('clips:medidas', (archivo) => clips.medidas(archivo));
 manejar('clips:favorito', ({ archivo, si }) => clips.marcarFavorito(archivo, !!si));
 // Pantalla completa de Ajustes (el editor de clips la usa para ver el video grande).
@@ -1272,7 +1277,8 @@ function estadoParaCelular() {
     // Para que la app de Android sepa cómo llegar a esta PC desde afuera (por la red de Tailscale).
     afuera: red.publica() ? { publica: red.publica() } : null,
     camara: { permitida: !!c.celular.camara, mirando: camara.estado().mirando.length, vigilando: camara.estado().vigilando },
-    despertar: datosParaDespertar(), // para prender la PC por la red estando en casa
+    despertar: datosParaDespertar(),
+    escritorio: { permitido: !!c.celular.escritorio, mirando: !!escritorio.estado().mirando }, // para prender la PC por la red estando en casa
   };
 }
 // Inicio del celular: lo que muestran los widgets que necesitan datos de la PC.
@@ -1444,6 +1450,8 @@ setTimeout(() => { try { for (const n of fs.readdirSync(MINIS_PC)) { const p = p
 celular.configurar({
   carpetas: carpetasCompartidas,
   miniaturaPC,
+  escritorio: (pedido, quien) => escritorio.conectar(pedido, quien),
+  escritorioCortar: () => escritorio.terminar('cortado desde el celular'),
   abrirEnPC: async (ruta) => { const e = await shell.openPath(ruta); if (e) throw new Error(e); return 'Lo abrí en la PC.'; },
   guardadoEnPC: (ruta, quien) => { const texto = `${quien.nombre || 'El celular'} dejó "${require('path').basename(ruta)}" en la PC.`; historial.terminar(historial.empezar('Archivo desde el celular', 'celular'), { respuesta: texto }); if (notch && !notch.isDestroyed()) notch.webContents.send('decir', { texto, voz: false }); },
   remoto: async (o, quien) => {
@@ -1573,6 +1581,16 @@ app.whenReady().then(async () => {
   const interfaz = await servidor.iniciarInterfaz();
   urlBase = interfaz.url;
   camara.configurar({ urlBase });
+  escritorio.configurar({
+    urlBase,
+    ajustes: () => { const c = leerConfig().celular || {}; return { permitido: !!c.escritorio, audio: c.escritorioAudio !== false }; },
+    remoto: (o) => remoto.hacer(o),
+    avisar: (texto) => {
+      if (!texto) return;
+      historial.terminar(historial.empezar('Escritorio remoto', 'celular'), { respuesta: texto });
+      if (notch && !notch.isDestroyed()) notch.webContents.send('decir', { texto, voz: false });
+    },
+  });
   // Optimización: la repetición instantánea se pausa con la PC bloqueada o suspendida, y vuelve sola al desbloquear.
   try {
     const { powerMonitor } = require('electron');

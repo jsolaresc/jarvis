@@ -55,7 +55,9 @@ const puente = {
   presencia: async () => ({ hechas: [] }),
   carpetas: () => [], // [{ id, nombre, ruta }] carpetas de la PC que el celular puede ver (Ajustes → Celular)
   abrirEnPC: async () => 'No disponible.',
-  miniaturaPC: async () => null, // (ruta) → Buffer JPG chiquito o null // (ruta) abre un archivo de esas carpetas en la PC
+  miniaturaPC: async () => null,
+  escritorio: async () => { throw conCodigo(403, 'No disponible.'); }, // (pedido, quien) → { sdp, pantallas }
+  escritorioCortar: () => {}, // (ruta) → Buffer JPG chiquito o null // (ruta) abre un archivo de esas carpetas en la PC
   guardadoEnPC: () => {}, // (ruta, quien) para avisar en el notch
   remoto: async () => { throw conCodigo(403, 'No disponible.'); }, // ({ tipo, ... }) mouse, teclado, música, bloquear, suspender
   hablarEnPC: async () => { throw conCodigo(403, 'No disponible.'); }, // (buffer, tipo, quien) lo que se dijo en el celular suena en la PC
@@ -553,6 +555,13 @@ async function atender(req, res, { casa = false } = {}) {
       json(res, 200, { texto: (await puente.remoto(b, { id: yo.id, nombre: yo.nombre })) || '' });
       return;
     }
+    // Escritorio remoto: el celular manda su oferta WebRTC y recibe la de la PC (la imagen después va directo entre los dos).
+    if (ruta === '/api/escritorio' && metodo === 'POST') {
+      const b = await leerCuerpo(req, 256 * 1024);
+      json(res, 200, await puente.escritorio({ sdp: b.sdp, pantalla: b.pantalla, calidad: b.calidad, afuera: !!b.afuera }, { id: yo.id, nombre: yo.nombre }));
+      return;
+    }
+    if (ruta === '/api/escritorio/cortar' && metodo === 'POST') { puente.escritorioCortar(); json(res, 200, { texto: 'Listo.' }); return; }
     // Hablar por los parlantes de la PC: un audio corto (hasta 4 MB, ~2 minutos) que suena al llegar.
     if (ruta === '/api/hablar' && metodo === 'POST') {
       const partes = []; let n = 0;

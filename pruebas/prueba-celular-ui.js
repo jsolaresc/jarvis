@@ -53,7 +53,7 @@ require('child_process').spawnSync('ffmpeg', ['-hide_banner', '-loglevel', 'erro
 require('child_process').spawnSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc=s=320x240:d=2', '-pix_fmt', 'yuv420p', path.join(COMPARTIDA, 'jugada.mp4')]);
 const REMOTO_LOG = path.join(DATOS, 'remoto.log');
 fs.writeFileSync(path.join(DATOS, 'config.json'), JSON.stringify({
-  nombre: 'Jarvis', usuario: 'Sofía', celular: { activo: true, puerto: PUERTO, https: 443, hablarEnPC: false, carpetas: [{ id: 'comp', nombre: 'Compartida', ruta: COMPARTIDA }] },
+  nombre: 'Jarvis', usuario: 'Sofía', celular: { activo: true, puerto: PUERTO, https: 443, hablarEnPC: false, escritorio: true, carpetas: [{ id: 'comp', nombre: 'Compartida', ruta: COMPARTIDA }] },
   clips: { carpeta: CLIPS },
   contactos: [{ nombre: 'Tomi', numero: '5491100000000' }, { nombre: 'Mamá', numero: '5491100000001' }],
 }));
@@ -587,6 +587,21 @@ async function hasta(fn, ms = 20000, que = '') {
     await pA.click('#teclas-energia button:has-text("Prender la PC")');
     await hasta(() => pA.evaluate(() => window.androidFalso.despertado && window.androidFalso.despertado.mac), 3000, 'android: Wake-on-LAN con la MAC de la PC');
     await pA.screenshot({ path: path.join(SALIDA, '25-android-control.png'), fullPage: true });
+    // Escritorio remoto: se ve la pantalla de la PC (WebRTC) y tocar hace clic; en modo "Tocar", el mouse va al punto.
+    fs.writeFileSync(REMOTO_LOG, '');
+    await pA.click('#ctl-escritorio');
+    await hasta(() => pA.evaluate(() => { const v = document.querySelector('#esc-video'); return v && v.videoWidth > 0 && !v.paused; }), 30000, 'android: se ve la pantalla de la PC');
+    await esperar(800);
+    await pA.screenshot({ path: path.join(SALIDA, '25b-android-escritorio.png') });
+    const lienzo = await pA.locator('#esc-lienzo').boundingBox();
+    await pA.mouse.click(lienzo.x + lienzo.width / 2, lienzo.y + lienzo.height / 2);
+    await hasta(() => /mouse_event\(2, 0/.test(fs.readFileSync(REMOTO_LOG, 'utf8')), 5000, 'clic desde el escritorio remoto');
+    await pA.click('#esc-modo');
+    await pA.mouse.click(lienzo.x + lienzo.width * 0.25, lienzo.y + lienzo.height / 2);
+    await hasta(() => /mouse_event\(0xC001, \d+, \d+/.test(fs.readFileSync(REMOTO_LOG, 'utf8')), 5000, 'ir al punto tocado');
+    await pA.click('#esc-modo');
+    await pA.click('#esc-cerrar');
+    await esperar(500);
     // Archivos de la PC: entrar a la carpeta, subir un archivo y bajar otro.
     await pA.click('#abajo button[data-hoja="mas"]');
     await pA.click('.mas-item:has-text("Archivos de la PC")');

@@ -2,6 +2,25 @@
 
 Cada Release de GitHub toma de acá la sección de su versión. Al subir de versión, sumar la sección nueva arriba de todo.
 
+## 1.1.11
+
+**Celular**
+- **Escritorio remoto**: ver la pantalla de la PC (con su sonido) y manejarla tocando, como AnyDesk. En Más → "Escritorio de la PC" o en Control de la PC.
+  - Dos modos: Touchpad (deslizar mueve el cursor) o Tocar (el clic va donde tocás).
+  - Pellizcar hace zoom, y el zoom sigue al cursor. Dos dedos desplazan; mantener apretado arrastra.
+  - Tiene teclado, teclas especiales, clic derecho y cambio de pantalla si tenés más de una.
+  - Se prende en la PC (Ajustes → Dispositivos → Celular → Escritorio remoto) y el notch avisa mientras alguien mira.
+  - La imagen va directo entre el celular y la PC. Desde afuera de casa anda si las redes lo permiten (algunas no dejan).
+- **Archivos de la PC**:
+  - Miniaturas de fotos, videos y documentos.
+  - Filtros (Fotos, Videos, Audio, Documentos), búsqueda, orden (más nuevos, más viejos, nombre, más pesados) y vista en cuadrícula.
+  - Elegir varios para bajarlos, compartirlos o mandarlos por WhatsApp desde la PC (sin gastar datos del celular).
+- Las rutinas muestran qué hace cada paso y cuándo se hacen solas.
+
+**PC**
+- Arreglado: descargar para el celular a veces terminaba con "yt-dlp terminó pero no encuentro el archivo". Pasaba con títulos con acentos o emojis, como los de X.
+- El Historial de una rutina dice qué hizo cada paso, no solo "salió todo bien".
+
 ## 1.1.10
 
 **PC**

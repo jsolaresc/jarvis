@@ -40,12 +40,14 @@ function correr(linea) {
 const entero = (x, max = 2000) => Math.max(-max, Math.min(max, Math.round(Number(x) || 0)));
 const VK = { play: 0xB3, siguiente: 0xB0, anterior: 0xB1, subir: 0xAF, bajar: 0xAE, mudo: 0xAD, win: 0x5B };
 // Teclas especiales de SendKeys (el resto del texto se escribe tal cual, escapando + ^ % ~ ( ) { } [ ]).
-const ESPECIALES = { enter: '{ENTER}', borrar: '{BS}', esc: '{ESC}', tab: '{TAB}', arriba: '{UP}', abajo: '{DOWN}', izquierda: '{LEFT}', derecha: '{RIGHT}', suprimir: '{DEL}', inicio: '{HOME}', fin: '{END}', f5: '{F5}', f11: '{F11}', 'alt-tab': '%{TAB}', 'alt-f4': '%{F4}', copiar: '^c', pegar: '^v', deshacer: '^z', espacio: ' ' };
+const ESPECIALES = { enter: '{ENTER}', borrar: '{BS}', esc: '{ESC}', tab: '{TAB}', arriba: '{UP}', abajo: '{DOWN}', izquierda: '{LEFT}', derecha: '{RIGHT}', suprimir: '{DEL}', inicio: '{HOME}', fin: '{END}', f1: '{F1}', f2: '{F2}', f3: '{F3}', f4: '{F4}', f5: '{F5}', f6: '{F6}', f7: '{F7}', f8: '{F8}', f9: '{F9}', f10: '{F10}', f11: '{F11}', f12: '{F12}', repag: '{PGUP}', avpag: '{PGDN}', 'ctrl-a': '^a', 'ctrl-x': '^x', 'ctrl-s': '^s', 'ctrl-f': '^f', 'ctrl-t': '^t', 'ctrl-w': '^w', 'ctrl-tab': '^{TAB}', 'ctrl-shift-esc': '^+{ESC}', 'alt-tab': '%{TAB}', 'alt-f4': '%{F4}', copiar: '^c', pegar: '^v', deshacer: '^z', espacio: ' ' };
 const escaparSendKeys = (t) => String(t).replace(/[+^%~(){}[\]]/g, (c) => `{${c}}`);
 const comillas = (t) => `'${String(t).replace(/'/g, "''")}'`;
 
 async function hacer(o = {}) {
   switch (o.tipo) {
+    // Ir a un punto de la pantalla (escritorio remoto): coordenadas de 0 a 65535 sobre todo el escritorio virtual (todas las pantallas).
+    case 'ir': correr(`[JarvisRemoto]::mouse_event(0xC001, ${Math.max(0, Math.min(65535, Math.round(Number(o.nx) || 0)))}, ${Math.max(0, Math.min(65535, Math.round(Number(o.ny) || 0)))}, 0, [UIntPtr]::Zero)`); return '';
     case 'mover': correr(`[JarvisRemoto]::mouse_event(1, ${entero(o.dx)}, ${entero(o.dy)}, 0, [UIntPtr]::Zero)`); return '';
     case 'clic': {
       const [abajo, arriba] = o.boton === 'derecho' ? [8, 16] : o.boton === 'medio' ? [32, 64] : [2, 4];
