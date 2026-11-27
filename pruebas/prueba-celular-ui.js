@@ -17,6 +17,9 @@ const CLIPS = path.join(DATOS, 'Videos');
 fs.mkdirSync(path.join(CLIPS, 'Valheim'), { recursive: true });
 // Un clip de verdad (2 s) para que haya miniatura y se pueda reproducir.
 require('child_process').execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc=size=640x360:rate=15', '-f', 'lavfi', '-i', 'sine=frequency=440', '-t', '2', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', path.join(CLIPS, 'Valheim', 'Jefe final.mp4')]);
+// Un clip en HEVC, como los de la app de NVIDIA: el visor de Jarvis no lo lee y tiene que armar la vista previa.
+fs.mkdirSync(path.join(CLIPS, '7 Days to Die'), { recursive: true });
+require('child_process').execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc=size=640x360:rate=30', '-f', 'lavfi', '-i', 'sine=frequency=330', '-t', '4', '-c:v', 'libx265', '-tag:v', 'hvc1', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', path.join(CLIPS, '7 Days to Die', '7 Days to Die 2025.05.17 - 19.45.26.04.DVR.mp4')]);
 // yt-dlp de mentira: escribe en la carpeta pedida un video (o un mp3 con -x) y avisa como el de verdad.
 const YTDLP = path.join(DATOS, 'yt-dlp-falso.js');
 fs.writeFileSync(YTDLP, `#!/usr/bin/env node
@@ -524,6 +527,53 @@ async function hasta(fn, ms = 20000, que = '') {
     assert.deepStrictEqual(nombresClips, [...nombresClips].sort((a, b) => a.localeCompare(b, 'es', { numeric: true, sensitivity: 'base' })), 'ordenados por nombre');
     await ajustes.screenshot({ path: path.join(SALIDA, '18-pc-clips-filtros.png') });
     assert.deepStrictEqual(erroresAjustes, []);
+    // ⋯ de una tarjeta: abrir afuera, convertir, comprimir, papelera.
+    await ajustes.locator('.clip-fila .kebab').first().click();
+    await hasta(() => ajustes.locator('.clip-fila .menu-desplegable:not([hidden])').count(), 3000, 'menú ⋯ de la tarjeta');
+    assert.ok(await ajustes.locator('.clip-fila .menu-desplegable:not([hidden]) button', { hasText: 'Convertir para editar' }).count());
+    await ajustes.screenshot({ path: path.join(SALIDA, '18a-pc-clips-menu.png') });
+    await ajustes.keyboard.press('Escape');
+    let ultimoVista = '';
+    process.on('exit', () => { if (ultimoVista) console.log('VISTA:', ultimoVista); });
+    // El clip HEVC (NVIDIA): el editor arma una vista previa y se puede recortar igual.
+    await ajustes.locator('.clip-fila', { hasText: 'DVR' }).locator('.cuadro').click();
+    await hasta(() => ajustes.locator('.editor-clip').count(), 8000, 'editor de clip');
+    // (En Windows el error del visor la dispara sola; acá Electron sí lee HEVC, así que se pide desde ⋯.)
+    await hasta(() => ajustes.evaluate(() => document.querySelector('.editor-video').duration > 0), 15000, 'clip cargado');
+    await ajustes.click('.editor-cabeza .kebab');
+    await ajustes.locator('.editor-cabeza .menu-desplegable button', { hasText: 'No se ve bien' }).click();
+    await hasta(() => ajustes.evaluate(() => { const v = document.querySelector('.editor-video'); return v && v.duration > 3 && /\/v\/.+vista-/.test(decodeURIComponent(v.currentSrc)) ? true : `${v && v.currentSrc} ${v && v.duration} ${v && v.error && v.error.code} ${(document.querySelector('.editor-mensaje') || {}).textContent}`; }).then((x) => { if (x !== true) ultimoVista = x; return x === true; }), 60000, 'vista previa del clip HEVC');
+    assert.ok(await ajustes.locator('.editor-pie button', { hasText: 'Guardar' }).first().isDisabled(), 'sin recorte, Guardar está apagado');
+    // Pantalla completa propia (botón y Esc).
+    await ajustes.click('.boton-cine');
+    assert.ok(await ajustes.locator('.video-caja.cine').isVisible(), 'pantalla completa');
+    await ajustes.screenshot({ path: path.join(SALIDA, '18b-pc-clip-pantalla-completa.png') });
+    await ajustes.keyboard.press('Escape');
+    assert.strictEqual(await ajustes.locator('.video-caja.cine').count(), 0, 'Esc sale de pantalla completa');
+    // Recortar y Guardar (reemplaza) → Deshacer.
+    await ajustes.fill('.fila-recorte input[aria-label="Inicio (segundos)"]', '1');
+    await ajustes.locator('.fila-recorte input[aria-label="Inicio (segundos)"]').dispatchEvent('change');
+    const guardarB = ajustes.locator('.editor-pie .boton-dividido > button').first();
+    await hasta(async () => !(await guardarB.isDisabled()), 3000, 'Guardar se prende con un recorte');
+    await ajustes.click('.editor-pie .dividido-flecha');
+    await hasta(() => ajustes.locator('.boton-dividido .menu-desplegable:not([hidden]) button', { hasText: 'Guardar una copia' }).count(), 3000, 'Guardar una copia');
+    await ajustes.screenshot({ path: path.join(SALIDA, '18c-pc-clip-guardar.png') });
+    await ajustes.keyboard.press('Escape');
+    const dvr = path.join(CLIPS, '7 Days to Die', '7 Days to Die 2025.05.17 - 19.45.26.04.DVR.mp4');
+    const largoDe = (f) => { const m = /Duration: (\d+):(\d+):(\d+\.\d+)/.exec(String(require('child_process').spawnSync('ffmpeg', ['-hide_banner', '-i', f]).stderr)); return m ? +m[3] + +m[2] * 60 : 0; };
+    await guardarB.click();
+    await hasta(() => ajustes.locator('#cartel button', { hasText: 'Deshacer' }).count(), 60000, 'aviso con Deshacer');
+    assert.ok(Math.abs(largoDe(dvr) - 3) < 0.5, `recortado: ${largoDe(dvr)}`);
+    await ajustes.screenshot({ path: path.join(SALIDA, '18e-pc-clip-deshacer.png') });
+    await ajustes.locator('#cartel button', { hasText: 'Deshacer' }).click();
+    await hasta(async () => Math.abs(largoDe(dvr) - 4) < 0.5, 15000, 'deshacer devuelve el original');
+    // ⋯ del editor → Comprimir…
+    await ajustes.click('.editor-cabeza .kebab');
+    await ajustes.locator('.editor-cabeza .menu-desplegable button', { hasText: 'Comprimir' }).click();
+    assert.ok(await ajustes.locator('.panel-comprimir').isVisible());
+    await ajustes.screenshot({ path: path.join(SALIDA, '18d-pc-clip-comprimir.png'), fullPage: true });
+    await ajustes.locator('.panel-comprimir button', { hasText: 'Cancelar' }).click();
+    await ajustes.click('.editor-cabeza button:has-text("Clips")');
 
     // Inicio de Ajustes: el aviso de yt-dlp viejo, con su botón; y en Sistema → Componentes, "Actualizar".
     await ajustes.click('#menu button[data-grupo="resumen"]');

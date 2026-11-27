@@ -730,7 +730,22 @@ manejar('clips:enviar', ({ archivo, contacto }) => clips.enviarGuardado(archivo,
 // Editor de clips: el video para la vista previa, renombrar, recortar (guardar o reemplazar) y mandar solo el trozo.
 manejar('clips:vista', (archivo) => { if (!clips.dentroDeCarpeta(archivo)) throw new Error('Ese video no está en la carpeta de clips.'); return servidor.compartirLocal(archivo); });
 manejar('clips:renombrar', ({ archivo, nombre }) => clips.renombrar(archivo, nombre));
-manejar('clips:recortar', ({ archivo, desde, hasta, reemplazar }) => clips.recortar(archivo, { desde, hasta, reemplazar: !!reemplazar }));
+manejar('clips:recortar', ({ archivo, desde, hasta, reemplazar }) => clips.recortar(archivo, { desde, hasta, reemplazar: !!reemplazar, mandar: (ruta) => shell.trashItem(ruta) }));
+// Pantalla completa de Ajustes (el editor de clips la usa para ver el video grande).
+manejar('ventana:pantallaCompleta', (si) => { if (ajustes && !ajustes.isDestroyed()) ajustes.setFullScreen(!!si); return true; });
+manejar('clips:deshacerRecorte', (id) => clips.deshacerRecorte(String(id)));
+// Convertir (para editores, MP3, GIF) y comprimir: tardan, así que el avance llega a Ajustes por "clips-trabajo".
+const avisarTrabajo = (dato) => { if (ajustes && !ajustes.isDestroyed()) ajustes.webContents.send('clips-trabajo', dato); };
+manejar('clips:transformar', async ({ archivo, tipo, opciones }) => {
+  avisarTrabajo({ archivo, tipo, porcentaje: 0 });
+  try {
+    const r = await clips.transformar(archivo, String(tipo), opciones || {}, (porcentaje) => avisarTrabajo({ archivo, tipo, porcentaje }));
+    historial.anotar(`${clips.TRANSFORMACIONES[tipo].titulo}: ${r.nombre}`);
+    return r;
+  } finally { avisarTrabajo({ archivo, tipo, fin: true }); }
+});
+manejar('clips:mostrarArchivo', (ruta) => { if (!clips.enCarpeta(ruta)) throw new Error('Ese archivo no está en la carpeta de clips.'); shell.showItemInFolder(ruta); return true; });
+manejar('clips:vistaPrevia', async (archivo) => servidor.compartirLocal(await clips.vistaPrevia(archivo, (porcentaje) => avisarTrabajo({ archivo, tipo: 'vista', porcentaje }))));
 manejar('clips:enviarRecorte', ({ archivo, desde, hasta, contacto }) => clips.enviarRecorte(archivo, { desde, hasta }, contacto || leerConfig().clips.enviarA, (c, mp4) => whatsapp.enviarVideo(c, mp4)));
 // El clip se aparta 10 segundos (con "Deshacer") y después pasa a la Papelera de Windows.
 manejar('clips:papelera', async (archivo) => { const r = await clips.aLaPapelera(archivo, (ruta) => shell.trashItem(ruta)); return { texto: 'Mandé el clip a la Papelera.', id: r.id, plazo: r.plazo }; });
@@ -1362,7 +1377,7 @@ manejar('celular:renombrar', ({ id, nombre }) => celular.renombrar(String(id), n
 manejar('celular:publicar', async () => { await sincronizarCelular(); if (!celular.puerto()) throw new Error('Primero prendé "Usar Jarvis desde el celular".'); return celular.publicarEnTailscale(Number((leerConfig().celular || {}).https) || 443); });
 manejar('celular:despublicar', () => celular.despublicarDeTailscale(Number((leerConfig().celular || {}).https) || 443));
 
-app.on('will-quit', () => { red.detener(); celular.detener().catch(() => {}); globalShortcut.unregisterAll(); oido.apagar(); clips.apagar(); clips.matarFfmpeg(); });
+app.on('will-quit', () => { clips.terminarRecortesPendientes().catch(() => {}); red.detener(); celular.detener().catch(() => {}); globalShortcut.unregisterAll(); oido.apagar(); clips.apagar(); clips.matarFfmpeg(); });
 
 app.whenReady().then(async () => {
   arranque.iniciar(DATOS);

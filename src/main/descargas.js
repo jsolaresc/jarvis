@@ -117,11 +117,13 @@ function estado() {
   return { activa: activa ? publico(activa) : null, enCola: cola.map(publico), historial: historial.map(publico), carpeta: (() => { try { return carpetaDestino(); } catch { return ''; } })() };
 }
 
-// Los formatos salen de los comandos que ya usaba el usuario.
+// Los formatos salen de los comandos que ya usaba el usuario. "-S vcodec:h264,acodec:m4a": entre los que entran, se prefiere
+// H.264 con audio AAC, que abre cualquier editor (After Effects, Premiere); un MP4 en AV1 o VP9 no se puede importar.
+const COMPATIBLE = ['-S', 'vcodec:h264,res,acodec:m4a'];
 const FORMATOS = {
-  mejor: ['-f', 'bv*+ba/b', '--merge-output-format', 'mp4'],
-  1080: ['-f', 'bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080][ext=mp4] / bv*[height<=1080]+ba/b[height<=1080] / bv*+ba/b', '--merge-output-format', 'mp4'],
-  720: ['-f', 'bv*[height<=720][ext=mp4]+ba[ext=m4a]/b[height<=720][ext=mp4] / bv*[height<=720]+ba/b[height<=720] / bv*+ba/b', '--merge-output-format', 'mp4'],
+  mejor: ['-f', 'bv*+ba/b', '-S', 'res,vcodec:h264,acodec:m4a', '--merge-output-format', 'mp4'],
+  1080: ['-f', 'bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080][ext=mp4] / bv*[height<=1080]+ba/b[height<=1080] / bv*+ba/b', ...COMPATIBLE, '--merge-output-format', 'mp4'],
+  720: ['-f', 'bv*[height<=720][ext=mp4]+ba[ext=m4a]/b[height<=720][ext=mp4] / bv*[height<=720]+ba/b[height<=720] / bv*+ba/b', ...COMPATIBLE, '--merge-output-format', 'mp4'],
 };
 const CALIDADES = Object.keys(FORMATOS);
 

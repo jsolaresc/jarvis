@@ -526,6 +526,7 @@ function finDeTrozos() { if (grabacion && grabacion.alCerrar) grabacion.alCerrar
 // ---------- Los clips ya guardados (para verlos y mandarlos desde Ajustes) ----------
 const esVideo = (n) => /\.(mp4|webm|mkv)$/i.test(n) && !/\.parte\./i.test(n);
 // Solo se toca lo que está dentro de la carpeta de clips (nada de rutas de afuera).
+function enCarpeta(archivo) { return path.resolve(String(archivo || '')).startsWith(path.resolve(cfg().carpeta) + path.sep); } // cualquier archivo (MP3, GIF)
 function dentroDeCarpeta(archivo) {
   const raiz = path.resolve(cfg().carpeta);
   const real = path.resolve(String(archivo || ''));
@@ -549,6 +550,7 @@ function listar(limite = 30) {
     }
   };
   mirar(raiz, 0);
+  if (!listar.rescatado) { listar.rescatado = true; const dirs = new Set(salida.map((x) => path.dirname(x.archivo))); dirs.add(raiz); for (const d of dirs) rescatarApartados(d); }
   return salida.sort((a, b) => b.fecha - a.fecha).slice(0, limite);
 }
 // ---------- Papelera con "Deshacer" ----------
@@ -687,7 +689,7 @@ async function conReintentos(fn, intentos = 12, espera = 250) {
   }
 }
 // Guarda el trozo como clip nuevo ("<nombre> (recorte).mp4") o, con reemplazar, deja el recorte en lugar del original.
-async function recortar(archivo, { desde, hasta, reemplazar = false } = {}) {
+async function recortar(archivo, { desde, hasta, reemplazar = false, mandar = null, plazo = 30000 } = {}) {
   if (!dentroDeCarpeta(archivo)) throw new Error('Ese video no está en la carpeta de clips.');
   if (recortando) throw new Error('Ya estoy recortando otro clip: esperá a que termine.');
   const t = tramo(desde, hasta);
@@ -700,19 +702,199 @@ async function recortar(archivo, { desde, hasta, reemplazar = false } = {}) {
     await codificar(ruta, (cod, salida) => argumentosDeRecorte(archivo, t.desde, t.largo, cod, salida), destino, t.largo);
     if (!reemplazar) { ultimoClip = { archivo: destino, juego: (ultimoClip && ultimoClip.juego) || '', segundos: Math.round(t.largo) }; return { archivo: destino, segundos: t.largo }; } // "el último clip" pasa a ser el recorte
     const final = path.join(dir, `${base}.mp4`);
+    // El original no se borra enseguida: queda apartado (oculto para la lista) para poder "Deshacer"; pasado el plazo va a la Papelera.
+    const apartado = path.join(dir, `${base} (original)${path.extname(archivo)}${SUFIJO_DESHACER}`);
     try {
       // Windows no deja reemplazar un archivo abierto (la vista previa del editor, una miniatura): se cierran las lecturas
       // propias y se reintenta unos segundos por si el reproductor tarda en soltarlo.
       await conReintentos(() => {
         soltarLecturas(archivo);
-        if (final !== archivo) { try { fs.unlinkSync(archivo); } catch (e) { if (e.code !== 'ENOENT') throw e; } } // era un .webm/.mkv: el recorte queda en .mp4
+        try { fs.unlinkSync(apartado); } catch {}
+        fs.renameSync(archivo, apartado);
         fs.renameSync(destino, final);
       });
-    } catch (e) { throw new Error(`Recorté el clip pero no pude reemplazar el original (${e.code || e.message}: ¿está abierto en otro programa?). Quedó como "${path.basename(destino)}".`); }
+    } catch (e) {
+      if (!fs.existsSync(archivo) && fs.existsSync(apartado)) { try { fs.renameSync(apartado, archivo); } catch {} }
+      throw new Error(`Recorté el clip pero no pude reemplazar el original (${e.code || e.message}: ¿está abierto en otro programa?). Quedó como "${path.basename(destino)}".`);
+    }
     if (ultimoClip && ultimoClip.archivo === archivo) ultimoClip.archivo = final;
-    return { archivo: final, segundos: t.largo };
+    const id = `r${Date.now().toString(36)}`;
+    const reloj = setTimeout(() => terminarRecorte(id), plazo);
+    if (reloj.unref) reloj.unref();
+    recortesDeshacibles.set(id, { original: archivo, apartado, final, reloj, mandar });
+    return { archivo: final, segundos: t.largo, deshacer: id, plazo };
   } finally { recortando = false; }
 }
+// ---------- Deshacer un "Guardar" (recorte sobre el original) ----------
+const SUFIJO_DESHACER = '.jarvis-deshacer';
+const recortesDeshacibles = new Map(); // id -> { original, apartado, final, reloj, mandar }
+async function terminarRecorte(id) {
+  const r = recortesDeshacibles.get(id);
+  if (!r) return;
+  recortesDeshacibles.delete(id);
+  clearTimeout(r.reloj);
+  // A la Papelera con un nombre que se entienda ("<clip> (original).mp4"), así se puede recuperar desde ahí.
+  const visible = r.apartado.slice(0, -SUFIJO_DESHACER.length);
+  try {
+    if (r.mandar && !fs.existsSync(visible)) { fs.renameSync(r.apartado, visible); await r.mandar(visible); } else fs.unlinkSync(r.apartado);
+  } catch { try { fs.unlinkSync(fs.existsSync(visible) ? visible : r.apartado); } catch {} }
+}
+async function deshacerRecorte(id) {
+  const r = recortesDeshacibles.get(id);
+  if (!r) throw new Error('Ya no se puede deshacer: el original está en la Papelera.');
+  recortesDeshacibles.delete(id);
+  clearTimeout(r.reloj);
+  await conReintentos(() => {
+    soltarLecturas(r.final);
+    if (r.final !== r.original) { try { fs.unlinkSync(r.final); } catch (e) { if (e.code !== 'ENOENT') throw e; } }
+    else { try { fs.unlinkSync(r.final); } catch (e) { if (e.code !== 'ENOENT') throw e; } }
+    fs.renameSync(r.apartado, r.original);
+  });
+  return { archivo: r.original, texto: 'Listo, el clip volvió a como estaba.' };
+}
+async function terminarRecortesPendientes() { for (const id of [...recortesDeshacibles.keys()]) await terminarRecorte(id); }
+// Si Jarvis se cerró en medio del plazo, quedan originales apartados: al listar se ordenan (a la Papelera no, se dejan visibles).
+function rescatarApartados(dir) {
+  try {
+    for (const n of fs.readdirSync(dir)) {
+      if (!n.endsWith(SUFIJO_DESHACER)) continue;
+      const ruta = path.join(dir, n);
+      if ([...recortesDeshacibles.values()].some((r) => r.apartado === ruta)) continue;
+      const visible = ruta.slice(0, -SUFIJO_DESHACER.length);
+      try { if (!fs.existsSync(visible)) fs.renameSync(ruta, visible); } catch {}
+    }
+  } catch {}
+}
+
+// ---------- Ver, convertir y comprimir ----------
+// Avanza leyendo "time=" de ffmpeg contra la duración del video.
+function correrConAvance(ruta, args, duracion, alAvanzar, espera) {
+  return new Promise((ok, mal) => {
+    const hijo = spawn(ruta, args, { windowsHide: true });
+    hijosFfmpeg.add(hijo);
+    let err = ''; let ultimo = -1;
+    hijo.stderr.on('data', (d) => {
+      const t = String(d); err += t; if (err.length > 200000) err = err.slice(-100000);
+      const m = /time=(\d+):(\d+):(\d+(?:\.\d+)?)/.exec(t.slice(t.lastIndexOf('time=')));
+      if (m && duracion > 0 && alAvanzar) { const p = Math.min(99, Math.round(((+m[1] * 3600 + +m[2] * 60 + +m[3]) / duracion) * 100)); if (p !== ultimo) { ultimo = p; alAvanzar(p); } }
+    });
+    const reloj = setTimeout(() => { try { hijo.kill(); } catch {} mal(new Error('ffmpeg tardó demasiado.')); }, espera);
+    hijo.on('error', (e) => { clearTimeout(reloj); hijosFfmpeg.delete(hijo); mal(e); });
+    hijo.on('close', (codigo) => {
+      clearTimeout(reloj); hijosFfmpeg.delete(hijo);
+      if (codigo === 0) ok(err); else mal(new Error(`ffmpeg falló (código ${codigo}): ${err.split(/\r?\n/).filter(Boolean).slice(-3).join(' | ')}`));
+    });
+    try { os.setPriority(hijo.pid, os.constants.priority.PRIORITY_BELOW_NORMAL); } catch {}
+  });
+}
+async function infoDe(ruta, archivo) {
+  const salida = await new Promise((ok) => {
+    const hijo = spawn(ruta, ['-hide_banner', '-i', archivo], { windowsHide: true });
+    let err = ''; hijo.stderr.on('data', (d) => { err += d; });
+    hijo.on('close', () => ok(err)); hijo.on('error', () => ok(err));
+  });
+  const v = /Stream #\S+.*?Video: (\w+)[^\n]*?(\d{2,5})x(\d{2,5})/.exec(salida);
+  return { duracion: duracionDe(salida), video: v ? v[1] : '', ancho: v ? +v[2] : 0, alto: v ? +v[3] : 0, audio: /Stream #\S+.*?Audio:/.test(salida) };
+}
+const TRANSFORMACIONES = {
+  editable: { sufijo: 'para editar', ext: '.mp4', titulo: 'Convertir para editar' },
+  mp3: { sufijo: 'audio', ext: '.mp3', titulo: 'Sacar el audio' },
+  gif: { sufijo: 'gif', ext: '.gif', titulo: 'Convertir a GIF' },
+  comprimir: { sufijo: 'comprimido', ext: '.mp4', titulo: 'Comprimir' },
+};
+const NIVELES = { poco: { crf: 24, cq: 26, alto: 0, audio: 160 }, medio: { crf: 27, cq: 29, alto: 720, audio: 128 }, mucho: { crf: 30, cq: 32, alto: 480, audio: 96 } };
+function argumentosDeTransformar(tipo, origen, info, opciones, cod, salida) {
+  const base = ['-y', '-hide_banner', '-i', origen];
+  if (tipo === 'mp3') return [...base, '-vn', '-c:a', 'libmp3lame', '-q:a', '2', salida];
+  if (tipo === 'gif') {
+    const ancho = Math.min(480, info.ancho || 480);
+    return [...base, '-t', String(Math.min(info.duracion || 30, 30)), '-filter_complex', `fps=12,scale=${ancho}:-2:flags=lanczos,split[a][b];[a]palettegen=max_colors=160[p];[b][p]paletteuse=dither=bayer:bayer_scale=4`, '-loop', '0', salida];
+  }
+  const audio = info.audio ? ['-c:a', 'aac', '-ar', '48000', '-b:a', `${tipo === 'comprimir' ? (NIVELES[opciones.nivel] || NIVELES.medio).audio : 192}k`] : ['-an'];
+  if (tipo === 'editable') {
+    // H.264 + AAC, cuadros por segundo fijos (After Effects y Premiere se llevan mal con los variables) y alta calidad.
+    const v = cod === 'h264_nvenc' ? ['-c:v', 'h264_nvenc', '-preset', 'p5', '-rc', 'vbr', '-cq', '19', '-b:v', '0'] : ['-c:v', 'libx264', '-preset', 'medium', '-crf', '18'];
+    return [...base, '-map', '0:v:0', '-map', '0:a:0?', '-fps_mode', 'cfr', ...v, '-pix_fmt', 'yuv420p', ...audio, '-movflags', '+faststart', salida];
+  }
+  // Comprimir: por nivel (calidad y tamaño de imagen) o para que pese menos de N MB.
+  const n = NIVELES[opciones.nivel] || NIVELES.medio;
+  const filtros = [];
+  const alto = opciones.mb ? (info.alto > 720 ? 720 : 0) : n.alto;
+  if (alto && info.alto > alto) filtros.push(`scale=-2:${alto}`);
+  let v;
+  if (opciones.mb) {
+    const kbpsAudio = info.audio ? 96 : 0;
+    const total = (Number(opciones.mb) * 8192 * 0.92) / Math.max(1, info.duracion || 1);
+    const kbps = Math.max(150, Math.floor(total - kbpsAudio));
+    v = [...(cod === 'h264_nvenc' ? ['-c:v', 'h264_nvenc', '-preset', 'p5'] : ['-c:v', 'libx264', '-preset', 'medium']), '-b:v', `${kbps}k`, '-maxrate', `${Math.round(kbps * 1.2)}k`, '-bufsize', `${kbps * 2}k`];
+    if (info.audio) audio.splice(audio.indexOf('-b:a') + 1, 1, '96k');
+  } else v = cod === 'h264_nvenc' ? ['-c:v', 'h264_nvenc', '-preset', 'p5', '-rc', 'vbr', '-cq', String(n.cq), '-b:v', '0'] : ['-c:v', 'libx264', '-preset', 'medium', '-crf', String(n.crf)];
+  return [...base, '-map', '0:v:0', '-map', '0:a:0?', ...(filtros.length ? ['-vf', filtros.join(',')] : []), ...v, '-pix_fmt', 'yuv420p', ...audio, '-movflags', '+faststart', salida];
+}
+let transformando = null; // { archivo, tipo }
+async function transformar(archivo, tipo, opciones = {}, alAvanzar = () => {}) {
+  if (!dentroDeCarpeta(archivo)) throw new Error('Ese video no está en la carpeta de clips.');
+  const t = TRANSFORMACIONES[tipo];
+  if (!t) throw new Error('No sé hacer eso con el video.');
+  if (transformando) throw new Error('Ya estoy convirtiendo otro video: esperá a que termine.');
+  transformando = { archivo, tipo };
+  try {
+    const ruta = await asegurarFfmpeg();
+    const info = await infoDe(ruta, archivo);
+    if (!info.duracion && tipo !== 'mp3') throw new Error('No pude leer ese video.');
+    if (tipo === 'mp3' && !info.audio) throw new Error('Ese video no tiene audio.');
+    const dir = path.dirname(archivo);
+    const base = path.basename(archivo, path.extname(archivo));
+    let destino = path.join(dir, `${base} (${t.sufijo})${t.ext}`);
+    for (let i = 2; fs.existsSync(destino); i++) destino = path.join(dir, `${base} (${t.sufijo} ${i})${t.ext}`);
+    const parte = `${destino}.parte${t.ext}`;
+    const dur = tipo === 'gif' ? Math.min(info.duracion, 30) : info.duracion;
+    const espera = (120 + dur * 6) * 1000;
+    const codificadores = (t.ext === '.mp4' && !process.env.JARVIS_SIN_NVENC) ? ['h264_nvenc', 'libx264'] : ['libx264'];
+    for (const cod of codificadores) {
+      try {
+        await correrConAvance(ruta, argumentosDeTransformar(tipo, archivo, info, opciones, cod, parte), dur, alAvanzar, espera);
+        if (!fs.existsSync(parte) || fs.statSync(parte).size < 500) throw new Error('El archivo quedó vacío.');
+        fs.renameSync(parte, destino);
+        break;
+      } catch (e) {
+        try { fs.unlinkSync(parte); } catch {}
+        if (cod === codificadores[codificadores.length - 1]) throw e;
+      }
+    }
+    if (tipo === 'comprimir' && fs.statSync(destino).size >= fs.statSync(archivo).size) {
+      try { fs.unlinkSync(destino); } catch {}
+      throw new Error(opciones.mb ? 'No pude dejarlo más liviano que el original.' : 'Ese video ya estaba bien comprimido: así no pesa menos. Probá "Mucho" o "Por peso".');
+    }
+    alAvanzar(100);
+    return { archivo: destino, nombre: path.basename(destino), bytes: fs.statSync(destino).size, antes: fs.statSync(archivo).size, esVideo: esVideo(destino) };
+  } finally { transformando = null; }
+}
+// Vista previa para el editor de lo que el visor no puede reproducir (por ejemplo los clips en HEVC/H.265 de la app de NVIDIA):
+// una copia liviana en H.264 en la carpeta temporal (se reusa mientras el clip no cambie). El recorte se hace igual sobre el original.
+const vistasEnCurso = new Map();
+async function vistaPrevia(archivo, alAvanzar = () => {}) {
+  if (!dentroDeCarpeta(archivo)) throw new Error('Ese video no está en la carpeta de clips.');
+  const st = fs.statSync(archivo);
+  const clave = require('crypto').createHash('sha1').update(`${archivo}|${st.size}|${st.mtimeMs}`).digest('hex').slice(0, 16);
+  fs.mkdirSync(TEMPORAL, { recursive: true });
+  const destino = path.join(TEMPORAL, `vista-${clave}.mp4`);
+  if (fs.existsSync(destino)) return destino;
+  if (vistasEnCurso.has(clave)) return vistasEnCurso.get(clave);
+  const tarea = (async () => {
+    const ruta = await asegurarFfmpeg();
+    const info = await infoDe(ruta, archivo);
+    const parte = `${destino}.parte.mp4`;
+    const args = ['-y', '-hide_banner', '-i', archivo, '-map', '0:v:0', '-map', '0:a:0?', '-vf', `scale=-2:${Math.min(720, info.alto || 720)}`, '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '28', '-g', '30', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart', parte];
+    try { await correrConAvance(ruta, args, info.duracion, alAvanzar, (60 + info.duracion * 3) * 1000); fs.renameSync(parte, destino); } catch (e) { try { fs.unlinkSync(parte); } catch {} throw e; }
+    // Solo se guardan las últimas vistas previas (pesan).
+    try { const viejas = fs.readdirSync(TEMPORAL).filter((n) => /^vista-.*\.mp4$/.test(n)).map((n) => ({ n, t: fs.statSync(path.join(TEMPORAL, n)).mtimeMs })).sort((a, b) => b.t - a.t).slice(5); for (const v of viejas) fs.unlinkSync(path.join(TEMPORAL, v.n)); } catch {}
+    return destino;
+  })().finally(() => vistasEnCurso.delete(clave));
+  vistasEnCurso.set(clave, tarea);
+  return tarea;
+}
+
 // Manda solo el trozo elegido por WhatsApp, sin guardarlo en la carpeta.
 async function enviarRecorte(archivo, { desde, hasta } = {}, contacto, enviarVideo) {
   if (!dentroDeCarpeta(archivo)) throw new Error('Ese video no está en la carpeta de clips.');
@@ -750,7 +932,8 @@ module.exports = {
   asegurarFfmpeg, rutaFfmpeg, correrFfmpeg: correr, duracionDe,
   aLaPapelera, deshacerBorrado, finalizarBorrados, SUFIJO_BORRANDO,
   matarFfmpeg, listar, miniatura, dentroDeCarpeta, enviarGuardado, renombrar, recortar, enviarRecorte,
+  deshacerRecorte, terminarRecortesPendientes, enCarpeta, transformar, vistaPrevia, TRANSFORMACIONES, SUFIJO_DESHACER,
   configurar, usarAtajos, sincronizar, apagar, guardar, guardarYAvisar, capturar, capturarYAvisar, capturaParaEnviar, ultimaDeCaptura, marcarPedidoDeVoz, olvidarPedido, finDelPedido, elegirPedazos, silenciarJarvis, jarvisHabla, mudosEnLinea, argumentosDeUnion, _reiniciarJarvis: () => { intervalosJarvis = []; jarvisDesde = 0; }, prepararParaEnviar, empezarGrabacion, cancelarGrabacion, pausarGrabacion, terminarGrabacion,
   recibirPedazo, recibirTrozo, finDeTrozos, recibirEstado, estado, ultimo, registrarAtajo, permitidoAhora,
-  _pruebas: { filtroDeRecorte, argumentosDeRecorte, nombreSeguro, argumentosDeUnion, elegirJuego, nombreDeJuego, lineaAMuestra, nombreDeArchivo, destinoDe, limpiarNombre, correr, duracionDe, recibirPedazo, setActiva: (v) => { activa = v; }, setMuestras: (m) => { muestras = m; }, setOrdenar: (f) => { ordenar = f; }, pedazos: () => pedazos },
+  _pruebas: { argumentosDeTransformar, infoDe, filtroDeRecorte, argumentosDeRecorte, nombreSeguro, argumentosDeUnion, elegirJuego, nombreDeJuego, lineaAMuestra, nombreDeArchivo, destinoDe, limpiarNombre, correr, duracionDe, recibirPedazo, setActiva: (v) => { activa = v; }, setMuestras: (m) => { muestras = m; }, setOrdenar: (f) => { ordenar = f; }, pedazos: () => pedazos },
 };

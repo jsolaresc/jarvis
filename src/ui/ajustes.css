@@ -807,3 +807,58 @@ ol.pasos > li::before, ol.pasos-lista > li::before, ol.pasos-qr > li::before { c
 .aviso-sistema .as-texto b { font-size: var(--t-m, 14px); }
 .aviso-sistema .as-texto span { color: var(--tenue); }
 .aviso-sistema .as-acciones { display: flex; gap: 6px; flex: none; flex-wrap: wrap; justify-content: flex-end; }
+
+/* Clips: tarjeta con miniatura (tocarla abre el editor), Recortar, Enviar y ⋯ */
+.clip-fila { overflow: visible; position: relative; }
+.clip-fila .cuadro { position: relative; border: 0; padding: 0; margin: 0; font: inherit; border-radius: var(--radio-g) var(--radio-g) 0 0; overflow: hidden; }
+.clip-fila .cuadro .cuadro-play { position: absolute; inset: auto 8px 8px auto; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: rgba(0, 0, 0, .55); color: #fff; opacity: 0; transition: opacity .12s; }
+.clip-fila .cuadro:hover .cuadro-play, .clip-fila .cuadro:focus-visible .cuadro-play { opacity: 1; }
+.clip-fila .fila-progreso { margin: 6px 0 0; }
+.clip-fila .acciones-clip .enviar-clip { margin-left: auto; order: 0; }
+.clip-fila .acciones-clip .con-menu { order: 10; }
+.progreso.fino { height: 4px; margin: 6px 0 0; }
+.boton.kebab { width: 32px; min-width: 32px; padding: 0; display: inline-grid; place-items: center; }
+
+/* Menú desplegable (⋯ y la flechita de los botones divididos) */
+.con-menu { position: relative; display: inline-flex; }
+.menu-desplegable { position: absolute; right: 0; top: calc(100% + 6px); z-index: 40; min-width: 250px; padding: 6px; border-radius: 12px; background: #1d2026; border: 1px solid #3a3f49; box-shadow: 0 14px 40px rgba(0, 0, 0, .45); display: grid; gap: 2px; }
+.menu-desplegable.arriba { top: auto; bottom: calc(100% + 6px); }
+.menu-desplegable[hidden] { display: none; }
+.menu-desplegable button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border: 0; border-radius: 8px; background: none; color: var(--texto); font: inherit; text-align: left; cursor: pointer; }
+.menu-desplegable button:hover, .menu-desplegable button:focus-visible { background: #2a2e36; outline: none; }
+.menu-desplegable button.peligro { color: #ff8a8a; }
+.menu-desplegable .md-icono { line-height: 0; color: var(--tenue); flex: none; }
+.menu-desplegable button.peligro .md-icono { color: inherit; }
+.menu-desplegable .md-texto { display: grid; gap: 1px; }
+.menu-desplegable small { color: var(--tenue); font-size: 12px; }
+.menu-desplegable hr { border: 0; border-top: 1px solid var(--linea); margin: 4px 2px; }
+.boton-dividido { display: inline-flex; align-items: stretch; }
+.boton-dividido > .boton { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.boton-dividido .dividido-flecha { border-top-left-radius: 0; border-bottom-left-radius: 0; border-left: 1px solid rgba(0, 0, 0, .25); padding: 0 8px; min-width: 0; display: inline-grid; place-items: center; height: 100%; }
+.boton-dividido .menu-desplegable { left: 0; right: auto; }
+
+/* Editor de clips, rehecho: cabeza (volver, nombre, ⋯), video grande, recorte, pie (Guardar ▾ · WhatsApp) */
+.editor-clip { max-width: 900px; }
+.editor-cabeza { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.nombre-editable { flex: 1; display: flex; align-items: center; gap: 6px; min-width: 0; }
+.nombre-editable input { flex: 1; min-width: 120px; font-size: 16px; font-weight: 600; background: transparent; border-color: transparent; }
+.nombre-editable input:hover { border-color: var(--linea); }
+.nombre-editable input:focus { background: var(--tarjeta); border-color: var(--acento); }
+.video-caja { position: relative; }
+.editor-video { max-height: 460px; }
+.boton-cine { position: absolute; top: 10px; right: 10px; width: 36px; height: 36px; border-radius: 8px; border: 0; background: rgba(0, 0, 0, .55); color: #fff; display: grid; place-items: center; cursor: pointer; opacity: .75; }
+.boton-cine:hover, .boton-cine:focus-visible { opacity: 1; }
+.video-caja.cine { position: fixed; inset: 0; z-index: 100; background: #000; display: grid; place-items: center; }
+.video-caja.cine .editor-video { width: 100vw; height: 100vh; max-height: none; border-radius: 0; object-fit: contain; }
+body.con-cine #menu, body.con-cine .cabeza-app { visibility: hidden; }
+.fila-recorte .boton:last-child { margin-left: auto; }
+.editor-pie { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 14px; padding: 12px 14px; border: 1px solid var(--linea); border-radius: 10px; background: var(--panel); }
+.editor-pie > .nota { line-height: 0; color: #25d366; }
+.editor-mensaje { margin: 10px 0 6px; min-height: 20px; }
+.editor-mensaje .nota .boton { margin-left: 6px; }
+.panel-comprimir { margin-top: 12px; padding: 12px 14px; border: 1px solid var(--acento); border-radius: 10px; background: var(--tarjeta); display: grid; gap: 10px; }
+.panel-comprimir[hidden] { display: none; }
+.opciones-comprimir { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.opcion-c { display: grid; gap: 2px; text-align: left; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--linea); background: var(--panel); color: var(--texto); font: inherit; cursor: pointer; }
+.opcion-c span { color: var(--tenue); font-size: 12px; }
+.opcion-c.elegida { border-color: var(--acento); background: color-mix(in srgb, var(--acento) 12%, var(--panel)); }

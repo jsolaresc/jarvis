@@ -824,7 +824,7 @@ function abrirEditor(x) {
   clipEditor = { archivo: x.archivo, base: m[1], ext: m[2] || '.mp4', nodo: null };
   pintar(true);
 }
-function cerrarEditor() { clipEditor = null; pintar(true); cargarClips(); }
+function cerrarEditor() { if (document.body.classList.contains('con-cine')) { document.body.classList.remove('con-cine'); pedir('ventana:pantallaCompleta', false).catch(() => {}); } clipEditor = null; pintar(true); cargarClips(); }
 function editorDeClip() {
   const ed = clipEditor;
   if (ed.nodo) return ed.nodo;
@@ -833,7 +833,7 @@ function editorDeClip() {
   const MIN = 0.5;
   const mensaje = h('div', { class: 'nota', style: 'min-height:20px' });
   const decir = (texto, clase = '') => { mensaje.className = `nota ${clase}`; mensaje.textContent = texto; };
-  const video = h('video', { class: 'editor-video', controls: true, preload: 'metadata' });
+  const video = h('video', { class: 'editor-video', controls: true, preload: 'metadata', controlsList: 'nofullscreen', disablePictureInPicture: true });
   const nombre = h('input', { type: 'text', value: ed.base, 'aria-label': 'Nombre del clip', style: 'flex:1;min-width:160px' });
   const nDesde = h('input', { type: 'number', min: 0, step: 0.1, class: 'seg', 'aria-label': 'Inicio (segundos)' });
   const nHasta = h('input', { type: 'number', min: 0, step: 0.1, class: 'seg', 'aria-label': 'Fin (segundos)' });
@@ -851,7 +851,7 @@ function editorDeClip() {
   const marcas = h('div', { class: 'lt-marcas' });
   const linea = h('div', { class: 'lt' }, pista, marcas);
   const pct = (t) => `${T.dur ? Math.max(0, Math.min(100, (t / T.dur) * 100)) : 0}%`;
-  const refrescar = () => {
+  let refrescar = () => {
     T.desde = Math.max(0, Math.min(T.desde, T.hasta - MIN)); T.hasta = Math.min(T.dur, Math.max(T.hasta, T.desde + MIN));
     if (document.activeElement !== nDesde) nDesde.value = T.desde.toFixed(1);
     if (document.activeElement !== nHasta) nHasta.value = T.hasta.toFixed(1);
@@ -917,20 +917,41 @@ function editorDeClip() {
     oculto.addEventListener('loadeddata', siguiente, { once: true });
     oculto.addEventListener('error', () => {});
   };
-  const cargar = async (conservar) => {
-    const url = await pedir('clips:vista', ed.archivo);
+  let vistaUrl = '';
+  const usarUrl = (url, conservar) => new Promise((ok) => {
+    vistaUrl = url;
     video.src = url;
     video.addEventListener('loadedmetadata', () => {
       const dur = Number.isFinite(video.duration) ? video.duration : 0;
-      if (!dur) { decir('No pude leer la duración de este video: usá "Abrir" en la lista para verlo.', 'mal'); return; }
+      if (!dur) { decir('No pude leer la duración de este video: usá "Abrir en el reproductor" (en ⋯) para verlo.', 'mal'); ok(); return; }
       const antes = { ...T };
       T.dur = dur;
       [nDesde, nHasta].forEach((n) => { n.max = dur; });
       if (conservar && antes.dur) { T.desde = Math.min(antes.desde, dur - MIN); T.hasta = Math.min(antes.hasta, dur); } else { T.desde = 0; T.hasta = dur; }
-      refrescar(); moverCabezal(); armarLinea(url, dur);
+      refrescar(); moverCabezal(); armarLinea(url, dur); ok();
     }, { once: true });
+  });
+  // Si el visor no puede con el formato (por ejemplo los clips HEVC de la app de NVIDIA), se arma una vista previa liviana:
+  // se ve y se recorta igual; el recorte se hace sobre el original, sin perder calidad.
+  let probóVista = false;
+  const cargar = async (conservar) => { probóVista = false; await usarUrl(await pedir('clips:vista', ed.archivo), conservar); };
+  const usarVistaPrevia = async (motivo) => {
+    if (probóVista) return;
+    probóVista = true;
+    progreso('vista', 0, motivo);
+    try { await usarUrl(await pedir('clips:vistaPrevia', ed.archivo), true); decir('Estás viendo una vista previa más liviana: al guardar, el recorte sale del original, con su calidad.', ''); }
+    catch (er) { decir(`No pude preparar la vista previa: ${er.message}`, 'mal'); }
+    barra.hidden = true;
   };
-  video.addEventListener('error', () => decir('Este video no se puede reproducir acá. Probá con "Abrir" en la lista.', 'mal'));
+  ed.forzarVista = () => { probóVista = false; usarVistaPrevia('Preparo una vista previa que el visor de Jarvis pueda mostrar…'); };
+  const NO_LEE = 'Este clip tiene un formato que el visor de Jarvis no lee (pasa con los HEVC de la app de NVIDIA). Preparo una vista previa…';
+  video.addEventListener('error', () => {
+    if (!video.getAttribute('src')) return;
+    if (probóVista) { decir('Este video no se puede reproducir acá. Probá con "Abrir en el reproductor" (en ⋯).', 'mal'); return; }
+    usarVistaPrevia(NO_LEE);
+  });
+  // Lee la duración pero no la imagen (sin decodificador para ese formato): también va la vista previa.
+  video.addEventListener('loadeddata', () => { if (!probóVista && video.videoWidth === 0 && video.getAttribute('src')) usarVistaPrevia(NO_LEE); });
   let viendo = false;
   video.addEventListener('timeupdate', () => { moverCabezal(); if (viendo && video.currentTime >= T.hasta) { video.pause(); viendo = false; } });
   video.addEventListener('seeked', moverCabezal);
@@ -939,65 +960,150 @@ function editorDeClip() {
   nHasta.addEventListener('input', () => { if (nHasta.value === '') return; T.hasta = Number(nHasta.value); refrescar(); });
   nDesde.addEventListener('change', () => { refrescar(); nDesde.value = T.desde.toFixed(1); irA(T.desde); });
   nHasta.addEventListener('change', () => { refrescar(); nHasta.value = T.hasta.toFixed(1); irA(Math.max(T.desde, T.hasta - 0.05)); });
-  const ocupar = (botones, texto) => { botones.forEach((b) => { b.disabled = true; }); decir(texto); };
+  // Barra de progreso (vista previa, convertir, comprimir) dentro del mensaje.
+  const barra = h('div', { class: 'progreso fino', hidden: true }, h('i'));
+  const progreso = (tipo, p, texto) => { barra.hidden = false; barra.firstChild.style.width = `${p}%`; if (texto) decir(texto); else if (p != null) decir(`${TAREAS_CLIP[tipo] || 'Trabajando'}… ${p} %`); };
+  ed.progreso = (d) => { if (d.archivo !== ed.archivo) return; if (d.fin) { barra.hidden = true; return; } progreso(d.tipo, d.porcentaje); };
+  const recortado = () => T.dur && (T.desde > 0.05 || T.hasta < T.dur - 0.05);
   const todos = [];
-  const acciones = (nombreBoton, clase, hacer) => { const b = boton(nombreBoton, async () => { todos.forEach((x) => { x.disabled = true; }); try { await hacer(b); } catch (er) { decir(er.message, 'mal'); } todos.forEach((x) => { x.disabled = false; }); }, clase); todos.push(b); return b; };
+  const ocupado = (si) => { todos.forEach((x) => { x.disabled = si; }); if (!si) estadoGuardar(); };
+  const acciones = (nombreBoton, clase, hacer) => { const b = boton(nombreBoton, async () => { ocupado(true); try { await hacer(b); } catch (er) { decir(er.message, 'mal'); barra.hidden = true; } ocupado(false); }, clase); todos.push(b); return b; };
   const aVer = acciones('▶ Ver el recorte', 'chico', async () => { video.currentTime = T.desde; viendo = true; await video.play().catch(() => {}); });
   const acaDesde = boton('Acá', () => { T.desde = Math.min(video.currentTime, T.hasta - MIN); refrescar(); }, 'chico');
   const acaHasta = boton('Acá', () => { T.hasta = Math.max(video.currentTime, T.desde + MIN); refrescar(); }, 'chico');
-  const guardarNuevo = acciones('Guardar como clip nuevo', 'chico principal', async () => {
-    decir('Recortando…');
-    const r = await pedir('clips:recortar', { archivo: ed.archivo, desde: T.desde, hasta: T.hasta });
-    decir(`Listo: guardé "${r.archivo.split(/[\\/]/).pop()}" (el original sigue igual).`, 'bien'); cargarClips();
-  });
-  let seguro = false; let relojSeguro = null;
-  const reemplazar = acciones('Reemplazar el original', 'chico', async (b) => {
-    if (!seguro) { seguro = true; b.textContent = '¿Seguro? Se pierde el original'; b.classList.add('peligro'); clearTimeout(relojSeguro); relojSeguro = setTimeout(() => { seguro = false; b.textContent = 'Reemplazar el original'; b.classList.remove('peligro'); }, 4000); return; }
-    seguro = false; b.textContent = 'Reemplazar el original'; b.classList.remove('peligro');
+  // Guardar = el recorte queda en lugar del original (con "Deshacer" un rato). La otra opción, en la flechita: guardar una copia.
+  const guardarRecorte = async () => {
     decir('Recortando…');
     const hechos = { desde: T.desde, hasta: T.hasta };
     await soltarVideos();
     let r;
     try { r = await pedir('clips:recortar', { archivo: ed.archivo, ...hechos, reemplazar: true }); } catch (er) { await cargar(true).catch(() => {}); throw er; }
+    const antes = ed.archivo;
     ed.archivo = r.archivo; ed.base = r.archivo.split(/[\\/]/).pop().replace(/\.[^.]+$/, ''); nombre.value = ed.base;
     T.dur = 0; await cargar(false);
-    decir('Listo: el clip quedó recortado.', 'bien'); cargarClips();
+    decir('Guardado: el clip quedó recortado.', 'bien'); cargarClips();
+    avisarConAccion('Guardé el recorte en lugar del original.', 'Deshacer', async () => {
+      await soltarVideos();
+      const d = await pedir('clips:deshacerRecorte', r.deshacer);
+      if (clipEditor === ed) { ed.archivo = d.archivo || antes; ed.base = ed.archivo.split(/[\\/]/).pop().replace(/\.[^.]+$/, ''); nombre.value = ed.base; T.dur = 0; await cargar(false); decir('Volvió a como estaba.', 'bien'); }
+      cargarClips(); return d.texto;
+    }, r.plazo);
+  };
+  const guardarCopia = async () => {
+    decir('Recortando…');
+    const r = await pedir('clips:recortar', { archivo: ed.archivo, desde: T.desde, hasta: T.hasta });
+    const n = r.archivo.split(/[\\/]/).pop();
+    decir(`Listo: guardé "${n}" (el original sigue igual).`, 'bien'); cargarClips();
+    avisarConAccion(`Guardé la copia "${n}".`, 'Abrirla', () => { abrirEditor({ archivo: r.archivo, nombre: n }); return ''; }, 8000);
+  };
+  const guardarB = acciones('Guardar', 'principal', guardarRecorte);
+  const guardarCaja = botonDividido(guardarB, [
+    { texto: 'Guardar una copia', detalle: 'El recorte queda como clip nuevo y el original sigue igual', hacer: () => guardarB.disabled || ocuparY(guardarCopia) },
+  ], 'Más formas de guardar');
+  const ocuparY = async (fn) => { ocupado(true); try { await fn(); } catch (er) { decir(er.message, 'mal'); barra.hidden = true; } ocupado(false); };
+  const estadoGuardar = () => { const r = recortado(); guardarB.disabled = !r; guardarCaja.querySelector('.dividido-flecha').disabled = !r; guardarB.title = r ? 'Reemplaza el clip por el recorte (podés deshacerlo)' : 'Elegí un recorte con las manijas para guardar'; };
+  const refrescarViejo = refrescar;
+  refrescar = () => { refrescarViejo(); estadoGuardar(); enviar.textContent = recortado() ? 'Enviar el recorte' : 'Enviar'; };
+  const destino = h('input', { type: 'text', value: c.enviarA || '', placeholder: 'Contacto o grupo', list: 'contactos-clips', 'aria-label': 'A quién se lo mando por WhatsApp', style: 'width:170px', oninput: (e) => { c.enviarA = e.target.value; guardar(); } });
+  const enviar = acciones('Enviar', 'principal', async () => {
+    if (!String(c.enviarA || '').trim()) { destino.focus(); throw new Error('Escribí a quién se lo mando.'); }
+    if (recortado()) { decir('Recortando y enviando…'); decir(await pedir('clips:enviarRecorte', { archivo: ed.archivo, desde: T.desde, hasta: T.hasta, contacto: c.enviarA }), 'bien'); }
+    else { decir('Enviando…'); decir(await pedir('clips:enviar', { archivo: ed.archivo, contacto: c.enviarA }), 'bien'); }
   });
-  const destino = h('input', { type: 'text', value: c.enviarA || '', placeholder: 'Nombre del contacto', list: 'contactos-clips', style: 'width:160px', oninput: (e) => { c.enviarA = e.target.value; guardar(); } });
-  const enviar = acciones('Enviar el recorte', 'chico principal', async () => {
-    if (!String(c.enviarA || '').trim()) throw new Error('Escribí a quién se lo mando.');
-    decir('Recortando y enviando…');
-    decir(await pedir('clips:enviarRecorte', { archivo: ed.archivo, desde: T.desde, hasta: T.hasta, contacto: c.enviarA }), 'bien');
-  });
-  const renombrar = acciones('Renombrar', 'chico', async () => {
+  // El nombre se guarda solo al apretar Enter o al salir del campo.
+  const renombrar = async () => {
+    const nuevo = nombre.value.trim();
+    if (!nuevo || nuevo === ed.base) { nombre.value = ed.base; return; }
     const t = video.currentTime;
+    ocupado(true);
     await soltarVideos();
-    let r;
-    try { r = await pedir('clips:renombrar', { archivo: ed.archivo, nombre: nombre.value }); } catch (er) { await cargar(true).catch(() => {}); throw er; }
-    ed.archivo = r; ed.base = r.split(/[\\/]/).pop().replace(/\.[^.]+$/, ''); nombre.value = ed.base;
-    await cargar(true); video.addEventListener('loadedmetadata', () => { video.currentTime = t; }, { once: true });
-    decir('Listo: le cambié el nombre.', 'bien'); cargarClips();
-  });
-  nombre.addEventListener('keydown', (e) => { if (e.key === 'Enter') renombrar.click(); });
+    try {
+      const r = await pedir('clips:renombrar', { archivo: ed.archivo, nombre: nuevo });
+      ed.archivo = r; ed.base = r.split(/[\\/]/).pop().replace(/\.[^.]+$/, ''); nombre.value = ed.base;
+      avisarGuardado('Guardado');
+    } catch (er) { decir(er.message, 'mal'); nombre.value = ed.base; }
+    await (vistaUrl && probóVista ? usarUrl(await pedir('clips:vistaPrevia', ed.archivo), true) : cargar(true)).catch(() => {});
+    video.currentTime = t; cargarClips(); ocupado(false);
+  };
+  nombre.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); nombre.blur(); } if (e.key === 'Escape') { nombre.value = ed.base; nombre.blur(); } });
+  nombre.addEventListener('blur', renombrar);
+  // Convertir y comprimir: secundarios, en el menú ⋯.
+  const panelComprimir = h('div', { class: 'panel-comprimir', hidden: true });
+  const transformar = async (tipo, opciones = {}) => {
+    panelComprimir.hidden = true;
+    ocupado(true);
+    progreso(tipo, 0);
+    try {
+      const r = await pedir('clips:transformar', { archivo: ed.archivo, tipo, opciones });
+      barra.hidden = true;
+      const ahorro = tipo === 'comprimir' ? ` Pesa ${tamano(r.bytes)} (antes ${tamano(r.antes)}).` : '';
+      decir(`Listo: "${r.nombre}".${ahorro}`, 'bien');
+      mensaje.append(' ', r.esVideo ? boton('Abrir en el editor', () => abrirEditor({ archivo: r.archivo, nombre: r.nombre }), 'chico') : null, boton('Mostrar en la carpeta', () => pedir('clips:mostrarArchivo', r.archivo).catch((er) => avisarGuardado(er.message)), 'chico'));
+      cargarClips();
+    } catch (er) { barra.hidden = true; decir(er.message, 'mal'); }
+    ocupado(false);
+  };
+  const nivelC = { v: 'medio' };
+  const mbC = h('input', { type: 'number', min: 1, max: 4000, step: 1, placeholder: '16', class: 'seg', 'aria-label': 'Megas como máximo' });
+  const pintarComprimir = () => panelComprimir.replaceChildren(
+    h('b', {}, 'Comprimir'), h('span', { class: 'nota' }, 'Queda una copia al lado; el original no se toca.'),
+    h('div', { class: 'opciones-comprimir', role: 'radiogroup', 'aria-label': 'Cuánto comprimir' }, [['poco', 'Un poco', 'Casi igual de nítido'], ['medio', 'Bastante', 'Hasta 720p'], ['mucho', 'Mucho', 'Hasta 480p, para compartir'], ['mb', 'Por peso', 'Que no pase de…']].map(([id, t, d]) => h('button', { type: 'button', role: 'radio', 'aria-checked': String(nivelC.v === id), class: `opcion-c${nivelC.v === id ? ' elegida' : ''}`, onclick: () => { nivelC.v = id; pintarComprimir(); if (id === 'mb') setTimeout(() => mbC.focus(), 0); } }, h('b', {}, t), h('span', {}, d)))),
+    nivelC.v === 'mb' ? h('div', { class: 'fila' }, mbC, h('span', { class: 'nota' }, 'MB')) : null,
+    h('div', { class: 'fila' }, boton('Comprimir', () => { if (nivelC.v === 'mb') { const mb = Number(mbC.value); if (!(mb > 0)) { mbC.focus(); return; } transformar('comprimir', { mb }); } else transformar('comprimir', { nivel: nivelC.v }); }, 'principal chico'), boton('Cancelar', () => { panelComprimir.hidden = true; }, 'chico')));
+  ed.comprimir = () => { pintarComprimir(); panelComprimir.hidden = false; panelComprimir.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); };
+  const masOpciones = menuKebab([
+    { texto: 'Abrir en el reproductor', icono: 'play', hacer: () => pedir('clips:abrir', ed.archivo).catch((er) => decir(er.message, 'mal')) },
+    { texto: 'Mostrar en la carpeta', icono: 'carpeta', hacer: () => pedir('clips:mostrar', ed.archivo).catch((er) => decir(er.message, 'mal')) },
+    { texto: '¿No se ve bien acá?', detalle: 'Preparar una vista previa compatible', icono: 'actualizar', hacer: () => ed.forzarVista() },
+    null,
+    { texto: 'Convertir para editar', detalle: 'MP4 H.264 para After Effects, Premiere…', icono: 'clip', hacer: () => transformar('editable') },
+    { texto: 'Comprimir…', detalle: 'Que pese menos', icono: 'bajar', hacer: () => ed.comprimir() },
+    { texto: 'Sacar el audio (MP3)', icono: 'musica', hacer: () => transformar('mp3') },
+    { texto: 'Convertir a GIF', detalle: 'Los primeros 30 segundos', icono: 'camara', hacer: () => transformar('gif') },
+    null,
+    { texto: 'Mandar a la Papelera', icono: 'tacho', peligro: true, hacer: async () => {
+      await soltarVideos();
+      try { const r = await pedir('clips:papelera', ed.archivo); clipEditor = null; pintar(true); cargarClips(); avisarConDeshacer(r.texto, r.id, r.plazo); } catch (er) { decir(er.message, 'mal'); await cargar(true).catch(() => {}); }
+    } },
+  ], 'Más opciones del clip');
+  // Pantalla completa propia (la del reproductor no anda bien adentro de Ajustes): doble clic, el botón o la tecla F; Esc sale.
+  const cine = h('div', { class: 'video-caja' }, video,
+    h('button', { type: 'button', class: 'boton-cine', title: 'Pantalla completa (F)', 'aria-label': 'Pantalla completa', html: icono('expandir', 18), onclick: () => alternarCine() }));
+  const alternarCine = async (forzar) => {
+    const si = forzar !== undefined ? forzar : !cine.classList.contains('cine');
+    cine.classList.toggle('cine', si);
+    document.body.classList.toggle('con-cine', si);
+    cine.querySelector('.boton-cine').innerHTML = icono(si ? 'achicar' : 'expandir', 18);
+    cine.querySelector('.boton-cine').setAttribute('aria-label', si ? 'Salir de pantalla completa' : 'Pantalla completa');
+    pedir('ventana:pantallaCompleta', si).catch(() => {});
+  };
+  ed.alternarCine = alternarCine;
+  video.addEventListener('dblclick', (e) => { e.preventDefault(); alternarCine(); });
   const nombres = [...new Set((cfg.contactos || []).map((x) => String(x.nombre || '').split(',')[0].trim()).filter(Boolean))];
   ed.nodo = h('div', { class: 'editor-clip' },
     h('datalist', { id: 'contactos-clips' }, nombres.map((n) => h('option', { value: n }))),
-    h('div', { class: 'fila' }, boton('← Volver a la lista', cerrarEditor, 'chico'), h('span', { class: 'nota' }, 'Los cambios que hagas acá no tocan el clip hasta que lo guardes o lo reemplaces.')),
-    h('div', { class: 'fila', style: 'margin:12px 0 10px' }, h('span', {}, 'Nombre:'), nombre, h('span', { class: 'nota' }, ed.ext), renombrar),
-    video,
+    h('div', { class: 'editor-cabeza' },
+      boton('← Clips', () => cerrarEditor(), 'chico'),
+      h('div', { class: 'nombre-editable' }, nombre, h('span', { class: 'nota' }, ed.ext)),
+      masOpciones),
+    cine,
     h('div', { class: 'recorte' },
       linea,
       h('div', { class: 'fila-recorte' },
         h('span', { class: 'et' }, 'Inicio'), nDesde, h('span', { class: 'nota' }, 's'), acaDesde,
         h('span', { class: 'sep' }),
-        h('span', { class: 'et' }, 'Fin'), nHasta, h('span', { class: 'nota' }, 's'), acaHasta),
-      resumen,
-      h('p', { class: 'nota' }, 'Arrastrá las manijas de los costados para elegir dónde empieza y dónde termina; tocá la línea para moverte en el video. También podés frenarlo y tocar "Acá".')),
-    h('div', { class: 'fila', style: 'margin:12px 0' }, aVer, guardarNuevo, reemplazar),
-    h('div', { class: 'fila' }, h('span', {}, 'Enviar a:'), destino, enviar),
-    h('div', { style: 'margin-top:10px' }, mensaje));
+        h('span', { class: 'et' }, 'Fin'), nHasta, h('span', { class: 'nota' }, 's'), acaHasta,
+        h('span', { style: 'flex:1' }), aVer),
+      resumen),
+    panelComprimir,
+    h('div', { class: 'editor-pie' },
+      guardarCaja,
+      h('span', { style: 'flex:1' }),
+      h('span', { class: 'nota', html: `${icono('whatsapp', 16)}` }), destino, enviar),
+    h('div', { class: 'editor-mensaje' }, mensaje, barra),
+    h('p', { class: 'nota' }, 'Arrastrá las manijas para elegir el recorte; tocá la línea para moverte. "Guardar" reemplaza el clip (con Deshacer); en la flechita está "Guardar una copia". Doble clic en el video: pantalla completa.'));
+  refrescar();
   cargar(false).catch((er) => decir(er.message, 'mal'));
-  setTimeout(() => nombre.focus(), 50);
   return ed.nodo;
 }
 
@@ -1056,20 +1162,37 @@ function listaDeClips() {
   const hechos = vis.pagina.map((x) => {
     const foto = miniaturas.get(x.archivo);
     const enviando = clipsEnviando === x.archivo;
-    return h('div', { class: 'clip-fila' },
-      h('div', { class: 'cuadro', onclick: () => abrirEditor(x), title: 'Editar (renombrar o recortar)' }, h('img', { class: 'miniatura', alt: '', 'data-archivo': x.archivo, src: foto || undefined, hidden: !foto }), h('span', { class: 'sin-foto', hidden: !!foto }, 'Editar')),
-      h('div', { class: 'quien-espacio' }, h('div', { class: 'nombre-clip', title: 'Renombrar o recortar', style: 'cursor:pointer', onclick: () => abrirEditor(x) }, x.nombre), h('div', { class: 'nota' }, [x.juego, tamano(x.bytes), hace(x.fecha)].filter(Boolean).join(' · '))),
+    const trabajo = trabajosClips.get(x.archivo);
+    const transformarDesdeLista = async (tipo) => {
+      try {
+        const r = await pedir('clips:transformar', { archivo: x.archivo, tipo, opciones: {} });
+        avisarConAccion(`Listo: "${r.nombre}"${tipo === 'comprimir' ? ` (${tamano(r.bytes)}, antes ${tamano(r.antes)})` : ''}.`, 'Mostrar', () => { pedir('clips:mostrarArchivo', r.archivo); return ''; }, 12000);
+        cargarClips();
+      } catch (er) { avisarGuardado(er.message); }
+    };
+    return h('div', { class: 'clip-fila', 'data-archivo': x.archivo },
+      h('button', { type: 'button', class: 'cuadro', onclick: () => abrirEditor(x), title: 'Recortar, guardar y enviar', 'aria-label': `Editar ${x.nombre}` }, h('img', { class: 'miniatura', alt: '', 'data-archivo': x.archivo, src: foto || undefined, hidden: !foto }), h('span', { class: 'sin-foto', hidden: !!foto }, 'Editar'), h('span', { class: 'cuadro-play', html: icono('tijera', 18) })),
+      h('div', { class: 'quien-espacio', onclick: () => abrirEditor(x), style: 'cursor:pointer' }, h('div', { class: 'nombre-clip', title: 'Recortar, guardar y enviar' }, x.nombre), h('div', { class: 'nota' }, [x.juego, tamano(x.bytes), hace(x.fecha)].filter(Boolean).join(' · ')),
+        h('div', { class: 'progreso fino fila-progreso', hidden: !trabajo, title: trabajo ? `${TAREAS_CLIP[trabajo.tipo]}… ${trabajo.porcentaje} %` : '' }, h('i', { style: `width:${trabajo ? trabajo.porcentaje : 0}%` }))),
       h('div', { class: 'acciones-clip' },
-        botonIcono('play', 'Abrir', () => pedir('clips:abrir', x.archivo).catch((er) => avisarGuardado(er.message))),
-        botonIcono('carpeta', 'Mostrar en la carpeta', () => pedir('clips:mostrar', x.archivo).catch((er) => avisarGuardado(er.message))),
-        botonIcono('lapiz', 'Editar (renombrar o recortar)', () => abrirEditor(x)),
+        boton('Recortar', () => abrirEditor(x), 'chico'),
         boton(enviando ? 'Enviando…' : 'Enviar', async (ev) => {
           if (!String(c.enviarA || '').trim()) { avisarGuardado('Escribí arriba a quién se lo mando.'); return; }
           clipsEnviando = x.archivo; ev.target.disabled = true; ev.target.textContent = 'Enviando…';
           try { avisarGuardado(await pedir('clips:enviar', { archivo: x.archivo, contacto: c.enviarA })); } catch (er) { avisarGuardado(er.message); }
           clipsEnviando = ''; pintar();
         }, 'chico principal enviar-clip'),
-        botonPapelera(x)));
+        menuKebab([
+          { texto: 'Abrir en el reproductor', icono: 'play', hacer: () => pedir('clips:abrir', x.archivo).catch((er) => avisarGuardado(er.message)) },
+          { texto: 'Mostrar en la carpeta', icono: 'carpeta', hacer: () => pedir('clips:mostrar', x.archivo).catch((er) => avisarGuardado(er.message)) },
+          null,
+          { texto: 'Convertir para editar', detalle: 'MP4 H.264 para After Effects, Premiere…', icono: 'clip', hacer: () => transformarDesdeLista('editable') },
+          { texto: 'Comprimir…', detalle: 'Que pese menos', icono: 'bajar', hacer: () => { abrirEditor(x); setTimeout(() => clipEditor && clipEditor.comprimir && clipEditor.comprimir(), 60); } },
+          { texto: 'Sacar el audio (MP3)', icono: 'musica', hacer: () => transformarDesdeLista('mp3') },
+          { texto: 'Convertir a GIF', detalle: 'Los primeros 30 segundos', icono: 'camara', hacer: () => transformarDesdeLista('gif') },
+          null,
+          { texto: 'Mandar a la Papelera', icono: 'tacho', peligro: true, hacer: async () => { try { const r = await pedir('clips:papelera', x.archivo); avisarConDeshacer(r.texto, r.id, r.plazo); } catch (er) { avisarGuardado(er.message); } cargarClips(); } },
+        ], `Más opciones de ${x.nombre}`)));
   });
   return h('div', { class: 'ancho' },
     h('datalist', { id: 'contactos-clips' }, nombres.map((n) => h('option', { value: n }))),
@@ -1099,6 +1222,73 @@ function botonPapelera(x) {
   caja.append(b);
   return caja;
 }
+// Un aviso con un botón (Deshacer, Abrir…) en el mismo cartel de abajo. hacer() puede devolver un texto para mostrar.
+function avisarConAccion(texto, accion, hacer, plazo = 10000) {
+  clearTimeout(avisarGuardado.relojGrande);
+  const b = h('button', { type: 'button', class: 'boton chico principal', style: 'margin-left:12px', onclick: async (ev) => {
+    ev.stopPropagation(); b.disabled = true;
+    try { const r = await hacer(); if (r) avisarGuardado(r); else cartelGrande.hidden = true; } catch (er) { avisarGuardado(er.message); }
+  } }, accion);
+  cartelGrande.className = '';
+  cartelGrande.replaceChildren(h('span', {}, texto), b);
+  cartelGrande.hidden = false;
+  avisarGuardado.relojGrande = setTimeout(() => { cartelGrande.hidden = true; }, plazo);
+}
+// Menú de "⋯" (kebab). items: { texto, detalle, icono, peligro, hacer } o null para una línea divisoria.
+function menuDesplegable(items, etiqueta, disparador) {
+  const lista = h('div', { class: 'menu-desplegable', role: 'menu', hidden: true });
+  const cerrar = () => { lista.hidden = true; disparador.setAttribute('aria-expanded', 'false'); document.removeEventListener('pointerdown', afuera, true); document.removeEventListener('keydown', teclas, true); };
+  const afuera = (e) => { if (!caja.contains(e.target)) cerrar(); };
+  const teclas = (e) => {
+    const bs = [...lista.querySelectorAll('button')];
+    const i = bs.indexOf(document.activeElement);
+    if (e.key === 'Escape') { e.stopPropagation(); cerrar(); disparador.focus(); }
+    else if (e.key === 'ArrowDown') { e.preventDefault(); bs[(i + 1) % bs.length].focus(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); bs[(i - 1 + bs.length) % bs.length].focus(); }
+  };
+  lista.replaceChildren(...items.map((it) => (it ? h('button', { type: 'button', role: 'menuitem', class: it.peligro ? 'peligro' : '', onclick: (e) => { e.stopPropagation(); cerrar(); it.hacer(); } },
+    it.icono ? h('span', { class: 'md-icono', html: icono(it.icono, 16) }) : null,
+    h('span', { class: 'md-texto' }, h('span', {}, it.texto), it.detalle ? h('small', {}, it.detalle) : null)) : h('hr'))));
+  disparador.setAttribute('aria-haspopup', 'menu'); disparador.setAttribute('aria-expanded', 'false');
+  disparador.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (!lista.hidden) { cerrar(); return; }
+    lista.hidden = false; disparador.setAttribute('aria-expanded', 'true');
+    // Se abre hacia arriba si abajo no entra.
+    const r = disparador.getBoundingClientRect();
+    lista.classList.toggle('arriba', window.innerHeight - r.bottom < Math.min(360, lista.scrollHeight + 16) && r.top > window.innerHeight - r.bottom);
+    document.addEventListener('pointerdown', afuera, true); document.addEventListener('keydown', teclas, true);
+    const primero = lista.querySelector('button'); if (primero && e.detail === 0) primero.focus();
+  });
+  const caja = h('div', { class: 'con-menu' }, disparador, lista);
+  return caja;
+}
+const menuKebab = (items, etiqueta) => menuDesplegable(items, etiqueta, h('button', { type: 'button', class: 'boton icono-solo kebab', title: etiqueta, 'aria-label': etiqueta, html: icono('puntos', 18) }));
+// Botón dividido: la acción principal y, en la flechita, las alternativas.
+function botonDividido(principal, items, etiqueta) {
+  const flecha = h('button', { type: 'button', class: `boton dividido-flecha ${principal.className.replace(/\bboton\b/, '')}`, title: etiqueta, 'aria-label': etiqueta, html: icono('chevron', 16) });
+  const caja = menuDesplegable(items, etiqueta, flecha);
+  return h('div', { class: 'boton-dividido' }, principal, caja);
+}
+const TAREAS_CLIP = { vista: 'Preparando la vista previa', editable: 'Convirtiendo para editar', comprimir: 'Comprimiendo', mp3: 'Sacando el audio', gif: 'Armando el GIF' };
+const trabajosClips = new Map(); // archivo -> { tipo, porcentaje } (para mostrar el avance en la lista)
+jarvis.escuchar('clips-trabajo', (d) => {
+  if (d.fin) trabajosClips.delete(d.archivo); else trabajosClips.set(d.archivo, d);
+  if (clipEditor && clipEditor.progreso) clipEditor.progreso(d);
+  if (!clipEditor && seccion === 'clips') {
+    const fila = [...document.querySelectorAll('.clip-fila')].find((f) => f.dataset.archivo === d.archivo);
+    const b = fila && fila.querySelector('.fila-progreso');
+    if (b) { b.hidden = !!d.fin; b.firstChild.style.width = `${d.porcentaje || 0}%`; b.title = `${TAREAS_CLIP[d.tipo] || 'Trabajando'}… ${d.porcentaje || 0} %`; }
+  }
+});
+// Atajos del editor: F = pantalla completa, Esc = salir de ella.
+document.addEventListener('keydown', (e) => {
+  if (!clipEditor || !clipEditor.alternarCine || seccion !== 'clips') return;
+  const enCine = document.body.classList.contains('con-cine');
+  if (e.key === 'Escape' && enCine) { e.preventDefault(); clipEditor.alternarCine(false); }
+  else if ((e.key === 'f' || e.key === 'F') && !escribiendo() && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); clipEditor.alternarCine(); }
+});
+
 // Un aviso con un botón "Deshacer" (el mismo cartel de abajo).
 function avisarConDeshacer(texto, id, plazo = 10000) {
   clearTimeout(avisarGuardado.relojGrande);

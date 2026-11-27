@@ -2072,6 +2072,49 @@ prueba('clips: renombrar y recortar un clip guardado (clip nuevo, reemplazo y so
     assert.strictEqual(rem.archivo, rec2.archivo);
     assert.ok(Math.abs(largo(rem.archivo) - 1) < 0.4);
     assert.ok(!fs.readdirSync(carpeta).some((n) => /editando|parte/.test(n)), 'no quedan archivos a medias');
+    // "Guardar" se puede deshacer: el original quedó apartado (la lista no lo ve) y vuelve tal cual.
+    assert.ok(rem.deshacer && clips.listar(Infinity).every((x) => !/original/.test(x.nombre)), 'el original apartado no aparece en la lista');
+    const vuelto = await clips.deshacerRecorte(rem.deshacer);
+    assert.strictEqual(vuelto.archivo, rec2.archivo);
+    assert.ok(Math.abs(largo(rec2.archivo) - 2) < 0.4, 'volvió el de 2 s');
+    await assert.rejects(() => clips.deshacerRecorte(rem.deshacer), /Ya no se puede deshacer/);
+    // Pasado el plazo, el original va a la Papelera con un nombre que se entiende.
+    let alaPapelera = null;
+    const rem2 = await clips.recortar(rec2.archivo, { desde: 0, hasta: 1, reemplazar: true, plazo: 50, mandar: async (r) => { alaPapelera = path.basename(r); fs.unlinkSync(r); } });
+    await new Promise((r) => setTimeout(r, 300));
+    assert.strictEqual(alaPapelera, 'Ace en Mirage 1v4 (recorte 2) (original).mp4');
+    assert.ok(!fs.readdirSync(carpeta).some((n) => n.endsWith(clips.SUFIJO_DESHACER)));
+    await assert.rejects(() => clips.deshacerRecorte(rem2.deshacer), /Ya no se puede/);
+    // Convertir para editar (H.264 + AAC, cuadros fijos), comprimir, MP3 y GIF: copias al lado, con avance.
+    const avances = [];
+    const ed = await clips.transformar(nuevo1, 'editable', {}, (p) => avances.push(p));
+    assert.strictEqual(ed.nombre, 'Ace en Mirage 1v4 (para editar).mp4');
+    assert.ok(avances.includes(100) && avances.length > 1, `avance: ${avances}`);
+    const info = String(spawnSync('ffmpeg', ['-hide_banner', '-i', ed.archivo]).stderr);
+    assert.match(info, /Video: h264/); assert.match(info, /Audio: aac/);
+    // Un video de prueba ya muy comprimido: con "Un poco" no achica, y se dice en vez de dejar una copia más pesada.
+    await assert.rejects(() => clips.transformar(nuevo1, 'comprimir', { nivel: 'poco' }), /ya estaba bien comprimido/);
+    assert.ok(!fs.readdirSync(carpeta).some((n) => /comprimido/.test(n)));
+    const pesado = path.join(carpeta, 'Pesado.mp4');
+    assert.strictEqual(spawnSync('ffmpeg', ['-y', '-hide_banner', '-f', 'lavfi', '-i', 'testsrc2=size=1280x720:rate=30', '-f', 'lavfi', '-i', 'anoisesrc=d=5', '-t', '5', '-vf', 'noise=alls=30:allf=t', '-c:v', 'libx264', '-crf', '16', '-c:a', 'aac', '-b:a', '192k', '-pix_fmt', 'yuv420p', pesado]).status, 0);
+    const comp = await clips.transformar(pesado, 'comprimir', { nivel: 'mucho' });
+    assert.ok(comp.bytes < comp.antes, `comprimido ${comp.bytes} < ${comp.antes}`);
+    assert.match(String(spawnSync('ffmpeg', ['-hide_banner', '-i', comp.archivo]).stderr), /x480/);
+    assert.strictEqual(comp.nombre, 'Pesado (comprimido).mp4');
+    const porPeso = await clips.transformar(pesado, 'comprimir', { mb: 0.5 });
+    assert.ok(porPeso.bytes < 0.6 * 1024 * 1024, `pesa ${porPeso.bytes}`);
+    assert.strictEqual(porPeso.nombre, 'Pesado (comprimido 2).mp4');
+    const mp3 = await clips.transformar(nuevo1, 'mp3');
+    assert.ok(mp3.nombre.endsWith('(audio).mp3') && !mp3.esVideo);
+    const gif = await clips.transformar(nuevo1, 'gif');
+    assert.ok(gif.nombre.endsWith('(gif).gif') && gif.bytes > 1000);
+    await assert.rejects(() => clips.transformar('/tmp/afuera.mp4', 'mp3'), /no está en la carpeta/);
+    // Vista previa liviana (para lo que el visor no lee, como HEVC): se arma una vez y se reusa.
+    const v1 = await clips.vistaPrevia(nuevo1);
+    assert.ok(fs.existsSync(v1) && /vista-/.test(v1));
+    assert.strictEqual(await clips.vistaPrevia(nuevo1), v1);
+    for (const x of [ed, comp, porPeso, mp3, gif]) fs.unlinkSync(x.archivo);
+    fs.unlinkSync(pesado);
     // Mandar solo el trozo: llega un mp4 de ~2 s y no queda nada guardado de más.
     const antes = fs.readdirSync(carpeta).sort();
     let recibido = null;
