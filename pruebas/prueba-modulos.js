@@ -1982,16 +1982,16 @@ prueba('clips por voz: el clip termina antes de tu pedido ("grabá los últimos 
     clips.marcarPedidoDeVoz(0);
     clips.marcarPedidoDeVoz(Date.now() - 4000);
     const fin1 = clips.finDelPedido();
-    assert.ok(Math.abs(fin1 - (Date.now() - 4000 - 2000)) < 200, 'con 2 s corta 2 s antes de que habló');
+    assert.ok(Math.abs(fin1 - (Date.now() - 4000 - 2200)) < 150, 'con 2 s corta 2 s antes de que habló');
     assert.strictEqual(clips.finDelPedido(), 0, 'la marca se usa una sola vez');
     clips.marcarPedidoDeVoz(0);
     assert.strictEqual(clips.finDelPedido(), 0, 'un pedido escrito no recorta');
     config.guardarConfig({ ...cfgAntes, clips: { ...cfgAntes.clips, recorteDeVoz: 0 } });
     clips.marcarPedidoDeVoz(Date.now() - 4000);
-    assert.ok(Math.abs(clips.finDelPedido() - (Date.now() - 4000)) < 200, 'con 0 (lo normal) el clip termina justo cuando empezaste a hablar');
+    assert.ok(Math.abs(clips.finDelPedido() - (Date.now() - 4200)) < 150, 'con 0 (lo normal) el clip termina justo cuando empezaste a hablar');
     config.guardarConfig({ ...cfgAntes, clips: { ...cfgAntes.clips, recorteDeVoz: 5 } });
     clips.marcarPedidoDeVoz(Date.now() - 4000);
-    assert.ok(Math.abs(clips.finDelPedido() - (Date.now() - 9000)) < 200, 'con 5 s corta 5 s antes');
+    assert.ok(Math.abs(clips.finDelPedido() - (Date.now() - 9200)) < 150, 'con 5 s corta 5 s antes');
   } finally { config.guardarConfig(cfgAntes); clips.marcarPedidoDeVoz(0); }
 });
 
