@@ -143,11 +143,18 @@ async function hasta(fn, ms = 20000, que = '') {
     const enPC = await notch.evaluate(() => window.jarvis.pedir('cfg:leer'));
     assert.strictEqual(enPC.dato.modo, 'silencio', 'el modo cambió en la PC');
 
-    // Inicio: rutinas y modos son widgets.
+    // Inicio: estado de la PC, atajos (con las rutinas) y "Para hoy".
     await p.click('#abajo button[data-hoja="inicio"]');
-    await hasta(() => p.locator('.w-rutinas .rutina').count(), 5000, 'rutinas');
-    await p.click('.wt-modos .fichas button:has-text("Normal")');
-    await hasta(async () => (await p.locator('.widget .fichas button.on').textContent()) === 'Normal', 8000, 'modo normal');
+    await hasta(() => p.locator('.w-atajos button').count(), 5000, 'atajos');
+    assert.ok(await p.locator('.wt-hoy').count(), 'para hoy');
+    // El modo se cambia desde la pestaña PC.
+    await p.click('#abajo button[data-hoja="pc"]');
+    await hasta(() => p.locator('.mosaico').count(), 5000, 'pestaña PC');
+    await p.screenshot({ path: path.join(SALIDA, '4b-celular-pc.png'), fullPage: true });
+    await p.click('.pc-cabeza button:has-text("Modo")');
+    await p.click('#catalogo button:has-text("Normal")');
+    await hasta(async () => /normal/i.test(await p.textContent('#estado-pc')), 8000, 'modo normal');
+    await p.click('#abajo button[data-hoja="inicio"]');
     // Editar Inicio: sumar un atajo de voz, achicar y quitar un widget; queda guardado.
     const antes = await p.locator('#widgets .widget').count();
     await p.click('#editar-inicio');
@@ -210,52 +217,50 @@ async function hasta(fn, ms = 20000, que = '') {
     await hasta(async () => /\d/.test(await p.textContent('#aviso').catch(() => '')), 15000, 'respuesta en el widget');
     await p.screenshot({ path: path.join(SALIDA, '6-celular-inicio-editado.png'), fullPage: true });
 
-    // Descargar: una para este celular (la PC la baja y el celular se la lleva) y un audio para la PC.
+    // Descargar desde la Charla: pegar un link ofrece cómo bajarlo (al celular, solo audio o en la PC).
     await p.click('#abajo button[data-hoja="mas"]');
     await p.screenshot({ path: path.join(SALIDA, '6b-celular-mas.png') });
-    await p.click('.mas-item:has-text("Descargar")');
-    await p.fill('#d-url', 'Mirá esto https://youtu.be/abc123 jaja');
-    assert.strictEqual(await p.inputValue('#d-url'), 'https://youtu.be/abc123', 'deja solo el link');
-    await p.click('.segmentado[data-campo="calidad"] [data-valor="720"]');
+    await p.click('#abajo button[data-hoja="charla"]');
+    await p.fill('#texto', 'Mirá esto https://youtu.be/abc123 jaja');
+    await p.click('#enviar');
+    await hasta(() => p.locator('#mensajes .oferta button').count(), 5000, 'oferta de descarga');
     await p.screenshot({ path: path.join(SALIDA, '7a-celular-descargar.png') });
-    await p.click('#form-descarga button[type="submit"]');
-    await hasta(() => p.locator('#lista-descargas li').count(), 8000, 'descarga en la lista');
-    await esperar(500);
-    await p.screenshot({ path: path.join(SALIDA, '7b-celular-descargando.png') });
-    await hasta(async () => /quedó en el celular/.test(await p.textContent('#aviso')), 20000, 'el video llegó al celular');
-    await p.fill('#d-url', 'https://youtu.be/abc123');
-    await p.click('.segmentado[data-campo="modo"] [data-valor="audio"]');
-    assert.strictEqual(await p.isHidden('#d-calidad-fila'), true, 'sin calidad para audio');
-    await p.click('.segmentado[data-campo="para"] [data-valor="pc"]');
-    await p.click('#form-descarga button[type="submit"]');
-    await hasta(async () => /quedó en la PC/.test(await p.textContent('#lista-descargas')), 20000, 'audio listo en la PC');
+    await p.click('#mensajes .oferta button:has-text("Video al celular")');
+    await hasta(async () => /está en el celular/.test(await p.textContent('#aviso')), 20000, 'el video llegó al celular');
+    await p.fill('#texto', 'https://youtu.be/abc123');
+    await p.click('#enviar');
+    await p.click('#mensajes .oferta button:has-text("En la PC")');
+    await p.click('#abajo button[data-hoja="archivos"]');
+    await hasta(async () => /quedó en la PC/.test(await p.textContent('#lista-descargas')), 20000, 'video listo en la PC');
     await p.screenshot({ path: path.join(SALIDA, '7c-celular-descargas-listas.png') });
     // La PC borró lo temporal del celular.
     const temporal = path.join(DATOS, 'celular-temporal');
     await hasta(() => !fs.existsSync(temporal) || fs.readdirSync(temporal).length === 0, 5000, 'temporal borrado');
-    assert.ok(fs.existsSync(path.join(CLIPS, 'Descargas', 'Audio', 'Tema de prueba [abc123].mp3')), 'el audio quedó en Descargas\\Audio');
+
 
     // Archivos: en la PC (clip, descarga de audio) y en el celular (el video recién bajado).
-    await p.click('#abajo button[data-hoja="archivos"]');
-    await p.click('[data-donde="pc"]');
+    await hasta(() => p.locator('#recientes .reciente').count(), 8000, 'recientes');
+    await p.screenshot({ path: path.join(SALIDA, '7c2-celular-archivos-raiz.png'), fullPage: true });
+    await p.click('#ubicaciones .mas-item:has-text("Jarvis")');
     await hasta(async () => (await p.locator('#lista-archivos li .abrir').count()) >= 2, 8000, 'archivos de la PC');
     const nombresPC = await p.locator('#lista-archivos li .datos b').allTextContents();
-    assert.ok(nombresPC.includes('Jefe final') && nombresPC.includes('Tema de prueba'), nombresPC.join(', '));
+    assert.ok(nombresPC.includes('Jefe final') && nombresPC.includes('Video de prueba'), nombresPC.join(', '));
     await hasta(() => p.locator('#lista-archivos .mini img').count(), 8000, 'miniatura del clip');
     await esperar(800);
     await p.screenshot({ path: path.join(SALIDA, '7d-celular-archivos-pc.png') });
-    await p.click('[data-filtro="audio"]');
-    assert.deepStrictEqual(await p.locator('#lista-archivos li .datos b').allTextContents(), ['Tema de prueba']);
-    await p.click('[data-filtro="todo"]');
+    await p.click('#filtros [data-filtro="video"]');
+    assert.deepStrictEqual(await p.locator('#lista-archivos li .datos b').allTextContents(), ['Video de prueba']);
+    await p.click('#filtros [data-filtro="todo"]');
     // Abrir el clip y pasarlo al celular.
     await p.locator('#lista-archivos li .abrir', { hasText: 'Jefe final' }).click();
     await hasta(() => p.locator('#hoja-archivo[open] video').count(), 5000, 'hoja del archivo');
     await hasta(() => p.evaluate(() => document.querySelector('#ha-medio video').readyState >= 1), 8000, 'el video carga');
     await p.screenshot({ path: path.join(SALIDA, '7e-celular-hoja-pc.png') });
-    await p.getByRole('button', { name: 'Pasar al celular' }).click();
+    await p.click('#ha-principales .acc:has-text("Al celular")');
     await hasta(async () => /quedó en este celular/.test(await p.textContent('#aviso')), 15000, 'clip pasado al celular');
-    await p.click('#ha-cerrar');
-    await p.click('[data-donde="celular"]');
+    await p.keyboard.press('Escape');
+    await p.click('#arch-volver');
+    await p.click('#ubicaciones .mas-item:has-text("Este celular")');
     const enCel = await p.locator('#lista-archivos li .datos b').allTextContents();
     assert.deepStrictEqual(enCel, ['Jefe final', 'Video de prueba']);
     assert.strictEqual(await p.locator('#lista-archivos .mini img').count(), 2, 'miniaturas hechas en el celular');
@@ -265,10 +270,11 @@ async function hasta(fn, ms = 20000, que = '') {
     await hasta(() => p.evaluate(() => { const v = document.querySelector('#ha-medio video'); return v && v.readyState >= 1 && v.src.startsWith('blob:'); }), 8000, 'video local');
     await p.screenshot({ path: path.join(SALIDA, '7g-celular-hoja-local.png') });
     // Pasarlo a la PC.
-    await p.getByRole('button', { name: 'Pasar a la PC' }).click();
+    await p.click('#ha-principales .acc:has-text("A la PC")');
     await hasta(async () => /quedó en la PC/.test(await p.textContent('#aviso')), 15000, 'pasado a la PC');
     assert.ok(fs.existsSync(path.join(CLIPS, 'Descargas', 'Del celular', 'Video de prueba [abc123].mp4')), 'quedó en Descargas\\Del celular');
     // Mandarlo por WhatsApp sin WhatsApp conectado: tiene que explicar el problema (y no dejar nada temporal).
+    await p.click('#ha-principales .acc:has-text("WhatsApp")');
     await p.fill('#ha-para', 'Tomi');
     await p.click('#ha-mandar');
     await hasta(async () => /WhatsApp/.test(await p.textContent('#aviso')), 15000, 'aviso de WhatsApp al mandar');
@@ -277,32 +283,34 @@ async function hasta(fn, ms = 20000, que = '') {
     p.once('dialog', (d) => d.accept());
     await p.getByRole('button', { name: 'Borrar del celular' }).click();
     await hasta(async () => (await p.locator('#lista-archivos li .datos b').allTextContents()).length === 1, 5000, 'borrado del celular');
-    // "Compartir" desde otra app: abre Descargar con el link.
+    // "Compartir" desde otra app: la Charla ofrece bajar el link.
     const p3 = await cel.newPage();
     await p3.goto(`http://127.0.0.1:${PUERTO}/?titulo=Un%20video&texto=${encodeURIComponent('Mirá https://youtube.com/watch?v=zzz')}`);
-    await hasta(() => p3.locator('#s-descargar:not([hidden])').count(), 8000, 'abre en Descargar');
-    assert.strictEqual(await p3.inputValue('#d-url'), 'https://youtube.com/watch?v=zzz');
+    await hasta(() => p3.locator('#s-charla:not([hidden]) .oferta').count(), 8000, 'ofrece bajarlo en la Charla');
     assert.strictEqual(new URL(p3.url()).search, '', 'limpia la dirección');
     await p3.close();
-    await p.click('#abajo button[data-hoja="mensaje"]');
-    await p.fill('#wa-para', 'Tomi');
-    await p.fill('#wa-texto', 'Ya salgo');
-    await p.click('#form-wa button[type="submit"]');
+    // WhatsApp desde el "+" de la Charla.
+    await p.click('#abajo button[data-hoja="charla"]');
+    await p.click('#adjuntar');
+    await p.click('#catalogo button:has-text("WhatsApp")');
+    await p.fill('#ed-cuerpo input[aria-label="Para"]', 'Tomi');
+    await p.fill('#ed-cuerpo textarea[aria-label="Mensaje"]', 'Ya salgo');
+    await p.screenshot({ path: path.join(SALIDA, '8-celular-mensaje.png') });
+    await p.click('#ed-botones button:has-text("Mandar")');
     await hasta(() => p.locator('#aviso.mal:not([hidden])').count(), 10000, 'aviso de WhatsApp desconectado');
     const avisoWa = await p.textContent('#aviso');
     assert.match(avisoWa, /WhatsApp/);
-    await p.screenshot({ path: path.join(SALIDA, '8-celular-mensaje.png') });
 
     // ----- Cámara de seguridad: apagada en la PC → lo dice; prendida → video en vivo -----
-    await p.click('#abajo button[data-hoja="mas"]');
-    await p.click('.mas-item:has-text("Cámara de seguridad")');
+    await p.click('#abajo button[data-hoja="pc"]');
+    await p.click('.mosaico:has-text("Cámara")');
     let txtCam = '';
     await hasta(async () => /apagada/i.test(txtCam = await p.textContent('#cam-estado')), 10000, 'cámara apagada').catch((e) => { throw new Error(e.message + ': ' + txtCam); });
     await p.click('#cam-cerrar');
     const cfgCam = (await notch.evaluate(() => window.jarvis.pedir('cfg:leer'))).dato;
     cfgCam.celular.camara = true;
     await notch.evaluate((c) => window.jarvis.pedir('cfg:guardar', c), cfgCam);
-    await p.click('.mas-item:has-text("Cámara de seguridad")');
+    await p.click('.mosaico:has-text("Cámara")');
     await hasta(() => p.locator('#cam-estado.vivo').count(), 25000, `cámara en vivo (${await p.textContent('#cam-estado')})`);
     await hasta(() => p.evaluate(() => { const v = document.querySelector('#cam-video-el'); return v.buffered.length && v.buffered.end(0) > 1 && v.videoWidth > 0; }), 15000, 'llegan cuadros de video');
     await p.screenshot({ path: path.join(SALIDA, '8c-celular-camara.png') });
@@ -313,7 +321,8 @@ async function hasta(fn, ms = 20000, que = '') {
     // ----- Más: notas, calendario, rutinas e historial, igual que en Ajustes de la PC -----
     const pcPide = async (canal, ...a) => (await notch.evaluate(([c, x]) => window.jarvis.pedir(c, ...x), [canal, a])).dato;
     await p.click('#abajo button[data-hoja="mas"]');
-    await p.click('.mas-item:has-text("Notas")');
+    await p.click('.mas-item:has-text("Agenda")');
+    await p.click('#ag-vistas [data-vista="notas"]');
     await p.fill('#n-texto', 'Llamar al plomero');
     const enUnaHora = new Date(Date.now() + 3600000); const d2 = (x) => String(x).padStart(2, '0');
     await p.fill('#n-cuando', `${enUnaHora.getFullYear()}-${d2(enUnaHora.getMonth() + 1)}-${d2(enUnaHora.getDate())}T${d2(enUnaHora.getHours())}:${d2(enUnaHora.getMinutes())}`);
@@ -328,9 +337,9 @@ async function hasta(fn, ms = 20000, que = '') {
     await hasta(async () => (await pcPide('notas:leer')).some((n) => n.texto === 'Llamar al plomero mañana'), 8000, 'nota cambiada en la PC');
     await p.screenshot({ path: path.join(SALIDA, '9b-celular-notas.png'), fullPage: true });
 
-    await p.click('#abajo button[data-hoja="mas"]');
-    await p.click('.mas-item:has-text("Calendario")');
-    await p.click('#c-nuevo');
+    await p.click('#ag-vistas [data-vista="proximo"]');
+    await p.click('#ag-nuevo');
+    await p.click('#catalogo button:has-text("Evento")');
     await p.fill('#ed-cuerpo input[aria-label="Nombre"]', 'Turno dentista');
     await p.selectOption('#ed-cuerpo select', '30');
     await p.screenshot({ path: path.join(SALIDA, '9c-celular-evento-nuevo.png') });
@@ -489,7 +498,7 @@ async function hasta(fn, ms = 20000, que = '') {
     assert.strictEqual(await pA.evaluate(() => window.androidFalso.salio), 1, 'en Inicio, atrás sale');
     // Archivos de la PC, pasar uno al celular y guardarlo en Descargas con Android.
     await pA.click('#abajo button[data-hoja="archivos"]');
-    await pA.click('[data-donde="pc"]');
+    await pA.click('#ubicaciones .mas-item:has-text("Jarvis")');
     await hasta(() => pA.locator('#lista-archivos li:has-text("Jefe final")').count(), 8000, 'android: archivos de la PC');
     // Miniaturas y video pasan por la app (/pc/…): se ven.
     await hasta(() => pA.evaluate(() => [...document.querySelectorAll('#lista-archivos img')].some((i) => i.complete && i.naturalWidth > 0 && i.src.includes('/pc/api/'))), 8000, 'android: miniatura');
@@ -498,8 +507,8 @@ async function hasta(fn, ms = 20000, que = '') {
     await pA.click('#ha-medio .ha-play');
     await hasta(() => pA.evaluate(() => { const v = document.querySelector('#ha-medio video'); return v && v.src.startsWith('blob:') && v.readyState >= 1; }), 10000, 'android: el video carga');
     // Recortar en la PC desde el celular: queda un clip nuevo.
-    if (await pA.locator('#ha-acciones button:has-text("Recortar")').count()) {
-      await pA.click('#ha-acciones button:has-text("Recortar")');
+    if (await pA.locator('#ha-principales button:has-text("Recortar")').count()) {
+      await pA.click('#ha-principales button:has-text("Recortar")');
       await hasta(() => pA.locator('.recorte input[aria-label="Hasta"]').count(), 5000, 'android: recorte abierto');
       await pA.locator('.recorte input[aria-label="Hasta"]').fill('1');
       await pA.locator('.recorte input[aria-label="Hasta"]').dispatchEvent('input');
@@ -511,12 +520,14 @@ async function hasta(fn, ms = 20000, que = '') {
       await pA.click('#ha-medio .ha-play');
       await hasta(() => pA.evaluate(() => { const v = document.querySelector('#ha-medio video'); return v && v.src.startsWith('blob:'); }), 10000, 'android: el video carga otra vez');
     }
-    await pA.getByRole('button', { name: 'Pasar al celular' }).click();
+    await pA.click('#ha-principales .acc:has-text("Al celular")');
     await hasta(() => pA.locator('#aviso:has-text("quedó en este celular")').count(), 15000, 'android: pasado al celular');
     await pA.keyboard.press('Escape');
-    await pA.click('[data-donde="celular"]');
+    await pA.evaluate(() => window.atrasFalso()); // "atrás" vuelve a Ubicaciones
+    await pA.click('#ubicaciones .mas-item:has-text("Este celular")');
     await pA.locator('#lista-archivos li:has-text("Jefe final") button').first().click();
-    await pA.getByRole('button', { name: 'Guardar en Descargas del celular' }).click();
+    await pA.screenshot({ path: path.join(SALIDA, '14a-android-hoja-archivo.png') });
+    await pA.click('#ha-principales .acc:has-text("Descargas")');
     await hasta(() => pA.locator('#aviso:has-text("Descargas")').count(), 8000, 'android: guardado en Descargas');
     const guardadosA = await pA.evaluate(() => window.androidFalso.archivos);
     assert.strictEqual(guardadosA.length, 1);
@@ -526,8 +537,7 @@ async function hasta(fn, ms = 20000, que = '') {
     await pA.screenshot({ path: path.join(SALIDA, '14-android-archivos.png') });
     // "Compartir" desde YouTube con la app abierta.
     await pA.evaluate(() => window.compartirDesdeOtraApp('Mirá esto https://youtu.be/abc123'));
-    await hasta(() => pA.locator('#s-descargar:not([hidden])').count(), 5000, 'android: abre Descargar');
-    assert.strictEqual(await pA.inputValue('#d-url'), 'https://youtu.be/abc123');
+    await hasta(() => pA.locator('#s-charla:not([hidden]) .oferta').count(), 5000, 'android: ofrece bajarlo');
     // El router le cambió la IP a la PC: la app la vuelve a encontrar sola (por su identificador).
     await pA.evaluate(() => { const pc = JSON.parse(localStorage.getItem('jarvis.pc')); pc.base = 'http://192.168.77.99:47821'; localStorage.setItem('jarvis.pc', JSON.stringify(pc)); });
     await pA.reload();
@@ -544,8 +554,8 @@ async function hasta(fn, ms = 20000, que = '') {
     await pA.evaluate(() => { localStorage.setItem('jarvis.revisado', String(Date.now())); });
     await hasta(async () => { await pA.click('#abajo button[data-hoja="inicio"]'); return (JSON.parse(await pA.evaluate(() => localStorage.getItem('jarvis.pc'))) || {}).publica === 'https://jarvis-pc.tail1234.ts.net'; }, 20000, 'android: dirección pública de la PC');
     // La dirección pública (Funnel) llega al servidor del celular de Jarvis, como hace jarvis-red.
-    let pedidosPublica = 0;
-    await ctxA.route('https://jarvis-pc.tail1234.ts.net/**', async (r) => { pedidosPublica++; const u = new URL(r.request().url()); const q = r.request(); const cuerpo = q.postDataBuffer();
+    let pedidosPublica = 0; let publicaCaida = false;
+    await ctxA.route('https://jarvis-pc.tail1234.ts.net/**', async (r) => { if (publicaCaida) return r.abort('connectionrefused'); pedidosPublica++; const u = new URL(r.request().url()); const q = r.request(); const cuerpo = q.postDataBuffer();
       const res = await new Promise((ok, mal) => { const x = require('http').request({ hostname: '127.0.0.1', port: PUERTO, path: u.pathname + u.search, method: q.method(), headers: { ...q.headers(), host: 'jarvis-pc.tail1234.ts.net' } }, (y) => { const p = []; y.on('data', (c) => p.push(c)); y.on('end', () => ok({ status: y.statusCode, headers: y.headers, body: Buffer.concat(p) })); }); x.on('error', mal); x.end(cuerpo || undefined); });
       return r.fulfill(res); });
     // Me voy de casa: la Wi-Fi de casa no contesta más. La app sigue por Tailscale.
@@ -565,9 +575,9 @@ async function hasta(fn, ms = 20000, que = '') {
     await esperar(3000);
     assert.strictEqual((JSON.parse(await pA.evaluate(() => localStorage.getItem('jarvis.pc'))) || {}).publica, 'https://jarvis-pc.tail1234.ts.net', 'el celular se acuerda de la dirección de afuera');
 
-    // Ajustes del celular (desde el menú ⋮): avisos al instante y huella opcional.
-    await pA.click('#boton-menu');
-    await pA.click('#m-ajustes');
+    // Ajustes del celular (en Más): avisos al instante y huella opcional.
+    await pA.click('#abajo button[data-hoja="mas"]');
+    await pA.click('.mas-item:has-text("Ajustes")');
     await hasta(() => pA.locator('#s-ajustes:not([hidden]) .grupo-ajustes').count(), 5000, 'android: Ajustes');
     assert.ok(await pA.locator('.grupo-ajustes h3:text-is("Seguridad")').count(), 'sección Seguridad');
     assert.ok(await pA.locator('.ajuste-fila:has-text("Desde afuera"):has-text("jarvis-pc.tail1234.ts.net")').count(), 'Ajustes muestra la dirección de afuera');
@@ -577,40 +587,53 @@ async function hasta(fn, ms = 20000, que = '') {
     await hasta(() => pA.evaluate(() => localStorage.getItem('jarvis.huella') === 'true'), 3000, 'android: huella prendida');
     await pA.screenshot({ path: path.join(SALIDA, '24-android-ajustes.png'), fullPage: true });
     await pA.locator('.ajuste label:has-text("Pedir la huella") input').uncheck();
-    // Control de la PC: tocar el touchpad hace clic; Bloquear; Prender la PC (Wake-on-LAN).
-    await pA.click('#abajo button[data-hoja="mas"]');
-    await pA.click('.mas-item:has-text("Control de la PC")');
-    await hasta(() => pA.locator('#s-control:not([hidden]) #tp').count(), 3000, 'android: control');
+    // Mouse y teclado (desde la pestaña PC): tocar el touchpad hace clic y el teclado escribe; Bloquear, en la pestaña PC.
+    await pA.click('#abajo button[data-hoja="pc"]');
+    await pA.click('.mosaico:has-text("Mouse y teclado")');
+    await hasta(() => pA.locator('#s-control:not([hidden]) #tp').count(), 3000, 'android: mouse y teclado');
     const caja = await pA.locator('#tp').boundingBox();
     await pA.mouse.move(caja.x + 60, caja.y + 60); await pA.mouse.down(); await pA.mouse.move(caja.x + 140, caja.y + 90, { steps: 6 }); await pA.mouse.up();
     await pA.mouse.click(caja.x + 100, caja.y + 100);
-    await pA.click('#teclas-energia button:has-text("Bloquear")');
-    await pA.fill('#teclado', 'hola');
-    await pA.click('#form-teclado button');
+    await pA.click('#ctl-barra .ctl:has-text("Teclas")');
+    await pA.screenshot({ path: path.join(SALIDA, '25-android-control.png'), fullPage: true });
+    await pA.fill('#ctl-entrada', 'hola');
+    await pA.evaluate(() => window.atrasFalso()); // atrás vuelve a la pestaña PC
+    await hasta(() => pA.locator('#s-pc:not([hidden])').count(), 3000, 'android: atrás vuelve a PC');
+    await pA.click('.tarj button:has-text("Bloquear")');
     await hasta(() => { const l = fs.existsSync(REMOTO_LOG) ? fs.readFileSync(REMOTO_LOG, 'utf8') : ''; return /mouse_event\(1, \d+, \d+/.test(l) && /mouse_event\(2, 0/.test(l) && /LockWorkStation/.test(l) && /SendWait\('hola'\)/.test(l); }, 8000, 'la PC recibió mover, clic, bloquear y escribir');
+    // Con la PC sin contestar, la pestaña PC ofrece prenderla (Wake-on-LAN).
     // (La PC de prueba no está en una red privada: se le da al celular lo que habría aprendido en casa.)
     await pA.evaluate(() => localStorage.setItem('jarvis.despertar', JSON.stringify({ mac: '02:fc:00:00:00:01', broadcast: '192.168.77.255' })));
-    await pA.click('#teclas-energia button:has-text("Prender la PC")');
+    enCasa = false;
+    publicaCaida = true;
+    await pA.click('#abajo button[data-hoja="inicio"]');
+    await pA.click('#abajo button[data-hoja="pc"]');
+    await hasta(() => pA.locator('.pc-apagada button:has-text("Prender la PC")').count(), 40000, 'android: PC apagada con Prender');
+    await pA.screenshot({ path: path.join(SALIDA, '25a-android-pc-apagada.png') });
+    await pA.click('.pc-apagada button:has-text("Prender la PC")');
     await hasta(() => pA.evaluate(() => window.androidFalso.despertado && window.androidFalso.despertado.mac), 3000, 'android: Wake-on-LAN con la MAC de la PC');
-    await pA.screenshot({ path: path.join(SALIDA, '25-android-control.png'), fullPage: true });
+    enCasa = true;
+    publicaCaida = false;
+    await pA.click('.pc-apagada button:has-text("Reintentar")');
+    await hasta(() => pA.locator('.mosaico').count(), 30000, 'android: la PC vuelve');
     // Escritorio remoto: se ve la pantalla de la PC (WebRTC) y tocar hace clic; en modo "Tocar", el mouse va al punto.
     fs.writeFileSync(REMOTO_LOG, '');
-    await pA.click('#ctl-escritorio');
+    await pA.click('.mosaico:has-text("Escritorio")');
     await hasta(() => pA.evaluate(() => { const v = document.querySelector('#esc-video'); return v && v.videoWidth > 0 && !v.paused; }), 30000, 'android: se ve la pantalla de la PC');
     await esperar(800);
     await pA.screenshot({ path: path.join(SALIDA, '25b-android-escritorio.png') });
     const lienzo = await pA.locator('#esc-lienzo').boundingBox();
     await pA.mouse.click(lienzo.x + lienzo.width / 2, lienzo.y + lienzo.height / 2);
     await hasta(() => /mouse_event\(2, 0/.test(fs.readFileSync(REMOTO_LOG, 'utf8')), 5000, 'clic desde el escritorio remoto');
-    await pA.click('#esc-modo');
+    await pA.click('#esc-barra .ctl:has-text("Touchpad")');
     await pA.mouse.click(lienzo.x + lienzo.width * 0.25, lienzo.y + lienzo.height / 2);
     await hasta(() => /mouse_event\(0xC001, \d+, \d+/.test(fs.readFileSync(REMOTO_LOG, 'utf8')), 5000, 'ir al punto tocado');
-    await pA.click('#esc-modo');
+    await pA.click('#esc-barra .ctl:has-text("Tocar")');
     await pA.click('#esc-cerrar');
     await esperar(500);
     // Archivos de la PC: entrar a la carpeta, subir un archivo y bajar otro.
-    await pA.click('#abajo button[data-hoja="mas"]');
-    await pA.click('.mas-item:has-text("Archivos de la PC")');
+    await pA.click('#abajo button[data-hoja="pc"]');
+    await pA.click('.mosaico:has-text("Archivos")');
     await hasta(() => pA.locator('#lista-pcc button:has-text("Compartida")').count(), 8000, 'android: carpetas compartidas');
     await pA.click('#lista-pcc button:has-text("Compartida")');
     await hasta(() => pA.locator('#lista-pcc button:has-text("presupuesto.pdf")').count(), 8000, 'android: archivos de la carpeta');
@@ -649,7 +672,7 @@ async function hasta(fn, ms = 20000, que = '') {
     await pA.click('#pcc-opciones');
     await pA.click('.opciones-lista button:has-text("Lista")');
     await pA.click('#lista-pcc button:has-text("presupuesto.pdf")');
-    await pA.click('#ed-botones button:has-text("Bajar al celular")');
+    await pA.click('#ha-principales .acc:has-text("Al celular")');
     await hasta(() => pA.evaluate(() => window.androidFalso.archivos.some((a) => a.nombre === 'presupuesto.pdf' && a.bytes === 3000)), 10000, 'android: bajado de la PC');
     await pA.screenshot({ path: path.join(SALIDA, '26-android-archivos-pc.png'), fullPage: true });
     // Rutina con "Cuándo se hace sola" en el celular.
@@ -699,6 +722,8 @@ async function hasta(fn, ms = 20000, que = '') {
     // Clips en la PC: todos, con filtro por carpeta, orden y páginas.
     const erroresAjustes = [];
     ajustes.on('pageerror', (e) => erroresAjustes.push(e.message));
+    // Ajustes se abrió en Celular (Ajustes): "Volver" lleva a la barra de uso, donde están los Clips.
+    await ajustes.click('#menu [data-accion="volver"]');
     await ajustes.locator('button[data-grupo="clips"]').first().click();
     await hasta(() => ajustes.locator('.clips-filtros select').count(), 8000, 'clips: filtros');
     await ajustes.locator('.clips-filtros select[aria-label="Ordenar por"]').selectOption('nombre');
@@ -808,6 +833,7 @@ async function hasta(fn, ms = 20000, que = '') {
     await ajustes.click('.editor-cabeza button:has-text("Clips")');
 
     // Almacenamiento: elegir con Shift un rango de videos (ordenados por tamaño) y ver la barra de acciones.
+    await ajustes.click('#menu [data-accion="ajustes"]');
     await ajustes.click('#menu button[data-grupo="sistema"]');
     await ajustes.click('.pestanas button:has-text("Almacenamiento")').catch(() => ajustes.click('button:has-text("Almacenamiento")'));
     await hasta(() => ajustes.locator('.tabla-lote .fila-lote:not(.cabeza)').count(), 15000, 'videos en Almacenamiento');
@@ -825,6 +851,7 @@ async function hasta(fn, ms = 20000, que = '') {
     await esperar(2500);
     await ajustes.screenshot({ path: path.join(SALIDA, '22-pc-estado.png'), fullPage: true });
     // Rutinas: que se haga sola a una hora, de lunes a viernes.
+    await ajustes.click('#menu [data-accion="volver"]');
     await ajustes.click('#menu button[data-grupo="rutinas"]');
     await ajustes.selectOption('.disparadores select', 'hora');
     for (const d of ['L', 'M', 'X', 'J', 'V']) await ajustes.click(`.disparador .dia:text-is("${d}")`);
@@ -832,9 +859,18 @@ async function hasta(fn, ms = 20000, que = '') {
     const rutPc = (await notch.evaluate(() => window.jarvis.pedir('rutinas:leer'))).dato;
     assert.ok(rutPc.some((r) => (r.disparadores || []).some((d) => d.tipo === 'hora' && d.dias.join() === '1,2,3,4,5')), 'disparador guardado');
     await ajustes.screenshot({ path: path.join(SALIDA, '23-pc-rutina-disparador.png'), fullPage: true });
+    // Ayuda a pedido: el "i" abre el globo con la explicación.
+    await ajustes.locator('.boton-info').first().click();
+    assert.ok(await ajustes.locator('.globo:not([hidden])').count(), 'globo de ayuda');
+    await ajustes.keyboard.press('Escape');
     // Historial: "Hacer rutina" con un pedido.
     await ajustes.click('#menu button[data-grupo="historial"]');
     await hasta(() => ajustes.locator('.registro button:has-text("Hacer rutina")').count(), 8000, 'historial con botones');
+    await ajustes.click('.hist-barra .ficha:has-text("Celular")');
+    assert.ok(await ajustes.locator('.hist-linea .registro.o-celular').count(), 'filtro Celular');
+    assert.strictEqual(await ajustes.locator('.hist-linea .registro:not(.o-celular)').count(), 0, 'solo lo del celular');
+    await ajustes.screenshot({ path: path.join(SALIDA, '23b-pc-historial.png') });
+    await ajustes.click('.hist-barra .ficha:has-text("Todo")');
     const antesR = rutPc.length;
     await ajustes.locator('.registro button:has-text("Hacer rutina")').first().click();
     await hasta(async () => (await notch.evaluate(() => window.jarvis.pedir('rutinas:leer'))).dato.length === antesR + 1, 5000, 'rutina armada desde el historial');
@@ -843,7 +879,8 @@ async function hasta(fn, ms = 20000, que = '') {
     await ajustes.click('#menu button[data-grupo="resumen"]');
     await hasta(() => ajustes.locator('.aviso-sistema', { hasText: 'yt-dlp está desactualizado' }).count(), 10000, 'aviso de yt-dlp en Inicio');
     assert.ok(await ajustes.locator('.aviso-sistema button', { hasText: 'Actualizar yt-dlp' }).count());
-    assert.ok(!(await ajustes.locator('#menu button[data-grupo="sistema"] .punto-menu').isHidden()), 'punto en Sistema');
+    assert.ok(!(await ajustes.locator('#menu .menu-engranaje .punto-menu').isHidden()), 'punto en Ajustes');
+    assert.ok(await ajustes.locator('.tarjeta-inicio h2:text-is("Para hoy")').count() && await ajustes.locator('.tarjeta-inicio h2:text-is("Lo último que pediste")').count(), 'Inicio con el día');
     await ajustes.screenshot({ path: path.join(SALIDA, '19-pc-inicio-avisos.png') });
     await ajustes.locator('.aviso-sistema button', { hasText: 'Ver' }).first().click();
     await hasta(() => ajustes.locator('.tarjeta-componente', { hasText: 'Desactualizado · 2026.11.01' }).count(), 10000, 'yt-dlp desactualizado en Componentes');

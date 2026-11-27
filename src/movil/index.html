@@ -14,11 +14,10 @@
 <body>
   <header id="arriba">
     <div id="pastilla" data-fase="reposo" aria-hidden="true"><i></i><i></i></div>
-    <div id="quien">
+    <button type="button" id="quien" aria-label="Ver la PC">
       <b id="pc">Jarvis</b>
       <span id="estado-pc">Conectando…</span>
-    </div>
-    <button type="button" id="boton-menu" class="icono" aria-label="Opciones" aria-haspopup="menu" aria-expanded="false"></button>
+    </button>
   </header>
 
   <div id="aviso" role="status" hidden></div>
@@ -26,7 +25,7 @@
   <!-- Vincular -->
   <main id="vincular" hidden>
     <h1>Vinculá este celular con tu PC</h1>
-    <p id="vincular-texto">En la PC, abrí Jarvis → Ajustes → Dispositivos → Celular y tocá <b>Vincular un celular</b>. Escribí acá el código que aparece.</p>
+    <p id="vincular-texto">En la PC: Jarvis → Ajustes → Celular → <b>Vincular un celular</b>. Escribí acá el código.</p>
     <form id="form-vincular" autocomplete="off">
       <div id="elegir-pc" hidden>
         <span class="etiqueta">Tu PC</span>
@@ -35,7 +34,7 @@
         <button type="button" id="buscar-pcs">Buscar de nuevo</button>
         <details>
           <summary>Escribir la dirección a mano</summary>
-          <label for="ip-pc">Dirección de la PC (está en Ajustes → Celular)</label>
+          <label for="ip-pc">Dirección de la PC</label>
           <input id="ip-pc" inputmode="decimal" maxlength="21" placeholder="192.168.0.10">
         </details>
       </div>
@@ -54,9 +53,11 @@
       <ol id="mensajes" aria-live="polite"></ol>
       <div id="respuestas-rapidas" hidden></div>
       <form id="form-texto">
-        <textarea id="texto" rows="1" maxlength="2000" placeholder="Escribile a Jarvis" aria-label="Escribile a Jarvis"></textarea>
+        <button type="button" class="icono" id="adjuntar" aria-label="Adjuntar o más acciones"></button>
+        <textarea id="texto" rows="1" maxlength="2000" placeholder="Pedile algo o pegá un link" aria-label="Escribile a Jarvis"></textarea>
         <button type="submit" class="icono principal" id="enviar" aria-label="Mandar"></button>
       </form>
+      <input type="file" id="chat-archivo" multiple hidden>
     </section>
 
     <section id="s-inicio" class="hoja" aria-label="Inicio">
@@ -72,111 +73,88 @@
     </section>
 
     <section id="s-mas" class="hoja" aria-label="Más" hidden>
-      <h2>Más cosas de tu PC</h2>
+      <h2 class="titulo-hoja">Más</h2>
       <div id="mas-lista" class="mas-lista"></div>
     </section>
 
-    <section id="s-notas" class="hoja" aria-label="Notas" hidden>
-      <div class="fila-titulo"><h2>Notas</h2><button type="button" class="texto volver-mas">Más</button></div>
-      <form id="form-nota" autocomplete="off">
-        <textarea id="n-texto" rows="2" maxlength="2000" placeholder="Anotá algo (o un recordatorio)" aria-label="Nueva nota"></textarea>
-        <label for="n-cuando">Avisarme (opcional)</label>
-        <input id="n-cuando" type="datetime-local">
-        <button type="submit" class="principal">Anotar</button>
-      </form>
-      <div class="fila-titulo">
-        <div id="n-filtros" class="fichas chicas" role="radiogroup" aria-label="Mostrar">
-          <button type="button" role="radio" data-filtro="todas" aria-checked="true" class="on">Todas</button>
-          <button type="button" role="radio" data-filtro="aviso" aria-checked="false">Con aviso</button>
-          <button type="button" role="radio" data-filtro="sueltas" aria-checked="false">Sin aviso</button>
+    <section id="s-agenda" class="hoja" aria-label="Agenda" hidden>
+      <div class="barra-hoja"><button type="button" class="icono volver-mas" aria-label="Volver"></button><h2>Agenda</h2><button type="button" id="ag-nuevo" class="icono" aria-label="Agregar"></button></div>
+      <div class="segmentado" role="tablist" aria-label="Qué ver" id="ag-vistas">
+        <button type="button" role="tab" data-vista="hoy" aria-selected="true">Hoy</button>
+        <button type="button" role="tab" data-vista="proximo" aria-selected="false">Próximo</button>
+        <button type="button" role="tab" data-vista="notas" aria-selected="false">Notas</button>
+      </div>
+      <div id="ag-cal">
+        <p id="c-estado" class="tenue"></p>
+        <div id="agenda-cel" class="agenda-cel"></div>
+        <button type="button" id="c-mas" class="texto">Ver más adelante</button>
+      </div>
+      <div id="ag-notas" hidden>
+        <form id="form-nota" autocomplete="off" class="nota-rapida">
+          <textarea id="n-texto" rows="1" maxlength="2000" placeholder="Anotá algo" aria-label="Nueva nota"></textarea>
+          <input id="n-cuando" type="datetime-local" aria-label="Avisarme (opcional)">
+          <button type="submit" class="icono principal" aria-label="Anotar"></button>
+        </form>
+        <div class="fila-titulo">
+          <div id="n-filtros" class="fichas chicas" role="radiogroup" aria-label="Mostrar">
+            <button type="button" role="radio" data-filtro="todas" aria-checked="true" class="on">Todas</button>
+            <button type="button" role="radio" data-filtro="aviso" aria-checked="false">Con aviso</button>
+            <button type="button" role="radio" data-filtro="sueltas" aria-checked="false">Sin aviso</button>
+          </div>
         </div>
-        <button type="button" id="n-actualizar" class="icono" aria-label="Actualizar las notas"></button>
+        <input id="n-buscar" type="search" placeholder="Buscar" aria-label="Buscar en tus notas">
+        <ul id="lista-notas" class="lista"></ul>
+        <button type="button" id="n-borrar-avisadas" class="texto peligro" hidden>Borrar las que ya avisaron</button>
       </div>
-      <input id="n-buscar" type="search" placeholder="Buscar en tus notas" aria-label="Buscar en tus notas">
-      <ul id="lista-notas" class="lista"></ul>
-      <button type="button" id="n-borrar-avisadas" class="texto peligro" hidden>Borrar las que ya avisaron</button>
-    </section>
-
-    <section id="s-calendario" class="hoja" aria-label="Calendario" hidden>
-      <div class="fila-titulo"><h2>Calendario</h2><button type="button" class="texto volver-mas">Más</button></div>
-      <div class="fila">
-        <button type="button" id="c-nuevo" class="principal">Nuevo evento</button>
-        <button type="button" id="c-actualizar" class="icono" aria-label="Actualizar el calendario"></button>
-      </div>
-      <p id="c-estado" class="tenue"></p>
-      <div id="agenda-cel" class="agenda-cel"></div>
-      <button type="button" id="c-mas" class="texto">Ver más adelante</button>
     </section>
 
     <section id="s-rutinas" class="hoja" aria-label="Rutinas" hidden>
-      <div class="fila-titulo"><h2>Rutinas</h2><button type="button" class="texto volver-mas">Más</button></div>
-      <p class="tenue">Tocá el botón para hacerla en la PC, o la rutina para cambiarla.</p>
+      <div class="barra-hoja"><button type="button" class="icono volver-mas" aria-label="Volver"></button><h2>Rutinas</h2><button type="button" class="icono info" data-info="rutinas" aria-label="Cómo funcionan"></button></div>
       <ul id="lista-rutinas" class="lista"></ul>
       <button type="button" id="r-nueva" class="principal ancho">Nueva rutina</button>
     </section>
 
     <section id="s-historial" class="hoja" aria-label="Historial" hidden>
-      <div class="fila-titulo"><h2>Historial</h2><button type="button" class="texto volver-mas">Más</button></div>
+      <div class="barra-hoja"><button type="button" class="icono volver-mas" aria-label="Volver"></button><h2>Historial</h2><button type="button" id="h-actualizar" class="icono" aria-label="Actualizar"></button></div>
       <div class="fila-titulo">
         <div id="h-filtros" class="fichas chicas" role="radiogroup" aria-label="Mostrar">
           <button type="button" role="radio" data-filtro="todos" aria-checked="true" class="on">Todo</button>
           <button type="button" role="radio" data-filtro="error" aria-checked="false">Con error</button>
           <button type="button" role="radio" data-filtro="celular" aria-checked="false">Desde el celular</button>
         </div>
-        <button type="button" id="h-actualizar" class="icono" aria-label="Actualizar el historial"></button>
       </div>
-      <input id="h-buscar" type="search" placeholder="Buscar en el historial" aria-label="Buscar en el historial">
+      <input id="h-buscar" type="search" placeholder="Buscar" aria-label="Buscar en el historial">
       <ul id="lista-historial" class="lista historial"></ul>
       <button type="button" id="h-limpiar" class="texto peligro">Borrar todo el historial</button>
     </section>
 
-    <section id="s-descargar" class="hoja" aria-label="Descargar" hidden>
-      <div class="fila-titulo"><h2>Descargar un video</h2><button type="button" class="texto volver-mas">Más</button></div>
-      <p class="tenue">Lo baja tu PC con yt-dlp (tiene que estar prendida). Desde YouTube también podés tocar Compartir → Jarvis.</p>
-      <form id="form-descarga" autocomplete="off">
-        <label for="d-url">Link</label>
-        <div class="fila">
-          <input id="d-url" type="text" inputmode="url" placeholder="https://…" maxlength="2000" autocapitalize="off" spellcheck="false">
-          <button type="button" id="d-pegar">Pegar</button>
-        </div>
-        <label id="l-modo">Qué bajar</label>
-        <div class="segmentado" role="radiogroup" aria-labelledby="l-modo" data-campo="modo">
-          <button type="button" role="radio" data-valor="video" aria-checked="true">Video</button>
-          <button type="button" role="radio" data-valor="audio" aria-checked="false">Solo el audio</button>
-        </div>
-        <div id="d-calidad-fila">
-          <label id="l-calidad">Calidad</label>
-          <div class="segmentado" role="radiogroup" aria-labelledby="l-calidad" data-campo="calidad">
-            <button type="button" role="radio" data-valor="720" aria-checked="false">720p</button>
-            <button type="button" role="radio" data-valor="1080" aria-checked="true">1080p</button>
-            <button type="button" role="radio" data-valor="mejor" aria-checked="false">La mejor</button>
-          </div>
-        </div>
-        <label id="l-para">Dónde guardarlo</label>
-        <div class="segmentado" role="radiogroup" aria-labelledby="l-para" data-campo="para">
-          <button type="button" role="radio" data-valor="celular" aria-checked="true">En este celular</button>
-          <button type="button" role="radio" data-valor="pc" aria-checked="false">En la PC</button>
-        </div>
-        <button type="submit" class="principal">Descargar</button>
-      </form>
-      <ul id="lista-descargas" class="lista"></ul>
-    </section>
-
     <section id="s-archivos" class="hoja" aria-label="Archivos" hidden>
-      <div class="botonera tres">
-        <button type="button" data-clip="guardar">Guardar clip</button>
-        <button type="button" data-clip="grabar" id="boton-grabar">Grabar</button>
-        <button type="button" data-clip="captura">Captura</button>
+      <div id="arch-raiz">
+        <h2 class="titulo-hoja">Archivos</h2>
+        <input id="arch-buscar" type="search" placeholder="Buscar en Jarvis y el celular" aria-label="Buscar archivos" autocomplete="off">
+        <ul id="lista-descargas" class="lista"></ul>
+        <div id="arch-resultados" hidden><ul id="lista-busqueda" class="lista"></ul></div>
+        <div id="arch-inicio">
+          <h3 class="sub" id="recientes-titulo">Recientes</h3>
+          <div id="recientes" class="recientes"></div>
+          <h3 class="sub">Ubicaciones</h3>
+          <div id="ubicaciones" class="mas-lista"></div>
+        </div>
       </div>
-      <p id="clips-estado" class="tenue"></p>
-      <div class="segmentado grande" role="tablist" aria-label="Dónde están">
-        <button type="button" role="tab" data-donde="pc" aria-selected="true">En la PC</button>
-        <button type="button" role="tab" data-donde="celular" aria-selected="false">En el celular</button>
-        <button type="button" role="tab" data-donde="carpetas" aria-selected="false">Carpetas</button>
+      <div id="arch-lista" hidden>
+        <div class="barra-hoja"><button type="button" class="icono" id="arch-volver" aria-label="Volver"></button><h2 id="arch-titulo">Jarvis</h2><button type="button" id="actualizar-archivos" class="icono" aria-label="Actualizar"></button></div>
+        <div id="filtros" class="fichas chicas" role="radiogroup" aria-label="Mostrar">
+          <button type="button" role="radio" data-filtro="todo" aria-checked="true" class="on">Todo</button>
+          <button type="button" role="radio" data-filtro="clip" aria-checked="false">Clips</button>
+          <button type="button" role="radio" data-filtro="video" aria-checked="false">Descargas</button>
+          <button type="button" role="radio" data-filtro="audio" aria-checked="false">Audios</button>
+        </div>
+        <p id="espacio" class="tenue"></p>
+        <ul id="lista-archivos" class="lista"></ul>
       </div>
       <div id="pcc" hidden>
         <div class="pcc-barra-sup" id="pcc-sup">
-          <button type="button" id="pcc-atras" class="icono" aria-label="Volver a la carpeta de arriba"></button>
+          <button type="button" id="pcc-atras" class="icono" aria-label="Volver"></button>
           <div class="pcc-titulo">
             <b id="pcc-nombre">Carpetas de la PC</b>
             <nav id="pcc-camino" class="pcc-camino" aria-label="Dónde estás"></nav>
@@ -200,71 +178,34 @@
         <button type="button" id="pcc-subir" class="fab" aria-label="Subir desde el celular"></button>
         <input type="file" id="pcc-archivo" multiple hidden>
       </div>
-      <div class="fila-titulo" id="filtros-fila">
-        <div id="filtros" class="fichas chicas" role="radiogroup" aria-label="Mostrar">
-          <button type="button" role="radio" data-filtro="todo" aria-checked="true" class="on">Todo</button>
-          <button type="button" role="radio" data-filtro="clip" aria-checked="false">Clips</button>
-          <button type="button" role="radio" data-filtro="video" aria-checked="false">Descargas</button>
-          <button type="button" role="radio" data-filtro="audio" aria-checked="false">Audios</button>
-        </div>
-        <button type="button" id="actualizar-archivos" class="icono" aria-label="Actualizar la lista"></button>
-      </div>
-      <p id="espacio" class="tenue"></p>
-      <ul id="lista-archivos" class="lista"></ul>
     </section>
 
     <section id="s-ajustes" class="hoja" aria-label="Ajustes" hidden>
-      <div class="fila-titulo"><h2>Ajustes</h2><button type="button" class="texto volver-mas">Más</button></div>
+      <div class="barra-hoja"><button type="button" class="icono volver-mas" aria-label="Volver"></button><h2>Ajustes</h2><span></span></div>
       <div id="ajustes-cuerpo"></div>
     </section>
 
-    <section id="s-control" class="hoja" aria-label="Control de la PC" hidden>
-      <div class="fila-titulo"><h2>Control de la PC</h2><button type="button" class="texto volver-mas">Más</button></div>
-      <button type="button" id="ctl-escritorio" class="ancho principal">Ver la pantalla de la PC</button>
-      <div id="tp" class="touchpad" role="application" aria-label="Touchpad: deslizá para mover el mouse, tocá para hacer clic, con dos dedos para desplazar"><span class="tenue">Deslizá para mover · tocá para clic · dos dedos para desplazar · mantené para arrastrar</span></div>
-      <div class="botonera dos">
-        <button type="button" data-rem='{"tipo":"clic"}'>Clic</button>
-        <button type="button" data-rem='{"tipo":"clic","boton":"derecho"}'>Clic derecho</button>
-      </div>
-      <form id="form-teclado" class="fila-teclado" autocomplete="off">
-        <input id="teclado" type="text" placeholder="Escribir en la PC" aria-label="Escribir en la PC" autocapitalize="off" autocorrect="off" spellcheck="false">
-        <button type="submit" class="principal">Escribir</button>
-      </form>
-      <div class="teclas" id="teclas"></div>
-      <h3>Música y volumen</h3>
-      <div class="teclas" id="teclas-media"></div>
-      <h3>Encendido</h3>
-      <div class="teclas" id="teclas-energia"></div>
+    <section id="s-pc" class="hoja" aria-label="PC" hidden>
+      <div id="pc-cuerpo"></div>
     </section>
 
-    <section id="s-mensaje" class="hoja" aria-label="Mensaje" hidden>
-      <h2>WhatsApp desde la PC</h2>
-      <form id="form-wa">
-        <label for="wa-para">Para</label>
-        <input id="wa-para" list="contactos" placeholder="Contacto, grupo o número" required maxlength="80">
-        <label for="wa-texto">Mensaje</label>
-        <textarea id="wa-texto" rows="4" maxlength="4000" placeholder="Lo que le querés decir"></textarea>
-        <button type="submit" class="principal">Mandar mensaje</button>
-        <button type="button" id="wa-foto">Mandar foto de la webcam (con el mensaje, si escribiste uno)</button>
-      </form>
-      <p class="tenue" id="wa-estado"></p>
+    <section id="s-control" class="hoja" aria-label="Mouse y teclado" hidden>
+      <div class="barra-hoja"><button type="button" class="icono volver-pc" aria-label="Volver"></button><h2>Mouse y teclado</h2><button type="button" class="icono info" data-info="touchpad" aria-label="Gestos"></button></div>
+      <div id="tp" class="touchpad" role="application" aria-label="Touchpad de la PC"></div>
+      <div class="barra-ctl" id="ctl-barra"></div>
+      <div id="ctl-panel-teclas" class="panel-teclas" hidden></div>
+      <input id="ctl-entrada" class="esc-entrada" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" aria-label="Escribir en la PC">
     </section>
+
   </main>
 
   <nav id="abajo" hidden>
     <button type="button" data-hoja="inicio" aria-current="page"><span class="i" data-i="casa"></span>Inicio</button>
     <button type="button" data-hoja="charla"><span class="i" data-i="charla"></span>Charla</button>
+    <button type="button" data-hoja="pc"><span class="i" data-i="pc"></span>PC</button>
     <button type="button" data-hoja="archivos"><span class="i" data-i="carpeta"></span>Archivos</button>
-    <button type="button" data-hoja="mensaje"><span class="i" data-i="whatsapp"></span>Mensaje</button>
     <button type="button" data-hoja="mas"><span class="i" data-i="modos"></span>Más</button>
   </nav>
-
-  <div id="menu" role="menu" hidden>
-    <p id="menu-yo" class="tenue"></p>
-    <button type="button" role="menuitem" id="m-ajustes">Ajustes</button>
-    <button type="button" role="menuitem" id="m-borrar">Borrar la charla</button>
-    <button type="button" role="menuitem" id="m-desvincular" class="peligro">Desvincular este celular</button>
-  </div>
 
   <!-- Agregar un widget a Inicio -->
   <dialog id="hoja-widgets" aria-labelledby="hw-titulo">
@@ -282,52 +223,50 @@
       <h2 id="ha-nombre"></h2>
       <p id="ha-datos" class="tenue"></p>
       <div id="ha-progreso" class="progreso" hidden><i></i></div>
-      <label for="ha-para">Mandar por WhatsApp (desde la PC) a</label>
-      <div class="fila">
-        <input id="ha-para" list="contactos" placeholder="Contacto, grupo o Yo" maxlength="80">
+      <div id="ha-principales" class="acc-iconos"></div>
+      <div id="ha-wa" class="fila" hidden>
+        <input id="ha-para" list="contactos" placeholder="A quién (desde la PC)" maxlength="80" aria-label="A quién mandarlo por WhatsApp">
         <button type="button" id="ha-mandar" class="principal">Mandar</button>
       </div>
       <div id="ha-acciones" class="acciones"></div>
-      <button type="button" id="ha-cerrar" class="texto">Cerrar</button>
     </div>
   </dialog>
 
   <!-- Cámara de seguridad: la webcam y el micrófono de la PC en vivo -->
-  <dialog id="hoja-camara" aria-label="Cámara de seguridad">
-    <div id="cam-caja" class="cam-caja">
+  <dialog id="hoja-camara" aria-label="Cámara">
+    <div id="cam-caja" class="vista-remota cam-caja">
       <video id="cam-video-el" playsinline></video>
-      <div class="cam-arriba">
-        <span id="cam-estado" class="cam-estado" role="status"></span>
-        <button type="button" id="cam-cerrar" class="icono" aria-label="Cerrar la cámara"></button>
+      <div class="vr-arriba">
+        <button type="button" id="cam-cerrar" class="icono" aria-label="Cerrar"></button>
+        <span id="cam-estado" class="vr-estado" role="status"></span>
+        <button type="button" id="cam-calidad" class="vr-chip"></button>
       </div>
-      <div class="cam-abajo">
-        <button type="button" id="cam-sonido" class="icono"></button>
-        <button type="button" id="cam-video" class="icono"></button>
-        <button type="button" id="cam-calidad" class="cam-calidad"></button>
-        <button type="button" id="cam-completa" class="icono" aria-label="Pantalla completa"></button>
-      </div>
+      <div class="vr-abajo barra-ctl oscura" id="cam-barra"></div>
     </div>
   </dialog>
 
   <dialog id="hoja-escritorio" aria-label="Escritorio de la PC">
-    <div id="esc-lienzo" class="esc-lienzo">
+    <div id="esc-lienzo" class="vista-remota esc-lienzo">
       <div id="esc-marco" class="esc-marco"><video id="esc-video" playsinline autoplay></video></div>
       <p id="esc-estado" class="esc-estado" role="status">Conectando…</p>
-      <div class="esc-arriba">
-        <button type="button" id="esc-cerrar" class="icono" aria-label="Cerrar el escritorio remoto"></button>
-        <span id="esc-info" class="esc-info"></span>
-        <button type="button" id="esc-modo" class="esc-chip" aria-label="Cambiar cómo se maneja el mouse"></button>
+      <div class="vr-arriba">
+        <button type="button" id="esc-cerrar" class="icono" aria-label="Cerrar"></button>
+        <span id="esc-info" class="vr-estado"></span>
+        <button type="button" id="esc-pantalla" class="vr-chip" hidden aria-label="Cambiar de pantalla"></button>
+        <button type="button" class="icono info" data-info="escritorio" aria-label="Gestos"></button>
       </div>
-      <div class="esc-abajo">
-        <button type="button" id="esc-teclado" class="icono" aria-label="Teclado"></button>
-        <button type="button" id="esc-derecho" class="esc-chip" aria-label="Próximo toque: clic derecho">Clic der.</button>
-        <button type="button" id="esc-teclas" class="esc-chip" aria-label="Teclas especiales">Teclas</button>
-        <button type="button" id="esc-pantalla" class="esc-chip" hidden aria-label="Cambiar de pantalla"></button>
-        <button type="button" id="esc-sonido" class="icono" aria-label="Sonido"></button>
-        <button type="button" id="esc-girar" class="icono" aria-label="Girar"></button>
-      </div>
-      <div id="esc-panel-teclas" class="esc-panel-teclas" hidden></div>
+      <div class="vr-abajo barra-ctl oscura" id="esc-barra"></div>
+      <div id="esc-panel-teclas" class="panel-teclas flota" hidden></div>
       <input id="esc-entrada" class="esc-entrada" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" aria-label="Escribir en la PC">
+    </div>
+  </dialog>
+
+  <!-- Más información (el ícono "i") -->
+  <dialog id="hoja-info" aria-labelledby="info-titulo">
+    <div class="ha-cuerpo">
+      <h2 id="info-titulo"></h2>
+      <div id="info-cuerpo"></div>
+      <button type="button" id="info-cerrar" class="principal ancho-lleno">Entendido</button>
     </div>
   </dialog>
 

@@ -170,18 +170,32 @@ function duracion(obj, clave, { base = 's', unidades = ['s', 'min'], min = 0, ma
 }
 const avanzado = (titulo, ...contenido) => h('details', { class: 'avanzado', open: Array.isArray(titulo) ? !!titulo[1] : false }, h('summary', {}, Array.isArray(titulo) ? titulo[0] : titulo), ...contenido);
 const duracionCorta = (s) => (s < 60 ? `${s} s` : `${(s / 60) % 1 === 0 ? s / 60 : (s / 60).toFixed(1).replace('.', ',')} min`);
-// [B8] Ayuda corta a la vista; si es larga, la primera oración y el resto detrás de "Más info".
+// Ayuda: la corta, a la vista; la larga, detrás de un ícono "i" que la muestra en un globo (sin llenar la pantalla de texto).
 let idCampo = 0;
-function ayudaPlegable(texto) {
-  if (typeof texto !== 'string' || texto.length <= 120) return h('div', { class: 'ayuda' }, texto);
-  const m = /^(.{25,}?[.:!?])\s+(?=[A-ZÁÉÍÓÚÑ"¿(])/s.exec(texto);
-  if (!m) return h('div', { class: 'ayuda' }, texto);
-  const resto = h('span', { class: 'ayuda-resto', hidden: true }, ' ' + texto.slice(m[0].length));
-  const mas = h('button', { type: 'button', class: 'mas-info', 'aria-expanded': 'false', onclick: () => {
-    resto.hidden = !resto.hidden; mas.setAttribute('aria-expanded', String(!resto.hidden)); mas.textContent = resto.hidden ? 'Más info' : 'Menos';
-  } }, 'Más info');
-  return h('div', { class: 'ayuda' }, m[1], resto, ' ', mas);
+const LARGA = 80;
+const globo = h('div', { class: 'globo', role: 'note', hidden: true });
+document.body.append(globo);
+let globoDe = null;
+function cerrarGlobo() { if (globoDe) globoDe.setAttribute('aria-expanded', 'false'); globo.hidden = true; globoDe = null; }
+function botonInfo(textoAyuda) {
+  const b = h('button', { type: 'button', class: 'boton-info', 'aria-label': 'Más información', 'aria-expanded': 'false', html: icono('info', 15) });
+  b.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (globoDe === b) { cerrarGlobo(); return; }
+    cerrarGlobo();
+    globo.textContent = textoAyuda; globo.hidden = false; globoDe = b; b.setAttribute('aria-expanded', 'true');
+    const r = b.getBoundingClientRect(); const w = Math.min(380, window.innerWidth - 24);
+    globo.style.width = `${w}px`;
+    globo.style.left = `${Math.max(12, Math.min(window.innerWidth - w - 12, r.left - 12))}px`;
+    const abajo = r.bottom + 8 + globo.offsetHeight < window.innerHeight;
+    globo.style.top = `${abajo ? r.bottom + 8 : r.top - globo.offsetHeight - 8}px`;
+  });
+  return b;
 }
+document.addEventListener('click', (e) => { if (globoDe && !globo.contains(e.target)) cerrarGlobo(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && globoDe) { const b = globoDe; cerrarGlobo(); b.focus(); } });
+document.getElementById('contenido').addEventListener('scroll', () => cerrarGlobo(), { passive: true });
+function ayudaPlegable(texto) { return h('div', { class: 'ayuda' }, texto); }
 // [E29] La etiqueta queda asociada al control (lectores de pantalla y click en la etiqueta).
 const campo = (etiqueta, control, ayuda) => {
   const fila = h('div', { class: 'fila' }, control);
@@ -190,9 +204,11 @@ const campo = (etiqueta, control, ayuda) => {
   const label = h('label', {}, etiqueta);
   if (objetivo) { if (!objetivo.id) objetivo.id = id; label.htmlFor = objetivo.id; }
   else { label.id = `${id}-l`; const grupo = fila.querySelector('[role="radiogroup"], .fichas, button'); if (grupo && !grupo.hasAttribute('aria-label')) grupo.setAttribute('aria-labelledby', label.id); }
-  const ayudaEl = ayuda ? ayudaPlegable(ayuda) : null;
+  const larga = typeof ayuda === 'string' && ayuda.length > LARGA;
+  const ayudaEl = ayuda && !larga ? ayudaPlegable(ayuda) : null;
   if (ayudaEl && objetivo) { ayudaEl.id = `${id}-a`; objetivo.setAttribute('aria-describedby', ayudaEl.id); }
-  return h('div', { class: 'campo' }, label, fila, ayudaEl);
+  if (larga && objetivo) objetivo.setAttribute('aria-description', ayuda);
+  return h('div', { class: 'campo' }, larga ? h('div', { class: 'campo-et' }, label, botonInfo(ayuda)) : label, fila, ayudaEl);
 };
 const boton = (nombre, alTocar, clase = '', deshabilitado = false) => h('button', { type: 'button', class: `boton ${clase}`, onclick: alTocar, disabled: !!deshabilitado }, nombre);
 // [C19] Quitar: ícono de tacho con color de peligro, con nombre accesible.
@@ -815,7 +831,7 @@ function pedirMiniaturas(lista) {
 async function cargarClips() {
   clipsGuardados = await pedir('clips:lista').catch(() => []);
   if (clipsUI.carpeta && !clipsGuardados.some((x) => (x.juego || '') === clipsUI.carpeta)) clipsUI.carpeta = '';
-  if (seccion === 'clips' || seccion === 'clips-ajustes' || seccion === 'almacenamiento') pintar();
+  if (seccion === 'clips' || seccion === 'clips-ajustes' || seccion === 'almacenamiento' || (seccion === 'resumen' && !escribiendo())) pintar();
 }
 // ---------- Editor de clips: renombrar y recortar ----------
 let clipEditor = null; // { archivo, base, ext, nodo } mientras se edita un clip (la pantalla no se repinta para no cortar el video)
@@ -1429,14 +1445,14 @@ function editorDeClip() {
         h('span', { class: 'et' }, 'Fin'), nHasta, h('span', { class: 'nota' }, 's'), acaHasta,
         h('span', { style: 'flex:1' }), aCortar, aVer),
       resumen),
-    panelEdicion,
-    panelComprimir,
+    h('div', { class: 'editor-lado' }, panelEdicion, panelComprimir),
     h('div', { class: 'editor-pie' },
       guardarCaja,
       h('span', { style: 'flex:1' }),
       h('span', { class: 'nota', html: `${icono('whatsapp', 16)}` }), destino, enviar),
     h('div', { class: 'editor-mensaje' }, mensaje, barra),
-    h('p', { class: 'nota' }, 'Arrastrá las manijas para elegir el recorte; tocá la línea para moverte. En "Edición": cortar en pedazos, copiar y pegar, velocidad, textos y recuadros. "Guardar" reemplaza el clip (con Deshacer); en la flechita está "Guardar una copia". Doble clic en el video: pantalla completa.'));
+    h('p', { class: 'nota editor-atajos' }, 'Espacio: reproducir · S: cortar · Ctrl+Z: deshacer · Ctrl+C / Ctrl+V: copiar y pegar · Supr: borrar · F: pantalla completa',
+      botonInfo('Arrastrá las manijas para elegir el recorte; tocá la línea para moverte. En "Edición": cortar en pedazos, copiar y pegar, velocidad, textos y recuadros. "Guardar" reemplaza el clip (con Deshacer); en la flechita está "Guardar una copia".')));
   refrescar();
   cargar(false).catch((er) => decir(er.message, 'mal'));
   return ed.nodo;
@@ -1533,8 +1549,9 @@ function listaDeClips() {
   });
   return h('div', { class: 'ancho' },
     h('datalist', { id: 'contactos-clips' }, nombres.map((n) => h('option', { value: n }))),
-    h('div', { class: 'fila', style: 'margin-bottom:8px' }, h('span', {}, 'Enviar a:'), destino, h('span', { class: 'nota' }, 'un contacto o grupo de WhatsApp'), boton('Actualizar', cargarClips, 'chico')),
-    (clipsGuardados || []).length ? filtros : null,
+    h('div', { class: 'clips-barra' }, (clipsGuardados || []).length ? filtros : null,
+      h('label', { class: 'nota enviar-a', title: 'Contacto o grupo de WhatsApp para "Enviar"' }, h('span', { html: icono('whatsapp', 15) }), destino),
+      botonIcono('actualizar', 'Actualizar', cargarClips)),
     hechos.length ? h('div', { class: 'clips-lista' }, hechos) : h('div', { class: 'vacio' }, (clipsGuardados || []).length ? 'No hay clips en esa carpeta.' : 'Todavía no hay clips en la carpeta. Cuando guardes uno, aparece acá.'),
     paginador);
 }
@@ -2377,9 +2394,7 @@ const secciones = {
     const ultimos = todo.slice(todo.findIndex((n) => n && n.tagName === 'H2' && n.textContent === 'Tus clips'), i);
     return [
       h('h1', {}, 'Clips'),
-      h('p', { class: 'bajada' }, cfg.clips.activo
-        ? 'Jarvis guarda los últimos segundos de tu pantalla; pedí un clip con el atajo, la voz ("guardá el último minuto") o el notch.'
-        : 'Repetición instantánea de tu pantalla. Está apagada: prendela en los ajustes de clips.'),
+      cfg.clips.activo ? null : h('p', { class: 'bajada' }, 'La repetición instantánea está apagada.'),
       controlesDeClips(),
       ...ultimos,
     ];
@@ -3165,6 +3180,22 @@ const secciones = {
     return [
       h('h1', {}, 'Descargas'),
       h('p', { class: 'bajada' }, 'Con yt-dlp, Jarvis baja el video (o solo el audio en mp3) de lo que estás mirando en el navegador. Decile "descargá este video" o "descargá el audio de este video" con el navegador al frente (si no encuentra la pestaña, usa el link que tengas copiado). Se guardan en la carpeta Descargas, junto a tus clips; los audios, en Descargas\\Audio.'),
+      
+      h('div', { class: 'fila' },
+        h('input', { type: 'text', placeholder: 'Pegá el link del video (vacío = el de tu navegador o el que copiaste)', value: descargasUI.enlace, style: 'flex:1;min-width:240px', 'aria-label': 'Link del video', oninput: (ev) => { descargasUI.enlace = ev.target.value; } }),
+        boton('Descargar video', () => pedirDescarga('video'), 'principal'),
+        boton('Solo el audio', () => pedirDescarga('audio'), 'chico'),
+        e.activa || (e.enCola || []).length ? boton('Cancelar', async () => { try { avisarGuardado(await pedir('descargas:cancelar')); await cargarDescargas(); } catch (er) { avisarGuardado(er.message); } }, 'chico') : null),
+      hechas.length ? h('div', { class: 'nv-lista' }, hechas.map(fila)) : h('p', { class: 'ayuda' }, 'Todavía no descargaste nada.'),
+      h('div', { class: 'fila', style: 'margin-top:10px' },
+        boton('Abrir la carpeta', () => pedir('descargas:carpeta').catch((er) => avisarGuardado(er.message)), 'chico'),
+        e.ytdlp ? boton(descargasUI.actualizando === '…' ? 'Actualizando…' : 'Actualizar yt-dlp', async () => {
+          descargasUI.actualizando = '…'; pintar();
+          try { descargasUI.actualizando = await pedir('componentes:actualizar', 'ytdlp'); } catch (er) { descargasUI.actualizando = er.message; }
+          await cargarDescargas(); cargarAvisosSistema();
+        }, 'chico') : null),
+      descargasUI.actualizando && descargasUI.actualizando !== '…' ? h('p', { class: 'ayuda' }, descargasUI.actualizando) : null,
+      h('h2', {}, 'Ajustes'),
       campo('yt-dlp', e.ytdlp
         ? [h('span', { class: 'nota bien' }, `Listo${e.version ? ` · versión ${e.version}` : ''}`), h('span', { class: 'ayuda' }, e.ytdlp)]
         : [h('span', { class: 'nota mal' }, 'No lo encuentro'),
@@ -3178,22 +3209,6 @@ const secciones = {
       e.ytdlp ? 'Si ya lo tenés instalado (WinGet, scoop o suelto) lo encuentra solo; si no, indicá abajo dónde está.' : 'Instalalo vos (por ejemplo con "winget install yt-dlp") o dejá que Jarvis baje el programa oficial a su carpeta de datos.'),
       campo('Calidad del video', segmentado(d, 'calidad', [['mejor', 'La mejor'], ['1080', '1080p MP4'], ['720', '720p MP4']], guardar, { porDefecto: '1080' }),
         'Es lo que usa "descargá este video" si no decís otra ("en 720", "en la mejor calidad"). 1080p y 720p son las mismas opciones de tu archivo de comandos.'),
-      h('h2', {}, 'Probar o pegar un link'),
-      h('div', { class: 'fila' },
-        h('input', { type: 'text', placeholder: 'Pegá el link del video (vacío = el de tu navegador o el que copiaste)', value: descargasUI.enlace, style: 'flex:1;min-width:240px', 'aria-label': 'Link del video', oninput: (ev) => { descargasUI.enlace = ev.target.value; } }),
-        boton('Descargar video', () => pedirDescarga('video'), 'principal'),
-        boton('Solo el audio', () => pedirDescarga('audio'), 'chico'),
-        e.activa || (e.enCola || []).length ? boton('Cancelar', async () => { try { avisarGuardado(await pedir('descargas:cancelar')); await cargarDescargas(); } catch (er) { avisarGuardado(er.message); } }, 'chico') : null),
-      h('h2', {}, 'Descargas'),
-      hechas.length ? h('div', { class: 'nv-lista' }, hechas.map(fila)) : h('p', { class: 'ayuda' }, 'Todavía no descargaste nada.'),
-      h('div', { class: 'fila', style: 'margin-top:10px' },
-        boton('Abrir la carpeta', () => pedir('descargas:carpeta').catch((er) => avisarGuardado(er.message)), 'chico'),
-        e.ytdlp ? boton(descargasUI.actualizando === '…' ? 'Actualizando…' : 'Actualizar yt-dlp', async () => {
-          descargasUI.actualizando = '…'; pintar();
-          try { descargasUI.actualizando = await pedir('componentes:actualizar', 'ytdlp'); } catch (er) { descargasUI.actualizando = er.message; }
-          await cargarDescargas(); cargarAvisosSistema();
-        }, 'chico') : null),
-      descargasUI.actualizando && descargasUI.actualizando !== '…' ? h('p', { class: 'ayuda' }, descargasUI.actualizando) : null,
       h('h2', {}, 'Avanzado'),
       campo('Carpeta propia', texto(d, 'carpeta', guardar, { placeholder: 'Vacío = "Descargas" dentro de la carpeta de clips' }), `Ahora se guarda en: ${e.carpeta || 'la carpeta de clips'}`),
       campo('Ruta de yt-dlp', texto(d, 'ytdlp', () => { guardar(); setTimeout(async () => { try { descargasEstado = { ...descargasEstado, ...(await pedir('descargas:buscar')) }; pintar(); } catch {} }, 600); }, { placeholder: 'Vacío = buscarlo solo' }), 'Solo si lo tenés en un lugar raro (por ejemplo D:\\Apps\\J\\Videos\\yt-dlp.exe).'),
@@ -3328,6 +3343,7 @@ const secciones = {
       h('p', { class: 'bajada' }, 'Usá Jarvis desde el celular: escribile, corré rutinas, descargá, guardá o mandá clips y mandá WhatsApp desde la PC. En casa alcanza con la app de Jarvis para Android, en la misma Wi-Fi. Para usarlo desde afuera, sumá Tailscale (gratis). Solo entran los celulares que vincules acá.'),
       campo('Usar Jarvis desde el celular', casilla(c, 'activo', () => { guardar(); setTimeout(() => cargarCelular(true), 700); }),
         'Mientras está apagado no hay nada escuchando. Prendido, espera pedidos sin gastar recursos.'),
+      c.activo ? permisosCelular(c) : null,
       h('h2', {}, '1. En casa'),
       pasoCasa(),
       c.activo ? h('h2', {}, '2. Desde afuera') : null,
@@ -3341,24 +3357,6 @@ const secciones = {
       h('h2', {}, 'Archivos de la PC'),
       h('p', { class: 'ayuda' }, 'Las carpetas que el celular vinculado puede ver: desde ahí bajás cualquier archivo o subís uno, en casa y desde afuera, sin pasar por Drive.'),
       bloqueCarpetasCelular(),
-      h('h2', {}, 'Escritorio remoto'),
-      campo('Ver y manejar la PC desde el celular', casilla(c, 'escritorio', guardar),
-        'Como AnyDesk, pero solo con tu celular vinculado: la imagen va directo entre los dos (en casa por la Wi-Fi; desde afuera, si las redes lo permiten). Mientras alguien mira, el notch lo avisa.'),
-      c.escritorio ? campo('Con el sonido de la PC', casilla(c, 'escritorioAudio', guardar, true), 'Lo que suena en los parlantes también se escucha en el celular.') : null,
-      c.escritorio ? h('div', { class: 'fila' }, boton('Cortar si alguien está mirando', async () => { await pedir('escritorio:cortar'); avisarGuardado('Cortado'); }, 'chico')) : null,
-      h('h2', {}, 'Cámara de seguridad'),
-      campo('Ver la cámara y escuchar el micrófono desde el celular', casilla(c, 'camara', guardar),
-        'Solo para los celulares vinculados, y solo mientras miran: la cámara y el micrófono se prenden ahí y se apagan cuando cierran. Cada vez que alguien empieza a mirar, el notch lo avisa y queda en el Historial. Usa la cámara de Asistente → Dispositivos y el micrófono de Escucha.'),
-      c.camara ? (() => {
-        const v = c.vigilar = c.vigilar || { activo: false, sensibilidad: 'media', grabar: true };
-        const aplicar = () => pedir('camara:vigilar', v).then(() => { avisarGuardado(v.activo ? 'Vigilando' : 'Guardado'); pintar(); }).catch((e) => { v.activo = false; avisarGuardado(e.message); pintar(); });
-        return h('div', {},
-          campo('Vigilar: avisarme al celular si hay movimiento', casilla(v, 'activo', aplicar),
-            'La PC mira sola la webcam (sin mandar nada a ningún lado). Si algo se mueve, te llega un aviso al celular y graba hasta que se calme: queda en tus clips, carpeta "Cámara de seguridad".'),
-          v.activo ? campo('Sensibilidad', h('select', { onchange: (e) => { v.sensibilidad = e.target.value; aplicar(); } },
-            ...[['baja', 'Baja (solo movimientos grandes)'], ['media', 'Media'], ['alta', 'Alta (cualquier cosa)']].map(([x, t]) => h('option', { value: x, selected: (v.sensibilidad || 'media') === x }, t)))) : null,
-          v.activo ? campo('Grabar lo que pasa', casilla(v, 'grabar', aplicar)) : null);
-      })() : null,
       h('h2', {}, 'Avisos de recordatorios y eventos'),
       h('p', { class: 'ayuda' }, 'Dónde te avisa Jarvis. En el celular llegan como notificación de la app de Android, aunque esté cerrada (la app los pide a la PC cada 15 minutos y al abrirla; en cada celular se pueden apagar desde su menú).'),
       (() => {
@@ -3598,24 +3596,26 @@ const secciones = {
 secciones.general = () => secciones._general().basico;
 secciones.escucha = () => secciones._general().escucha;
 
+// Historial: una línea de tiempo por día, con de dónde vino cada pedido y filtros.
+const histUI = { filtro: 'todo', buscar: '' };
 secciones.historial = function historial() {
-  const hora = (ms) => new Date(ms).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
-  const ORIGEN = { voz: 'por voz', texto: 'escrito', click: 'con un click', aviso: 'por su cuenta', celular: 'desde el celular' };
-  return [
-    h('h1', {}, 'Historial'),
-    h('p', { class: 'bajada' }, 'Qué le pediste a Jarvis y qué hizo, lo último arriba. En "Ver detalle" está con qué lo resolvió —una regla directa, qué modelo, qué servicio, cuánto tardó cada cosa— por si algo falla y hay que entender dónde. Se guarda solo en esta PC (los últimos 300 pedidos).'),
-    h('div', { class: 'fila' },
-      boton('Actualizar', async () => { registros = await pedir('historial:leer').catch(() => registros); pintar(); }, 'chico'),
-      registros.length ? boton('Borrar todo', async () => { if (!await confirmar({ titulo: '¿Borrar todo el historial?', texto: `Se borran ${registros.length} pedidos. No se puede deshacer.`, si: 'Borrar', peligro: true })) return; await pedir('historial:limpiar'); registros = []; detallesAbiertos.clear(); pintar(); }, 'chico peligro') : null,
-      h('span', { class: 'nota' }, registros.length ? (registros.length === 1 ? '1 pedido' : `${registros.length} pedidos`) : '')),
-    registros.length ? null : h('div', { class: 'vacio' }, 'Todavía no hay nada. Pedile algo a Jarvis y aparece acá.'),
-    registros.map((r) => h('div', { class: `registro${r.ok === false ? ' mal' : ''}` },
-      h('div', { class: 'cabeza' },
-        h('span', {}, hora(r.cuando)), h('span', { class: 'chip' }, ORIGEN[r.origen] || r.origen),
-        r.ok === false ? h('span', { class: 'chip mal' }, 'falló') : null,
-        typeof r.ms === 'number' ? h('span', {}, `${(r.ms / 1000).toFixed(1)} s`) : null,
-        h('span', { style: 'flex:1' }),
-        r.dicho && r.origen !== 'aviso' ? boton('Repetir', async (ev) => {
+  const hhmm = (ms) => new Date(ms).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+  const ORIGEN = { voz: 'voz', texto: 'escrito', click: 'click', aviso: 'sola', celular: 'celular' };
+  const FILTROS = [['todo', 'Todo'], ['voz', 'Voz'], ['celular', 'Celular'], ['aviso', 'Solas'], ['error', 'Errores']];
+  const q = histUI.buscar.trim().toLowerCase();
+  const lista = registros.filter((r) => (histUI.filtro === 'todo' || (histUI.filtro === 'error' ? r.ok === false : r.origen === histUI.filtro)) && (!q || `${r.dicho} ${r.respuesta}`.toLowerCase().includes(q)));
+  const hoy = new Date().toDateString(); const ayer = new Date(Date.now() - 86400000).toDateString();
+  const nombreDia = (t) => { const d = new Date(t).toDateString(); return d === hoy ? 'Hoy' : d === ayer ? 'Ayer' : new Date(t).toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' }); };
+  const grupos = [];
+  for (const r of lista) { const k = new Date(r.cuando).toDateString(); const g = grupos[grupos.length - 1]; if (g && g.k === k) g.items.push(r); else grupos.push({ k, t: r.cuando, items: [r] }); }
+  const fila = (r) => h('div', { class: `registro o-${r.origen}${r.ok === false ? ' mal' : ''}` },
+    h('div', { class: 'cabeza' },
+      h('span', { class: 'r-hora' }, hhmm(r.cuando)),
+      h('span', { class: 'r-dicho' }, r.dicho || '(sin texto)'),
+      h('span', { class: 'chip' }, ORIGEN[r.origen] || r.origen),
+      r.ok === false ? h('span', { class: 'chip mal' }, 'falló') : null,
+      h('span', { class: 'r-acciones' },
+        r.dicho && r.origen !== 'aviso' ? boton(r.ok === false ? 'Reintentar' : 'Repetir', async (ev) => {
           ev.target.disabled = true; ev.target.textContent = 'Haciéndolo…';
           try { avisarGuardado(await pedir('historial:repetir', r.id)); } catch (er) { avisarGuardado(er.message); }
           registros = await pedir('historial:leer').catch(() => registros); pintar();
@@ -3624,15 +3624,24 @@ secciones.historial = function historial() {
           try {
             const n = await pedir('historial:aRutina', r.id);
             rutinas = await pedir('rutinas:leer').catch(() => rutinas);
-            avisarConAccion(`Armé la rutina "${n.nombre}" (botón en el notch).`, 'Verla', () => { elegida = Math.max(0, rutinas.findIndex((x) => x.id === n.id)); irA('rutinas'); return ''; }, 8000);
+            avisarConAccion(`Armé la rutina "${n.nombre}".`, 'Verla', () => { elegida = Math.max(0, rutinas.findIndex((x) => x.id === n.id)); irA('rutinas'); return ''; }, 8000);
           } catch (er) { avisarGuardado(er.message); }
         }, 'chico') : null,
-        boton('Borrar', async () => { await pedir('historial:borrar', r.id); registros = registros.filter((x) => x.id !== r.id); pintar(); }, 'chico')),
-      h('div', { class: 'dicho' }, r.dicho || '(sin texto)'),
-      h('div', { class: 'respuesta' }, r.respuesta ? `→ ${r.respuesta}` : '→ (sin respuesta hablada)'),
-      (r.detalle || []).length ? h('details', { open: detallesAbiertos.has(r.id), ontoggle: (e) => { if (e.target.open) detallesAbiertos.add(r.id); else detallesAbiertos.delete(r.id); } },
-        h('summary', {}, `Ver detalle (${r.detalle.length})`),
-        h('ol', {}, r.detalle.map((d) => h('li', { class: d.error ? 'error' : '' }, h('time', {}, `+${(d.t / 1000).toFixed(2)} s`), h('span', {}, d.texto))))) : null)),
+        botonIcono('tacho', 'Borrar esta línea', async () => { await pedir('historial:borrar', r.id); registros = registros.filter((x) => x.id !== r.id); pintar(); }))),
+    r.respuesta ? h('div', { class: 'respuesta' }, r.respuesta) : null,
+    (r.detalle || []).length ? h('details', { open: detallesAbiertos.has(r.id), ontoggle: (e) => { if (e.target.open) detallesAbiertos.add(r.id); else detallesAbiertos.delete(r.id); } },
+      h('summary', {}, `Detalle${typeof r.ms === 'number' ? ` · ${(r.ms / 1000).toFixed(1).replace('.', ',')} s` : ''}`),
+      h('ol', {}, r.detalle.map((d) => h('li', { class: d.error ? 'error' : '' }, h('time', {}, `+${(d.t / 1000).toFixed(2)} s`), h('span', {}, d.texto))))) : null);
+  return [
+    h('div', { class: 'titulo-con-acciones' }, h('h1', {}, 'Historial'),
+      botonIcono('actualizar', 'Actualizar', async () => { registros = await pedir('historial:leer').catch(() => registros); pintar(); }),
+      registros.length ? botonIcono('tacho', 'Borrar todo el historial', async () => { if (!await confirmar({ titulo: '¿Borrar todo el historial?', texto: `Se borran ${registros.length} pedidos. No se puede deshacer.`, si: 'Borrar', peligro: true })) return; await pedir('historial:limpiar'); registros = []; detallesAbiertos.clear(); pintar(); }) : null),
+    h('div', { class: 'hist-barra' },
+      h('div', { class: 'fichas', role: 'radiogroup', 'aria-label': 'Mostrar' }, FILTROS.map(([v, t]) => h('button', { type: 'button', role: 'radio', class: `ficha${histUI.filtro === v ? ' on' : ''}`, 'aria-checked': String(histUI.filtro === v), onclick: () => { histUI.filtro = v; pintar(); } }, t))),
+      h('input', { type: 'search', class: 'hist-buscar', placeholder: 'Buscar', 'aria-label': 'Buscar en el historial', value: histUI.buscar, oninput: (e) => { histUI.buscar = e.target.value; const pos = e.target.selectionStart; pintar(); const i = document.querySelector('.hist-buscar'); if (i) { i.focus(); i.setSelectionRange(pos, pos); } } })),
+    !registros.length ? h('div', { class: 'vacio' }, 'Todavía no hay nada. Pedile algo a Jarvis y aparece acá.')
+      : !lista.length ? h('div', { class: 'vacio' }, 'Nada con ese filtro.')
+        : grupos.map((g) => h('section', { class: 'hist-dia' }, h('h2', { class: 'hist-dia-t' }, nombreDia(g.t)), h('div', { class: 'hist-linea' }, g.items.map(fila)))),
   ];
 };
 
@@ -3781,7 +3790,98 @@ function editorRutina(r) {
 }
 
 // ---------- [A4][A5] Resumen: estado de todo de un vistazo + primeros pasos ----------
+// Celular: todo lo que el celular puede hacer en esta PC, en un solo lugar, con lo último que hizo.
+function permisosCelular(c) {
+  const fila = (ic, nombre, detalle, control) => h('div', { class: 'permiso' }, h('span', { class: 'p-ic', html: icono(ic, 18) }), h('div', { class: 'p-texto' }, h('b', {}, nombre), detalle ? h('span', { class: 'nota' }, detalle) : null), control);
+  const casillaCon = (clave, nombre, porDefecto) => { const l = casilla(c, clave, () => { guardar(); pintar(); }, porDefecto); l.querySelector('input').setAttribute('aria-label', nombre); return l; };
+  const actividad = (registros || []).filter((r) => r.origen === 'celular').slice(0, 5);
+  const v = c.vigilar = c.vigilar || { activo: false, sensibilidad: 'media', grabar: true };
+  const aplicarVig = () => pedir('camara:vigilar', v).then(() => { avisarGuardado(v.activo ? 'Vigilando' : 'Guardado'); pintar(); }).catch((e) => { v.activo = false; avisarGuardado(e.message); pintar(); });
+  const casVig = casilla(v, 'activo', aplicarVig); casVig.querySelector('input').setAttribute('aria-label', 'Vigilar');
+  return h('section', { class: 'permisos-cel' },
+    h('h2', {}, 'Qué puede hacer el celular'),
+    fila('celular', 'Charla, rutinas, mouse, teclado y energía', 'Siempre, con un celular vinculado', null),
+    fila('carpeta', 'Archivos de la PC', (() => { const n = (carpetasCel || c.carpetas || []).length; return `${n} ${n === 1 ? 'carpeta compartida' : 'carpetas compartidas'}`; })(), boton('Elegir', () => { const x = document.querySelector('.carpetas-cel, #carpetas-cel'); if (x) x.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 'chico')),
+    fila('tele', 'Escritorio remoto', 'Ver y manejar la pantalla', casillaCon('escritorio', 'Escritorio remoto')),
+    c.escritorio ? fila('parlante', 'Con el sonido de la PC', null, casillaCon('escritorioAudio', 'Con el sonido de la PC', true)) : null,
+    fila('camara', 'Cámara', 'Webcam y micrófono, solo mientras mira', casillaCon('camara', 'Cámara')),
+    c.camara ? fila('alerta', 'Vigilar', 'Avisa al celular si hay movimiento y lo graba', casVig) : null,
+    c.camara && v.activo ? fila('ajustes', 'Sensibilidad', null, h('select', { 'aria-label': 'Sensibilidad', onchange: (e) => { v.sensibilidad = e.target.value; aplicarVig(); } }, ...[['baja', 'Baja'], ['media', 'Media'], ['alta', 'Alta']].map(([x, t]) => h('option', { value: x, selected: (v.sensibilidad || 'media') === x }, t)))) : null,
+    c.escritorio ? h('div', { class: 'fila' }, boton('Cortar si alguien está mirando', async () => { await pedir('escritorio:cortar'); avisarGuardado('Cortado'); }, 'chico')) : null,
+    h('h3', { class: 'p-sub' }, 'Lo último que hizo'),
+    actividad.length ? h('ul', { class: 'actividad-cel' }, actividad.map((r) => h('li', { class: r.ok === false ? 'mal' : '' }, h('span', { class: 'nota' }, new Date(r.cuando).toLocaleString('es-AR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })), h('span', {}, r.dicho || r.respuesta || ''))))
+      : h('p', { class: 'nota' }, 'Nada todavía.'));
+}
+
+// ---------- Inicio: tu día y lo último que hiciste (el estado de los servicios vive en Sistema → Servicios) ----------
+const inicioDatos = { agenda: null, pidiendo: false, t: 0 };
+async function cargarInicioPC() {
+  if (inicioDatos.pidiendo || Date.now() - inicioDatos.t < 60000) return;
+  inicioDatos.pidiendo = true;
+  try {
+    const d0 = new Date(); d0.setHours(0, 0, 0, 0);
+    const [r, ns] = await Promise.all([pedir('calendario:rango', { desde: +d0, hasta: +d0 + 86400000 }).catch(() => ({ eventos: [] })), pedir('notas:leer').catch(() => notasLista || [])]);
+    notasLista = ns;
+    inicioDatos.agenda = [...(r.eventos || []).filter((e) => e.fin > Date.now()).map((e) => ({ t: e.todoElDia ? +d0 : e.inicio, titulo: e.titulo, hora: e.todoElDia ? 'Todo el día' : new Date(e.inicio).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }), ic: 'calendario' })),
+      ...(ns || []).filter((n) => n.cuando && !n.avisada && n.cuando < +d0 + 86400000).map((n) => ({ t: n.cuando, titulo: n.texto, hora: new Date(n.cuando).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }), ic: 'reloj' }))].sort((a, b) => a.t - b.t);
+    inicioDatos.t = Date.now();
+  } finally { inicioDatos.pidiendo = false; }
+  if (seccion === 'resumen' && !escribiendo()) pintar();
+}
 secciones.resumen = function resumen() {
+  const m = voces.modelos || {};
+  const vozLista = ['oido', 'vad'].every((id) => !m[id] || m[id].instalado) && (cfg.habla.voz === 'windows' || !m[`voz-${cfg.habla.voz}`] || m[`voz-${cfg.habla.voz}`].instalado);
+  const iaLista = Object.values(ia || {}).filter((x) => x && x.configurado).map((x) => x.nombre);
+  const pasos = [
+    ['Decile a Jarvis cómo te llamás', !!cfg.usuario, 'general'],
+    ['Bajar los modelos de voz', vozLista, 'escucha'],
+    ['Configurar una inteligencia (Groq o Gemini, gratis)', iaLista.length > 0, 'inteligencia'],
+    ['Cargar tu ciudad para el clima', !!cfg.ciudad, 'general'],
+    ['Vincular WhatsApp (opcional)', whatsapp.fase === 'conectado', 'whatsapp'],
+  ];
+  const hechos = pasos.filter((x) => x[1]).length;
+  const hora = new Date().getHours();
+  const saludo = `${hora < 6 ? 'Buenas noches' : hora < 13 ? 'Buen día' : hora < 20 ? 'Buenas tardes' : 'Buenas noches'}${cfg.usuario ? `, ${cfg.usuario}` : ''}`;
+  const pend = pendientes();
+  const problemas = Object.entries(pend).filter(([k]) => k !== 'resumen' && k !== 'sistema');
+  const ultimo = (clipsGuardados || []).slice().sort((a, b) => b.fecha - a.fecha)[0];
+  if (ultimo) setTimeout(() => pedirMiniaturas([ultimo]), 0);
+  const hace = (t) => { const mm = Math.round((Date.now() - t) / 60000); return mm < 1 ? 'recién' : mm < 60 ? `hace ${mm} min` : mm < 1440 ? `hace ${Math.round(mm / 60)} h` : new Date(t).toLocaleDateString('es-AR', { day: 'numeric', month: 'short' }); };
+  const pedidos = (registros || []).filter((r) => r.dicho && r.origen !== 'aviso').slice(0, 4);
+  const rapidas = rutinas.filter((r) => r.rapida).slice(0, 6);
+  const tarjetaHoy = h('section', { class: 'tarjeta-inicio' },
+    h('div', { class: 'ti-cabeza' }, h('h2', {}, 'Para hoy'), boton('Agenda', () => irA('agenda'), 'chico')),
+    inicioDatos.agenda === null ? h('p', { class: 'nota' }, 'Cargando…')
+      : inicioDatos.agenda.length ? h('ul', { class: 'ti-lista' }, inicioDatos.agenda.slice(0, 5).map((x) => h('li', {}, h('span', { class: 'ti-hora' }, x.hora), h('span', { html: icono(x.ic, 14), class: 'ti-ic' }), h('span', {}, x.titulo))))
+        : h('p', { class: 'nota' }, 'Nada para hoy.'));
+  const tarjetaClip = h('section', { class: 'tarjeta-inicio clip' },
+    h('div', { class: 'ti-cabeza' }, h('h2', {}, 'Último clip'), boton('Clips', () => irA('clips'), 'chico')),
+    ultimo ? h('button', { type: 'button', class: 'ti-clip', onclick: () => { irA('clips'); abrirEditor(ultimo); } },
+      h('span', { class: 'ti-cuadro' }, h('img', { class: 'miniatura', alt: '', 'data-archivo': ultimo.archivo, src: miniaturas.get(ultimo.archivo) || undefined, hidden: !miniaturas.get(ultimo.archivo) }), h('span', { html: icono('clip', 26), hidden: !!miniaturas.get(ultimo.archivo) })),
+      h('span', { class: 'ti-clip-datos' }, h('b', {}, ultimo.nombre), h('span', { class: 'nota' }, [ultimo.juego, hace(ultimo.fecha)].filter(Boolean).join(' · '))))
+      : h('p', { class: 'nota' }, clipsGuardados ? 'Todavía no hay clips.' : 'Cargando…'));
+  return [
+    h('h1', {}, saludo),
+    bloqueAvisosSistema(),
+    problemas.length ? h('section', { class: 'avisos-sistema' }, h('div', { class: 'aviso-sistema aviso' }, h('span', { class: 'as-icono', html: icono('alerta', 18) }), h('div', { class: 'as-texto' }, h('b', {}, problemas.map(([, t]) => t).join(' · '))), h('div', { class: 'as-acciones' }, boton('Ver', () => irA('servicios'), 'chico')))) : null,
+    INFO.edicion ? h('div', { class: 'aviso-edicion' }, h('span', { html: icono('info', 18) }), h('div', {}, h('b', {}, 'Jarvis B, la edición de prueba.'), ' Guarda sus datos aparte (datos-B).')) : null,
+    hechos < pasos.length ? h('section', { class: 'primeros-pasos compacto' },
+      h('div', { class: 'pp-cabeza' }, h('h2', {}, 'Primeros pasos'), h('span', { class: 'nota' }, `${hechos} de ${pasos.length}`)),
+      h('div', { class: 'progreso', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': String(pasos.length), 'aria-valuenow': String(hechos), 'aria-label': 'Primeros pasos completados' }, h('i', { style: `width:${(hechos / pasos.length) * 100}%` })),
+      h('ol', { class: 'pp-lista' }, pasos.filter(([, ok]) => !ok).map(([t, , hoja]) => h('li', {}, h('span', { class: 'pp-marca' }), h('a', { onclick: () => irA(hoja), tabindex: '0', onkeydown: (e) => { if (e.key === 'Enter') irA(hoja); } }, t))))) : null,
+    h('div', { class: 'inicio-grilla' }, tarjetaHoy, tarjetaClip),
+    rapidas.length ? h('section', { class: 'tarjeta-inicio' }, h('div', { class: 'ti-cabeza' }, h('h2', {}, 'Atajos'), boton('Rutinas', () => irA('rutinas'), 'chico')),
+      h('div', { class: 'ti-atajos' }, rapidas.map((r) => h('button', { type: 'button', class: 'tile-accion', onclick: async (ev) => { ev.currentTarget.disabled = true; try { const x = await pedir('rutina:ejecutar', r.id); avisarGuardado(x && x.ok === false ? x.errores.join(' · ') : `Listo: ${String(r.nombre).split(',')[0]}.`); } catch (er) { avisarGuardado(er.message); } ev.target.disabled = false; },
+        html: `${icono(r.icono || 'rayo', 22)}<span>${String(r.nombre).split(',')[0]}</span>` })))) : null,
+    h('section', { class: 'tarjeta-inicio' }, h('div', { class: 'ti-cabeza' }, h('h2', {}, 'Lo último que pediste'), boton('Historial', () => irA('historial'), 'chico')),
+      pedidos.length ? h('ul', { class: 'ti-pedidos' }, pedidos.map((r) => h('li', { class: r.ok === false ? 'mal' : '' },
+        h('span', { class: 'ti-hora' }, hace(r.cuando)), h('b', {}, `"${r.dicho}"`), h('span', { class: 'nota' }, r.respuesta || ''),
+        boton('Repetir', async (ev) => { ev.target.disabled = true; try { avisarGuardado(await pedir('historial:repetir', r.id)); } catch (er) { avisarGuardado(er.message); } registros = await pedir('historial:leer').catch(() => registros); pintar(); }, 'chico'))))
+        : h('p', { class: 'nota' }, 'Pedile algo a Jarvis y aparece acá.')),
+  ];
+};
+// Sistema → Servicios: cómo está cada parte (antes estaba en Inicio).
+secciones.servicios = function servicios() {
   const m = voces.modelos || {};
   const vozLista = ['oido', 'vad'].every((id) => !m[id] || m[id].instalado) && (cfg.habla.voz === 'windows' || !m[`voz-${cfg.habla.voz}`] || m[`voz-${cfg.habla.voz}`].instalado);
   const bajando = Object.values(m).find((x) => x && x.bajando);
@@ -3796,33 +3896,9 @@ secciones.resumen = function resumen() {
       h('span', { class: 'et-texto' }, h('b', {}, titulo), h('span', { class: `estado-chip ${tono}` }, estado)),
       h('span', { class: 'et-flecha', html: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>' })),
     accion || null);
-  const pasos = [
-    ['Decile a Jarvis cómo te llamás', !!cfg.usuario, 'general'],
-    ['Bajar los modelos de voz', vozLista, 'escucha'],
-    ['Configurar una inteligencia (Groq o Gemini, gratis)', iaLista.length > 0, 'inteligencia'],
-    ['Cargar tu ciudad para el clima', !!cfg.ciudad, 'general'],
-    ['Vincular WhatsApp (opcional)', whatsapp.fase === 'conectado', 'whatsapp'],
-  ];
-  const hechos = pasos.filter((x) => x[1]).length;
   return [
-    h('h1', {}, 'Inicio'),
-    h('p', { class: 'bajada' }, 'Cómo está cada servicio y lo que falta configurar.'),
+    h('h1', {}, 'Servicios'),
     bloqueAvisosSistema(),
-    h('div', { class: 'atajos-inicio' },
-      [['nota', 'Notas', 'notas', notasLista ? `${notasLista.length} ${notasLista.length === 1 ? 'nota' : 'notas'}` : 'Lo que le pediste anotar'],
-        ['clip', 'Clips', 'clips', cfg.clips.activo ? 'Grabando en segundo plano' : 'Repetición instantánea'],
-        ['rayo', 'Rutinas', 'rutinas', `${rutinas.length} ${rutinas.length === 1 ? 'rutina' : 'rutinas'}`],
-        ['reloj', 'Historial', 'historial', 'Lo que pediste y qué hizo']].map(([ic, t, hoja, sub]) => h('button', { type: 'button', class: 'atajo-inicio', onclick: () => irA(hoja) },
-        h('span', { class: 'et-icono', html: icono(ic, 20) }), h('span', { class: 'et-texto' }, h('b', {}, t), h('small', {}, sub))))),
-    INFO.edicion ? h('div', { class: 'aviso-edicion' }, h('span', { html: icono('info', 18) }),
-      h('div', {}, h('b', {}, 'Estás usando Jarvis B, la edición de prueba.'), ' Guarda sus datos aparte (carpeta datos-B) y comparte las voces con el Jarvis original. WhatsApp se vincula por separado. Conviene no tener abiertos los dos a la vez, porque los dos te escucharían.')) : null,
-    hechos < pasos.length ? h('section', { class: 'primeros-pasos' },
-      h('div', { class: 'pp-cabeza' }, h('h2', {}, 'Primeros pasos'), h('span', { class: 'nota' }, `${hechos} de ${pasos.length}`)),
-      h('div', { class: 'progreso', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': String(pasos.length), 'aria-valuenow': String(hechos), 'aria-label': 'Primeros pasos completados' }, h('i', { style: `width:${(hechos / pasos.length) * 100}%` })),
-      h('ol', { class: 'pp-lista' }, pasos.map(([t, ok, hoja]) => h('li', { class: ok ? 'hecho' : '' },
-        h('span', { class: 'pp-marca', html: ok ? icono('tilde', 14) : '' }),
-        ok ? h('span', {}, t) : h('a', { onclick: () => irA(hoja), tabindex: '0', onkeydown: (e) => { if (e.key === 'Enter') irA(hoja); } }, t))))) : null,
-    h('h2', { class: 'titulo-suelto' }, 'Estado de los servicios'),
     h('div', { class: 'estado-grilla' },
       tarjeta('mic', 'Voz', bajando ? ['aviso', 'Bajando modelos…'] : vozLista ? ['bien', 'Lista'] : ['mal', 'Faltan modelos'], 'escucha',
         !vozLista && !bajando ? boton('Bajar', () => pedir('modelos:bajar', 'esenciales').catch((e) => avisarGuardado(e.message)), 'chico principal') : null),
@@ -3831,7 +3907,7 @@ secciones.resumen = function resumen() {
       tarjeta('mail', 'Mail', casillas.length ? ['bien', casillas.join(' · ')] : ['', 'Sin configurar'], 'mail'),
       tarjeta('calendario', 'Calendario', cfg.calendario.activo ? ['bien', 'Activo'] : ['', 'Apagado'], 'calendario'),
       tarjeta('clip', 'Clips', cfg.clips.activo ? ['bien', 'Prendidos'] : ['', 'Apagados'], 'clips-ajustes'),
-    ),
+      tarjeta('celular', 'Celular', cfg.celular && cfg.celular.activo ? ['bien', 'Prendido'] : ['', 'Apagado'], 'celular')),
   ];
 };
 
@@ -3966,20 +4042,21 @@ secciones['estado-pc'] = function estadoDeLaPc() {
 // ---------- Navegación ----------
 // [A1] Grupos pensados por tarea; [A2] cada uno con ícono; [A3] un punto avisa si algo de adentro necesita atención.
 const GRUPOS = [
-  // Lo que usás y creás con Jarvis: no son ajustes.
+  // Lo que usás y creás con Jarvis: la barra de siempre.
   { id: 'resumen', nombre: 'Inicio', icono: 'inicio', hojas: [['resumen', 'Inicio']] },
-  { id: 'notas', nombre: 'Notas', icono: 'nota', hojas: [['notas', 'Notas'], ['notasvoz', 'Notas de voz']] },
-  { id: 'agenda', nombre: 'Calendario', icono: 'calendario', hojas: [['agenda', 'Calendario']] },
-  { id: 'clips', nombre: 'Clips', icono: 'clip', hojas: [['clips', 'Clips']] },
+  { id: 'agenda', nombre: 'Agenda', icono: 'calendario', hojas: [['agenda', 'Calendario'], ['notas', 'Notas'], ['notasvoz', 'Notas de voz']] },
   { id: 'rutinas', nombre: 'Rutinas', icono: 'rayo', hojas: [['rutinas', 'Rutinas']] },
+  { id: 'clips', nombre: 'Clips', icono: 'clip', hojas: [['clips', 'Clips']] },
+  { id: 'descargas', nombre: 'Descargas', icono: 'bajar', hojas: [['descargas', 'Descargas']] },
   { id: 'historial', nombre: 'Historial', icono: 'reloj', hojas: [['historial', 'Historial']] },
-  // Cómo se comporta Jarvis.
-  { id: 'asistente', titulo: 'Ajustes', nombre: 'Asistente', icono: 'asistente', hojas: [['general', 'Básico'], ['voz', 'Voz'], ['escucha', 'Escucha'], ['inteligencia', 'Inteligencia'], ['contexto', 'Contexto']] },
-  { id: 'interfaz', nombre: 'Interfaz', icono: 'interfaz', hojas: [['panel', 'Panel'], ['apariencia', 'Apariencia'], ['modos', 'Modos']] },
-  { id: 'cuentas', nombre: 'Cuentas y avisos', icono: 'cuentas', hojas: [['whatsapp', 'WhatsApp'], ['mail', 'Mail'], ['calendario', 'Calendario'], ['notificaciones', 'Notificaciones'], ['conexion', 'Conexión']] },
-  { id: 'equipos', nombre: 'Dispositivos', icono: 'equipos', hojas: [['dispositivos', 'Teles y parlantes'], ['celular', 'Celular'], ['pc', 'PC']] },
-  { id: 'multimedia', nombre: 'Multimedia', icono: 'musica', hojas: [['clips-ajustes', 'Grabación de clips'], ['descargas', 'Descargas'], ['musica', 'Música'], ['streaming', 'Streaming']] },
-  { id: 'sistema', nombre: 'Sistema', icono: 'sistema', hojas: [['estado-pc', 'Estado de la PC'], ['actualizaciones', 'Información'], ['componentes', 'Componentes'], ['almacenamiento', 'Almacenamiento']] },
+  // Ajustes: detrás del engranaje, agrupados por tarea.
+  { id: 'jarvis', ajuste: true, nombre: 'Jarvis', icono: 'asistente', hojas: [['general', 'Básico'], ['voz', 'Voz'], ['escucha', 'Escucha'], ['inteligencia', 'Inteligencia'], ['contexto', 'Contexto']] },
+  { id: 'interfaz', ajuste: true, nombre: 'Apariencia y notch', icono: 'interfaz', hojas: [['panel', 'Panel'], ['apariencia', 'Apariencia'], ['modos', 'Modos']] },
+  { id: 'cuentas', ajuste: true, nombre: 'Cuentas y avisos', icono: 'cuentas', hojas: [['whatsapp', 'WhatsApp'], ['mail', 'Mail'], ['calendario', 'Calendario'], ['notificaciones', 'Notificaciones'], ['conexion', 'Conexión']] },
+  { id: 'celular', ajuste: true, nombre: 'Celular', icono: 'celular', hojas: [['celular', 'Celular']] },
+  { id: 'equipos', ajuste: true, nombre: 'Casa', icono: 'casa', hojas: [['dispositivos', 'Teles y parlantes']] },
+  { id: 'multimedia', ajuste: true, nombre: 'Clips y música', icono: 'musica', hojas: [['clips-ajustes', 'Grabación de clips'], ['musica', 'Música'], ['streaming', 'Streaming']] },
+  { id: 'sistema', ajuste: true, nombre: 'Sistema', icono: 'sistema', hojas: [['servicios', 'Servicios'], ['estado-pc', 'Estado de la PC'], ['pc', 'Programas y audio'], ['actualizaciones', 'Información'], ['componentes', 'Componentes'], ['almacenamiento', 'Almacenamiento']] },
 ];
 // [A6] Palabras para el buscador (además del nombre de cada pantalla).
 const CLAVES = {
@@ -4013,15 +4090,29 @@ const CLAVES = {
   componentes: 'instalar bajar modelos voz ffmpeg yt-dlp kokoro daniela componentes importar portable datos',
   actualizaciones: 'información info versión fecha release tamaño disco actualizar actualización update acerca de github',
   historial: 'registro pedidos errores detalle',
-  resumen: 'estado inicio resumen primeros pasos',
+  resumen: 'inicio hoy resumen primeros pasos',
+  servicios: 'estado servicios voz inteligencia whatsapp mail calendario clips funciona',
 };
 const grupoDe = (hoja) => GRUPOS.find((g) => g.hojas.some(([id]) => id === hoja)) || GRUPOS[0];
 const nombreDeHoja = (hoja) => (grupoDe(hoja).hojas.find(([id]) => id === hoja) || [hoja, hoja])[1];
 let seccion = (location.hash || '#resumen').slice(1);
 const menu = document.getElementById('menu');
-for (const g of GRUPOS) {
-  if (g.titulo) menu.insertBefore(h('div', { class: 'menu-titulo', role: 'presentation' }, g.titulo), document.getElementById('menu-fin'));
-  menu.insertBefore(h('button', { type: 'button', 'data-grupo': g.id, html: `${icono(g.icono, 18)}<span>${g.nombre}</span><i class="punto-menu" hidden></i>` }), document.getElementById('menu-fin'));
+// La barra cambia entre "usar" (lo de todos los días) y "Ajustes" (el engranaje), como dos lugares distintos.
+let menuEnAjustes = null;
+let ultimaDeUso = 'resumen'; let ultimaDeAjustes = 'general';
+function armarMenu(enAjustes) {
+  if (menuEnAjustes === enAjustes) return;
+  menuEnAjustes = enAjustes;
+  menu.querySelectorAll('[data-grupo], .menu-titulo, .menu-volver, .menu-engranaje').forEach((x) => x.remove());
+  const fin = document.getElementById('menu-fin');
+  if (enAjustes) {
+    menu.insertBefore(h('button', { type: 'button', class: 'menu-volver', 'data-accion': 'volver', html: `${icono('chevron', 16)}<span>Volver</span>` }), fin);
+    menu.insertBefore(h('div', { class: 'menu-titulo grande', role: 'presentation' }, 'Ajustes'), fin);
+  }
+  for (const g of GRUPOS.filter((x) => !!x.ajuste === enAjustes)) {
+    menu.insertBefore(h('button', { type: 'button', 'data-grupo': g.id, html: `${icono(g.icono, 18)}<span>${g.nombre}</span><i class="punto-menu" hidden></i>` }), fin);
+  }
+  if (!enAjustes) fin.prepend(h('button', { type: 'button', class: 'menu-engranaje', 'data-accion': 'ajustes', html: `${icono('ajustes', 18)}<span>Ajustes</span><i class="punto-menu" hidden></i>` }));
 }
 
 // Qué necesita atención (para el punto del menú y el Resumen). Solo cosas que impiden usar algo que está prendido.
@@ -4029,8 +4120,8 @@ function pendientes() {
   const p = {};
   const m = voces.modelos || {};
   const faltaVoz = ['oido', 'vad'].some((id) => m[id] && !m[id].instalado) || (cfg.habla.voz !== 'windows' && m[`voz-${cfg.habla.voz}`] && !m[`voz-${cfg.habla.voz}`].instalado);
-  if (faltaVoz || (voces.voz && voces.voz.error)) p.asistente = 'Faltan los modelos de voz';
-  else if (!Object.values(ia || {}).some((x) => x && x.configurado)) p.asistente = 'Sin inteligencia configurada';
+  if (faltaVoz || (voces.voz && voces.voz.error)) p.jarvis = 'Faltan los modelos de voz';
+  else if (!Object.values(ia || {}).some((x) => x && x.configurado)) p.jarvis = 'Sin inteligencia configurada';
   if (whatsapp.fase === 'error') p.cuentas = 'WhatsApp con error';
   const importante = avisosSistema.filter((a) => a.tono !== 'info');
   if (importante.length) { p.sistema = importante.map((a) => a.titulo).join(' · '); p.resumen = p.sistema; }
@@ -4038,13 +4129,10 @@ function pendientes() {
 }
 function pintarPuntosDelMenu() {
   const p = pendientes();
-  for (const b of menu.querySelectorAll('button[data-grupo]')) {
-    const punto = b.querySelector('.punto-menu');
-    const motivo = p[b.dataset.grupo];
-    punto.hidden = !motivo;
-    b.title = motivo || '';
-    b.setAttribute('aria-label', motivo ? `${b.textContent} (necesita atención: ${motivo})` : b.textContent);
-  }
+  const marcar = (b, motivo) => { const punto = b.querySelector('.punto-menu'); if (!punto) return; punto.hidden = !motivo; b.title = motivo || ''; b.setAttribute('aria-label', motivo ? `${b.textContent} (necesita atención: ${motivo})` : b.textContent); };
+  for (const b of menu.querySelectorAll('button[data-grupo]')) marcar(b, p[b.dataset.grupo]);
+  const eng = menu.querySelector('.menu-engranaje');
+  if (eng) marcar(eng, GRUPOS.filter((g) => g.ajuste).map((g) => p[g.id]).filter(Boolean).join(' · '));
 }
 
 // [A6] Buscador: filtra pantallas por nombre y por palabras clave.
@@ -4091,16 +4179,22 @@ document.addEventListener('keydown', (e) => {
   if ((e.ctrlKey && e.key.toLowerCase() === 'f') || (e.key === '/' && !escribiendo())) { e.preventDefault(); buscador.focus(); buscador.select(); }
 });
 
-// [B8] Las bajadas largas muestran la primera oración; el resto, con "Más".
+// La bajada larga de una pantalla no se muestra entera: va al "i" al lado del título.
 function plegarBajadas(raiz) {
+  const h1 = raiz.querySelector('h1');
   for (const p of raiz.querySelectorAll('p.bajada')) {
-    if (p.dataset.plegada || p.children.length || p.textContent.length <= 170) continue;
-    const m = /^(.{30,}?[.:!?])\s+(?=[A-ZÁÉÍÓÚÑ"¿(])/s.exec(p.textContent);
-    if (!m) continue;
-    const resto = h('span', { class: 'ayuda-resto', hidden: true }, ' ' + p.textContent.slice(m[0].length));
-    const mas = h('button', { type: 'button', class: 'mas-info', 'aria-expanded': 'false', onclick: () => { resto.hidden = !resto.hidden; mas.setAttribute('aria-expanded', String(!resto.hidden)); mas.textContent = resto.hidden ? 'Más' : 'Menos'; } }, 'Más');
-    p.replaceChildren(m[1], resto, ' ', mas);
+    if (p.dataset.plegada || p.children.length || p.textContent.length <= 110) continue;
     p.dataset.plegada = '1';
+    const titulo = p.previousElementSibling && p.previousElementSibling.tagName === 'H1' ? p.previousElementSibling : (p.parentElement === raiz && h1 && !h1.querySelector('.boton-info') ? h1 : null);
+    if (titulo) { titulo.append(' ', botonInfo(p.textContent)); p.remove(); continue; }
+    const t = p.textContent; const m = /^(.{30,}?[.:!?])\s+(?=[A-ZÁÉÍÓÚÑ"¿(])/s.exec(t);
+    if (m) p.replaceChildren(m[1], ' ', botonInfo(t));
+  }
+  for (const p of raiz.querySelectorAll('p.ayuda')) {
+    if (p.dataset.plegada || p.children.length || p.textContent.length <= 160) continue;
+    p.dataset.plegada = '1';
+    const t = p.textContent; const m = /^(.{30,}?[.:!?])\s+(?=[A-ZÁÉÍÓÚÑ"¿(])/s.exec(t);
+    if (m) p.replaceChildren(m[1], ' ', botonInfo(t));
   }
 }
 // [C16] Lo que va entre subtítulos (h2) se agrupa en tarjetas, si tiene campos.
@@ -4128,6 +4222,9 @@ function pintar(forzar) {
   if (clipEditor && seccion === 'clips' && forzar !== true) return; // con el editor abierto no se repinta solo: se cortaría el video
   if (!secciones[seccion]) seccion = 'resumen';
   const grupo = grupoDe(seccion);
+  armarMenu(!!grupo.ajuste);
+  if (grupo.ajuste) ultimaDeAjustes = seccion; else ultimaDeUso = seccion;
+  document.body.classList.toggle('editor-abierto', !!(clipEditor && seccion === 'clips'));
   for (const b of menu.querySelectorAll('button[data-grupo]')) {
     const si = b.dataset.grupo === grupo.id;
     b.classList.toggle('elegido', si);
@@ -4190,14 +4287,14 @@ function irA(hoja) {
   contenido.scrollTop = 0;
   pintar();
   if (seccion === 'clips' || seccion === 'clips-ajustes') { nombresFilas = null; refrescarClips(); cargarClips(); }
-  if (seccion === 'resumen' && !notasLista) cargarNotas();
-  if (seccion === 'resumen') cargarAvisosSistema();
+  if (seccion === 'resumen') { cargarAvisosSistema(); inicioDatos.t = 0; cargarInicioPC(); if (!clipsGuardados) cargarClips(); }
+  if (seccion === 'servicios') cargarAvisosSistema();
   clearInterval(relojEstadoPc);
   if (seccion === 'estado-pc') { cargarEstadoPc(); relojEstadoPc = setInterval(() => { if (seccion === 'estado-pc' && !document.hidden) cargarEstadoPc(); else if (seccion !== 'estado-pc') clearInterval(relojEstadoPc); }, 2000); }
   if (seccion === 'almacenamiento') { almacen = null; pintar(); cargarAlmacen(); cargarClips(); }
   if (seccion === 'componentes') cargarComponentes();
   if (seccion === 'actualizaciones') cargarActualizacion();
-  if (seccion === 'historial') pedir('historial:leer').then((x) => { registros = x; if (seccion === 'historial') pintar(); }).catch(() => {});
+  if (seccion === 'historial' || seccion === 'resumen') pedir('historial:leer').then((x) => { registros = x; if ((seccion === 'historial' || seccion === 'resumen') && !escribiendo()) pintar(); }).catch(() => {});
   if (seccion === 'calendario') cargarCalendarios();
   if (seccion === 'notificaciones') cargarAvisos();
   if (seccion === 'notasvoz') cargarNotasVoz();
@@ -4211,6 +4308,8 @@ function irA(hoja) {
 }
 const ultimaHoja = {};
 menu.addEventListener('click', (e) => {
+  const acc = e.target.closest('button[data-accion]');
+  if (acc) { irA(acc.dataset.accion === 'ajustes' ? ultimaDeAjustes : ultimaDeUso); return; }
   const b = e.target.closest('button[data-grupo]');
   if (!b) return;
   const grupo = GRUPOS.find((g) => g.id === b.dataset.grupo);
@@ -4250,7 +4349,7 @@ jarvis.escuchar('agenda', (a) => { agenda = a; if (seccion === 'whatsapp' && !es
 jarvis.escuchar('celular', () => { if (seccion === 'celular') cargarCelular(false); });
 jarvis.escuchar('conexion', (e) => { estadoConexion = e; if (cfg && cfg.conexion && e) cfg.conexion.manual = !!e.manual; if (seccion === 'conexion' && !escribiendo()) pintar(); });
 jarvis.escuchar('avisos-config', (n) => { if (n) { cfg.notificaciones = n; if (seccion === 'notificaciones' && !escribiendo()) pintar(); } }); // lo cambió el notch ("No avisarme más de…")
-jarvis.escuchar('historial', async () => { if (seccion !== 'historial') return; registros = await pedir('historial:leer').catch(() => registros); pintar(); });
+jarvis.escuchar('historial', async () => { if (seccion !== 'historial' && seccion !== 'resumen') return; registros = await pedir('historial:leer').catch(() => registros); if (!escribiendo()) pintar(); });
 // Microsoft avisa cuando el permiso quedó dado (o si venció el código).
 jarvis.escuchar('correo', async (dato) => {
   codigoMicrosoft = null;
@@ -4325,5 +4424,5 @@ new MutationObserver(() => etiquetarIconos(document.body)).observe(document.body
 jarvis.escuchar('rutinas-celular', (lista) => { if (Array.isArray(lista)) rutinas = lista; if (seccion === 'rutinas' && !escribiendo()) pintar(); });
 jarvis.escuchar('agenda-celular', () => { agendaUI.datos = null; agendaUI.pidiendo = null; if (seccion === 'agenda' && !agendaUI.editor && !escribiendo()) pintar(); });
 
-jarvis.escuchar('avisos-sistema', (lista) => { if (Array.isArray(lista)) avisosSistema = lista; pintarPuntosDelMenu(); if (seccion === 'resumen' && !escribiendo()) pintar(); });
+jarvis.escuchar('avisos-sistema', (lista) => { if (Array.isArray(lista)) avisosSistema = lista; pintarPuntosDelMenu(); if ((seccion === 'resumen' || seccion === 'servicios') && !escribiendo()) pintar(); });
 cargarAvisosSistema();
