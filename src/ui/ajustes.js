@@ -2999,6 +2999,9 @@ const secciones = {
       pasoVincular(),
       h('h2', {}, 'Celulares vinculados'),
       lista,
+      h('h2', {}, 'Cámara de seguridad'),
+      campo('Ver la cámara y escuchar el micrófono desde el celular', casilla(c, 'camara', guardar),
+        'Solo para los celulares vinculados, y solo mientras miran: la cámara y el micrófono se prenden ahí y se apagan cuando cierran. Cada vez que alguien empieza a mirar, el notch lo avisa y queda en el Historial. Usa la cámara de Asistente → Dispositivos y el micrófono de Escucha.'),
       h('h2', {}, 'Avisos de recordatorios y eventos'),
       h('p', { class: 'ayuda' }, 'Dónde te avisa Jarvis. En el celular llegan como notificación de la app de Android, aunque esté cerrada (la app los pide a la PC cada 15 minutos y al abrirla; en cada celular se pueden apagar desde su menú).'),
       (() => {

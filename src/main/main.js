@@ -39,6 +39,7 @@ const cerebro = require('./cerebro');
 const arranque = require('./arranque');
 const celular = require('./celular');
 const red = require('./red');
+const camara = require('./camara');
 const descargas = require('./descargas');
 
 const ANCHO = 380; // tamaño de la ventana del notch (la pastilla y el panel viven adentro)
@@ -69,6 +70,7 @@ process.on('uncaughtException', (e) => anotarError('principal', e));
 process.on('unhandledRejection', (e) => anotarError('promesa', e));
 
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
+if (process.env.JARVIS_MEDIOS_FALSOS) app.commandLine.appendSwitch('use-fake-device-for-media-stream'); // pruebas: cámara y micrófono de mentira
 if (!app.requestSingleInstanceLock()) app.quit();
 
 // ---------- Estado que ve el notch ----------
@@ -1226,6 +1228,7 @@ function estadoParaCelular() {
     conexion: { sin: !!conexion.estado().sin },
     // Para que la app de Android sepa cómo llegar a esta PC desde afuera (por la red de Tailscale).
     afuera: red.publica() ? { publica: red.publica() } : null,
+    camara: { permitida: !!c.celular.camara, mirando: camara.estado().mirando.length },
   };
 }
 // Inicio del celular: lo que muestran los widgets que necesitan datos de la PC.
@@ -1276,7 +1279,13 @@ async function pcParaCelular(canal, args, quien) {
   if (/^(notas|rutinas|calendario:(guardar|borrar|cambiar))/.test(canal) && canal !== 'notas:leer' && canal !== 'notas:captura' && canal !== 'rutinas:leer' && canal !== 'rutinas:opciones') historial.anotar(`Celular (${quien && quien.nombre ? quien.nombre : 'vinculado'}): ${canal}`);
   return r;
 }
+// Cámara de seguridad: el notch avisa mientras alguien mira desde el celular.
+camara.configurar({
+  ajustes: () => { const c = leerConfig(); return { permitido: !!(c.celular && c.celular.camara), camara: (c.camara || {}).dispositivo || '', microfono: (c.voz || {}).microfono || '' }; },
+  avisar: (texto) => { if (!texto) return; historial.anotar(texto); if (notch && !notch.isDestroyed()) notch.webContents.send('decir', { texto, voz: false }); },
+});
 celular.configurar({
+  camara: (res, opciones, quien) => camara.mirar(res, opciones, quien && quien.nombre ? `"${quien.nombre}"` : 'Un celular'),
   pc: pcParaCelular,
   inicio: inicioParaCelular,
   avisos: avisosParaCelular,
@@ -1377,13 +1386,14 @@ manejar('celular:renombrar', ({ id, nombre }) => celular.renombrar(String(id), n
 manejar('celular:publicar', async () => { await sincronizarCelular(); if (!celular.puerto()) throw new Error('Primero prendé "Usar Jarvis desde el celular".'); return celular.publicarEnTailscale(Number((leerConfig().celular || {}).https) || 443); });
 manejar('celular:despublicar', () => celular.despublicarDeTailscale(Number((leerConfig().celular || {}).https) || 443));
 
-app.on('will-quit', () => { clips.terminarRecortesPendientes().catch(() => {}); red.detener(); celular.detener().catch(() => {}); globalShortcut.unregisterAll(); oido.apagar(); clips.apagar(); clips.matarFfmpeg(); });
+app.on('will-quit', () => { camara.cortarTodo(); clips.terminarRecortesPendientes().catch(() => {}); red.detener(); celular.detener().catch(() => {}); globalShortcut.unregisterAll(); oido.apagar(); clips.apagar(); clips.matarFfmpeg(); });
 
 app.whenReady().then(async () => {
   arranque.iniciar(DATOS);
   arranque.marca('Electron listo');
   const interfaz = await servidor.iniciarInterfaz();
   urlBase = interfaz.url;
+  camara.configurar({ urlBase });
 
   // Micrófono y cámara: solo para las páginas de Jarvis.
   const propio = (url) => typeof url === 'string' && url.startsWith(urlBase);

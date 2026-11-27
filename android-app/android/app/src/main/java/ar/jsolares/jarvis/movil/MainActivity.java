@@ -12,6 +12,7 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         // Lo propio de Jarvis (red de casa, compartir, archivos, avisos) va antes de que arranque la app.
         registerPlugin(JarvisNativoPlugin.class);
+        registerPlugin(JarvisVozPlugin.class); // hablarle a Jarvis (reconocimiento de voz) y que conteste en voz alta
         super.onCreate(savedInstanceState);
         // Videos y miniaturas de la PC a través de la app (ver JarvisWebViewClient).
         bridge.setWebViewClient(new JarvisWebViewClient(bridge));

@@ -51,6 +51,7 @@ const puente = {
   descargar: async () => ({ id: 0, texto: '' }), // ({ url, modo, calidad, para, carpeta }) con yt-dlp
   descarga: () => null, // id -> { estado, pct, nombre, archivo, error, … }
   guardarSubida: async () => 'Listo.', // (ruta, nombre) lo que mandó el celular, a la carpeta de Descargas de la PC
+  camara: async () => { throw conCodigo(403, 'No disponible.'); }, // (res, { video, audio, calidad }, quien) deja res abierta con el video en vivo
   pc: async () => { throw conCodigo(403, 'No disponible.'); }, // (canal, args, quien) lo mismo que Ajustes de la PC: notas, calendario, rutinas, historial
   inicio: async () => ({}), // datos de los widgets de Inicio: { clima, agenda, notas }
   avisos: () => [], // lo que el celular tiene que avisar: [{ id, cuando, titulo, texto, tipo }] (si el usuario lo quiere ahí)
@@ -400,6 +401,12 @@ async function atender(req, res, { casa = false } = {}) {
       if (!/^[a-z-]+:[a-z-]+$/.test(canal)) throw conCodigo(400, 'Pedido desconocido.');
       const dato = await puente.pc(canal, Array.isArray(b.args) ? b.args : [], { id: yo.id, nombre: yo.nombre });
       json(res, 200, { dato: dato === undefined ? null : dato });
+      return;
+    }
+    // Cámara de seguridad: WebM en vivo mientras la conexión siga abierta.
+    if (ruta === '/api/camara/vivo' && metodo === 'GET') {
+      const q = url.searchParams;
+      await puente.camara(res, { video: q.get('video') !== '0', audio: q.get('audio') !== '0', calidad: q.get('calidad') === 'alta' ? 'alta' : 'normal' }, { id: yo.id, nombre: yo.nombre });
       return;
     }
     if (ruta === '/api/inicio' && metodo === 'GET') { json(res, 200, await puente.inicio(yo)); return; }

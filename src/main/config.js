@@ -54,7 +54,7 @@ const CONFIG_DEFECTO = {
   avisos: { recordatorios: { pc: true, celular: true }, calendario: { pc: true, celular: true } },
   // casa: modo casa para la app de Android (misma Wi-Fi, sin Tailscale), en el puerto puertoCasa de la red local.
   // afuera: Tailscale integrado (jarvis-red), para usar la app de Android fuera de casa.
-  celular: { activo: false, puerto: 47820, https: 443, hablarEnPC: false, casa: true, puertoCasa: 47821, afuera: false },
+  celular: { activo: false, puerto: 47820, https: 443, hablarEnPC: false, casa: true, puertoCasa: 47821, afuera: false, camara: false },
   volumen: 1, // cuánto se escucha la voz de Jarvis (1 = normal; no afecta al resto de la PC)
   modos: [
     { id: 'normal', nombre: 'Normal', habla: true, visible: true },
