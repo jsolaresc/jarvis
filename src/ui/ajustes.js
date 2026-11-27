@@ -1012,6 +1012,7 @@ function editorDeClip() {
   const ocupado = (si) => { todos.forEach((x) => { x.disabled = si; }); if (!si) estadoGuardar(); };
   const acciones = (nombreBoton, clase, hacer) => { const b = boton(nombreBoton, async () => { ocupado(true); try { await hacer(b); } catch (er) { decir(er.message, 'mal'); barra.hidden = true; } ocupado(false); }, clase); todos.push(b); return b; };
   const aVer = acciones('▶ Ver cómo queda', 'chico', async () => { if (E.tramos.length) await reproducirPedazo(0); });
+  const aCortar = h('button', { type: 'button', class: 'boton chico', title: 'Partir el pedazo donde está el video (tecla S)', onclick: () => cortarAca() }, '✂ Cortar acá');
   const acaDesde = boton('Acá', () => { T.desde = Math.min(video.currentTime, T.hasta - MIN); refrescar(); }, 'chico');
   const acaHasta = boton('Acá', () => { T.hasta = Math.max(video.currentTime, T.desde + MIN); refrescar(); }, 'chico');
   // Guardar = el recorte queda en lugar del original (con "Deshacer" un rato). La otra opción, en la flechita: guardar una copia.
@@ -1023,7 +1024,7 @@ function editorDeClip() {
     try { r = await pedir('clips:recortar', { archivo: ed.archivo, ...rangoParaGuardar(), reemplazar: true, edicion }); } catch (er) { await cargar(true).catch(() => {}); throw er; }
     const antes = ed.archivo;
     ed.archivo = r.archivo; ed.base = r.archivo.split(/[\\/]/).pop().replace(/\.[^.]+$/, ''); nombre.value = ed.base;
-    T.dur = 0; Object.assign(E, nuevaEdicion()); fuente = ed.archivo; pintarEdicion(); await cargar(false);
+    T.dur = 0; Object.assign(E, nuevaEdicion()); deshechos.length = 0; capaSel = -1; fuente = ed.archivo; pintarEdicion(); await cargar(false);
     decir('Guardado: el clip quedó recortado.', 'bien'); cargarClips();
     avisarConAccion('Guardé el recorte en lugar del original.', 'Deshacer', async () => {
       await soltarVideos();
@@ -1106,40 +1107,72 @@ function editorDeClip() {
   const COLORES_CAPA = ['#ffffff', '#ffd60a', '#ff3b30', '#34c759', '#0a84ff', '#000000'];
   var capasCaja = h('div', { class: 'capas-video' });
   let capaSel = -1;
+  let arrastrandoCapa = false;
+  // Cómo se ve una capa arriba del video (posición y tamaño relativos al cuadro que queda).
+  const estiloCapa = (c, m, el) => {
+    if (c.tipo === 'texto') Object.assign(el.style, { left: `${c.x * 100}%`, top: `${c.y * 100}%`, fontSize: `${c.tam * m.h}px`, color: c.color, background: c.fondo ? (c.color === '#000000' ? '#ffffffd9' : '#000000b3') : 'transparent' });
+    else Object.assign(el.style, { left: `${c.x * 100}%`, top: `${c.y * 100}%`, width: `${c.w * 100}%`, height: `${c.h * 100}%`, background: c.relleno ? c.color : 'transparent', border: c.relleno ? '0' : `${Math.max(2, 0.006 * m.h)}px solid ${c.color}` });
+  };
+  function elegirCapa(k) { capaSel = k; pintarCapas(); pintarEdicion(); }
   function pintarCapas() {
-    if (!capasCaja) return;
+    if (!capasCaja || arrastrandoCapa) return; // mientras se arrastra no se redibuja (si no, se pierde el arrastre)
     const m = marcoVisible();
     if (!m || !E.capas.length) { capasCaja.replaceChildren(); return; }
     Object.assign(capasCaja.style, { left: `${m.x}px`, top: `${m.y}px`, width: `${m.w}px`, height: `${m.h}px` });
     const t = tSalida();
     capasCaja.replaceChildren(...E.capas.map((c, k) => {
-      const visible = t >= c.desde && t <= c.hasta;
+      const visible = t >= c.desde - 0.05 && t <= c.hasta + 0.05;
       if (!visible && k !== capaSel) return null;
-      const el = c.tipo === 'texto'
-        ? h('div', { class: `capa capa-texto${c.fondo ? ' con-fondo' : ''}${k === capaSel ? ' elegida' : ''}${visible ? '' : ' fuera'}`, style: `left:${c.x * 100}%;top:${c.y * 100}%;font-size:${c.tam * m.h}px;color:${c.color};${c.fondo ? `background:${c.color === '#000000' ? '#ffffffd9' : '#000000b3'}` : ''}` }, c.texto || 'Texto')
-        : h('div', { class: `capa capa-cuadro${c.relleno ? ' relleno' : ''}${k === capaSel ? ' elegida' : ''}${visible ? '' : ' fuera'}`, style: `left:${c.x * 100}%;top:${c.y * 100}%;width:${c.w * 100}%;height:${c.h * 100}%;${c.relleno ? `background:${c.color}` : `border:${Math.max(2, 0.006 * m.h)}px solid ${c.color}`}` },
-          h('i', { class: 'capa-esquina', title: 'Agrandar' }));
-      // Arrastrar para moverla (o desde la esquina, para agrandar un recuadro).
+      const el = h('div', { class: `capa capa-${c.tipo === 'texto' ? 'texto' : 'cuadro'}${c.fondo && c.tipo === 'texto' ? ' con-fondo' : ''}${k === capaSel ? ' elegida' : ''}${visible ? '' : ' fuera'}`, title: visible ? 'Arrastrá para moverlo' : 'No se ve en este momento del clip' },
+        c.tipo === 'texto' ? (c.texto || 'Texto') : null,
+        k === capaSel ? h('i', { class: 'capa-esquina', title: c.tipo === 'texto' ? 'Agrandar o achicar' : 'Cambiar el tamaño' }) : null);
+      estiloCapa(c, m, el);
+      el.addEventListener('dblclick', (e) => { e.stopPropagation(); if (c.tipo === 'texto') { elegirCapa(k); setTimeout(() => { const i = panelEdicion.querySelector('.capa-editor input[type="text"]'); if (i) { panelEdicion.open = true; i.focus(); i.select(); } }, 30); } });
       el.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0) return;
         e.preventDefault(); e.stopPropagation();
-        capaSel = k;
         const esquina = e.target.classList.contains('capa-esquina');
+        if (capaSel !== k) { capaSel = k; capasCaja.querySelectorAll('.capa').forEach((x) => x.classList.remove('elegida')); el.classList.add('elegida'); }
         const x0 = e.clientX; const y0 = e.clientY; const antes = { ...c };
+        arrastrandoCapa = true; guardarPaso();
         try { el.setPointerCapture(e.pointerId); } catch {}
         const mover = (ev) => {
           const dx = (ev.clientX - x0) / m.w; const dy = (ev.clientY - y0) / m.h;
-          if (esquina) { c.w = Math.max(0.03, Math.min(1 - c.x, antes.w + dx)); c.h = Math.max(0.03, Math.min(1 - c.y, antes.h + dy)); }
-          else if (c.tipo === 'texto') { c.x = Math.max(0, Math.min(1, antes.x + dx)); c.y = Math.max(0, Math.min(1, antes.y + dy)); }
+          if (esquina && c.tipo === 'texto') c.tam = Math.max(0.025, Math.min(0.3, antes.tam * (1 + (dx + dy) * 2)));
+          else if (esquina) { c.w = Math.max(0.03, Math.min(1 - c.x, antes.w + dx)); c.h = Math.max(0.03, Math.min(1 - c.y, antes.h + dy)); }
+          else if (c.tipo === 'texto') { c.x = Math.max(0.02, Math.min(0.98, antes.x + dx)); c.y = Math.max(0.03, Math.min(0.97, antes.y + dy)); }
           else { c.x = Math.max(0, Math.min(1 - c.w, antes.x + dx)); c.y = Math.max(0, Math.min(1 - c.h, antes.y + dy)); }
-          pintarCapas();
+          estiloCapa(c, m, el);
         };
-        const soltar = () => { el.removeEventListener('pointermove', mover); el.removeEventListener('pointerup', soltar); pintarEdicion(); };
-        el.addEventListener('pointermove', mover); el.addEventListener('pointerup', soltar);
-        pintarCapas();
+        const soltar = () => {
+          el.removeEventListener('pointermove', mover); el.removeEventListener('pointerup', soltar); el.removeEventListener('pointercancel', soltar);
+          arrastrandoCapa = false;
+          if (c.x === antes.x && c.y === antes.y && c.w === antes.w && c.h === antes.h && c.tam === antes.tam) deshechos.pop(); // fue solo un clic
+          pintarCapas(); pintarEdicion();
+        };
+        el.addEventListener('pointermove', mover); el.addEventListener('pointerup', soltar); el.addEventListener('pointercancel', soltar);
       });
       return el;
     }).filter(Boolean));
   }
+  // Clic en el video, afuera de las capas: se suelta la elegida.
+  video.addEventListener('pointerdown', () => { if (capaSel !== -1) { capaSel = -1; pintarCapas(); pintarEdicion(); } });
+  // Deshacer lo editado (Ctrl+Z): pedazos, velocidad, formato, textos y recuadros.
+  const deshechos = [];
+  const foto = () => JSON.stringify({ tramos: E.tramos, sel: E.sel, formato: E.formato, encuadre: E.encuadre, capas: E.capas, fundido: E.fundido });
+  function guardarPaso() { const f = foto(); if (deshechos[deshechos.length - 1] !== f) deshechos.push(f); if (deshechos.length > 60) deshechos.shift(); }
+  async function deshacerEdicion() {
+    const f = deshechos.pop();
+    if (!f) { decir('No hay nada para deshacer.'); return; }
+    Object.assign(E, JSON.parse(f));
+    capaSel = Math.min(capaSel, E.capas.length - 1);
+    const x = E.tramos[E.sel];
+    if (x && x.fuente !== fuente) await cambiarFuente(x.fuente);
+    if (x) { T.desde = x.desde; T.hasta = x.hasta; }
+    refrescar(); pintarEdicion();
+  }
+  // Las manijas también se deshacen: se guarda cómo estaba al empezar a arrastrar.
+  linea.addEventListener('pointerdown', () => guardarPaso(), true);
   // Dibujar cada capa en un PNG transparente del tamaño del video que sale (lo mismo que se ve acá).
   const dibujarCapa = (c, W, H) => {
     const lienzo = document.createElement('canvas'); lienzo.width = W; lienzo.height = H;
@@ -1207,15 +1240,17 @@ function editorDeClip() {
   const cortarAca = () => {
     const x = E.tramos[E.sel]; const t = video.currentTime;
     if (!x || x.fuente !== fuente || t <= x.desde + 0.2 || t >= x.hasta - 0.2) { decir('Poné el video adentro del pedazo elegido (lejos de las puntas) y cortá ahí.', 'mal'); return; }
+    guardarPaso();
     ordenar(() => { E.tramos.splice(E.sel, 1, { ...x, hasta: t }, { ...x, desde: t }); E.sel += 1; });
-    decir('Cortado: ahora son dos pedazos. Elegí uno para borrarlo, moverlo o cambiarle la velocidad.', 'bien');
+    decir(`Cortado en ${tiempoTexto(t)}. Elegí un pedazo abajo para borrarlo, moverlo, repetirlo o cambiarle la velocidad (Ctrl+Z deshace).`, 'bien');
   };
-  const copiar = () => { portapapelesClip = { ...E.tramos[E.sel] }; decir(`Copiado el pedazo ${E.sel + 1}. Pegalo acá o en otro clip.`, 'bien'); pintarEdicion(); };
+  const copiar = () => { portapapelesClip = { ...E.tramos[E.sel] }; decir(`Copiado ${E.tramos.length > 1 ? `el pedazo ${E.sel + 1}` : 'el pedazo'} (${tiempoTexto(E.tramos[E.sel].hasta - E.tramos[E.sel].desde)}). Pegalo acá o en otro clip (Ctrl+V).`, 'bien'); pintarEdicion(); };
   const pegar = () => { if (!portapapelesClip) return; ordenar(() => { E.tramos.splice(E.sel + 1, 0, { ...portapapelesClip }); E.sel += 1; }); elegirPedazo(E.sel); };
   const sumarClip = (archivo) => {
     const x = (clipsGuardados || []).find((c) => c.archivo === archivo);
     if (!x) return;
     pedir('clips:medidas', archivo).then((md) => {
+      guardarPaso();
       ordenar(() => { E.tramos.push({ fuente: archivo, desde: 0, hasta: Math.max(0.5, md.duracion || 1), velocidad: 1, mudo: false }); });
       elegirPedazo(E.tramos.length - 1);
       decir(`Sumé "${nombreDe(archivo)}" al final: recortalo con las manijas.`, 'bien');
@@ -1223,67 +1258,104 @@ function editorDeClip() {
   };
   new ResizeObserver(() => { pintarMascara(); pintarCapas(); }).observe(video);
   video.addEventListener('loadedmetadata', () => { pintarMascara(); pintarCapas(); });
-  const panelEdicion = h('details', { class: 'panel-edicion' });
+  const panelEdicion = h('details', { class: 'panel-edicion', open: true });
+  const nombreCapa = (c) => (c.tipo === 'texto' ? `"${(c.texto || 'Texto').slice(0, 18)}"` : c.relleno ? 'Recuadro relleno' : 'Recuadro');
   function pintarEdicion() {
     pintarTiras();
     pintarMascara(); pintarCapas();
     estadoGuardar();
     const x = E.tramos[E.sel] || { velocidad: 1, mudo: false };
-    const seg = (opciones, valor, alElegir, etiqueta) => h('div', { class: 'segmentado chico', role: 'radiogroup', 'aria-label': etiqueta }, opciones.map(([v, t]) => h('button', { type: 'button', role: 'radio', 'aria-checked': String(v === valor), class: v === valor ? 'on' : '', onclick: () => { alElegir(v); refrescar(); pintarEdicion(); } }, t)));
+    const varios = E.tramos.length > 1;
+    const cambio = (fn) => () => { guardarPaso(); fn(); refrescar(); pintarEdicion(); };
+    const seg = (opciones, valor, alElegir, etiqueta) => h('div', { class: 'segmentado chico', role: 'radiogroup', 'aria-label': etiqueta }, opciones.map(([v, t]) => h('button', { type: 'button', role: 'radio', 'aria-checked': String(v === valor), class: v === valor ? 'on' : '', onclick: cambio(() => alElegir(v)) }, t)));
     const nTextos = E.capas.filter((c) => c.tipo === 'texto').length; const nCuadros = E.capas.length - nTextos;
-    const resumenEd = [E.tramos.length > 1 ? `${E.tramos.length} pedazos` : '', E.tramos.some((y) => y.velocidad !== 1) ? 'velocidad' : '', E.tramos.some((y) => y.mudo) ? 'sin sonido' : '', E.formato !== 'original' ? (E.formato === 'vertical' ? 'vertical 9:16' : 'cuadrado') : '',
+    const resumenEd = [varios ? `${E.tramos.length} pedazos` : '', E.tramos.some((y) => y.velocidad !== 1) ? 'velocidad' : '', E.tramos.some((y) => y.mudo) ? 'sin sonido' : '', E.formato !== 'original' ? (E.formato === 'vertical' ? 'vertical 9:16' : 'cuadrado') : '',
       nTextos ? `${nTextos} ${nTextos === 1 ? 'texto' : 'textos'}` : '', nCuadros ? `${nCuadros} ${nCuadros === 1 ? 'recuadro' : 'recuadros'}` : '', E.fundido ? 'fundido' : ''].filter(Boolean).join(' · ');
     const otros = (clipsGuardados || []).filter((c) => c.archivo !== ed.archivo && /\.(mp4|webm|mkv|mov)$/i.test(c.archivo || c.nombre || '')).slice(0, 80);
-    const t = tSalida(); const total = largoTotal();
-    const sumarCapa = (c) => { E.capas.push({ desde: Math.min(t, Math.max(0, total - 0.5)), hasta: Math.min(total, t + 3), ...c }); capaSel = E.capas.length - 1; refrescar(); pintarEdicion(); };
-    const filaCapa = (c, k) => h('div', { class: `capa-fila${k === capaSel ? ' elegida' : ''}`, onclick: () => { if (capaSel !== k) { capaSel = k; pintarCapas(); } } },
+    const total = largoTotal();
+    const sumarCapa = (c) => { guardarPaso(); E.capas.push({ desde: 0, hasta: total, ...c }); capaSel = E.capas.length - 1; refrescar(); pintarEdicion(); };
+    const c = E.capas[capaSel];
+    const editorCapa = c ? h('div', { class: 'capa-editor' },
       c.tipo === 'texto'
-        ? h('input', { type: 'text', value: c.texto, maxlength: 80, 'aria-label': 'Texto', oninput: (e) => { c.texto = e.target.value; pintarCapas(); } })
-        : h('span', { class: 'et' }, 'Recuadro'),
-      h('div', { class: 'colores', role: 'radiogroup', 'aria-label': 'Color' }, COLORES_CAPA.map((col) => h('button', { type: 'button', role: 'radio', 'aria-checked': String(c.color === col), 'aria-label': col, class: `color${c.color === col ? ' elegido' : ''}`, style: `--c:${col}`, onclick: () => { c.color = col; pintarCapas(); pintarEdicion(); } }))),
-      c.tipo === 'texto'
-        ? h('label', { class: 'casilla-texto' }, h('input', { type: 'checkbox', checked: !!c.fondo, onchange: (e) => { c.fondo = e.target.checked; pintarCapas(); } }), h('span', {}, 'Fondo'))
-        : h('label', { class: 'casilla-texto' }, h('input', { type: 'checkbox', checked: !!c.relleno, onchange: (e) => { c.relleno = e.target.checked; pintarCapas(); } }), h('span', {}, 'Relleno (tapar)')),
-      c.tipo === 'texto' ? h('input', { type: 'range', min: 0.03, max: 0.2, step: 0.005, value: c.tam, 'aria-label': 'Tamaño del texto', oninput: (e) => { c.tam = Number(e.target.value); pintarCapas(); } }) : null,
-      h('span', { class: 'nota' }, `${tiempoTexto(c.desde)} → ${tiempoTexto(c.hasta)}`),
-      boton('Desde acá', () => { c.desde = Math.min(tSalida(), c.hasta - 0.2); pintarEdicion(); }, 'chico'),
-      boton('Hasta acá', () => { c.hasta = Math.max(tSalida(), c.desde + 0.2); pintarEdicion(); }, 'chico'),
-      botonQuitar(() => { E.capas.splice(k, 1); capaSel = -1; refrescar(); pintarEdicion(); }, c.tipo === 'texto' ? 'el texto' : 'el recuadro'));
+        ? h('input', { type: 'text', value: c.texto, maxlength: 80, placeholder: 'Escribí el texto', 'aria-label': 'Texto', onfocus: () => guardarPaso(), oninput: (e) => { c.texto = e.target.value; pintarCapas(); const chip = panelEdicion.querySelector('.chip-capa.elegida'); if (chip) chip.lastChild.textContent = nombreCapa(c); } })
+        : null,
+      h('div', { class: 'fila' },
+        h('div', { class: 'colores', role: 'radiogroup', 'aria-label': 'Color' }, COLORES_CAPA.map((col) => h('button', { type: 'button', role: 'radio', 'aria-checked': String(c.color === col), 'aria-label': col, class: `color${c.color === col ? ' elegido' : ''}`, style: `--c:${col}`, onclick: cambio(() => { c.color = col; }) }))),
+        c.tipo === 'texto'
+          ? seg([[false, 'Solo texto'], [true, 'Con fondo']], !!c.fondo, (v) => { c.fondo = v; }, 'Fondo del texto')
+          : seg([[false, 'Borde (marcar)'], [true, 'Relleno (tapar)']], !!c.relleno, (v) => { c.relleno = v; }, 'Estilo del recuadro')),
+      h('div', { class: 'fila' },
+        h('span', { class: 'et' }, 'Se ve'),
+        h('span', { class: 'rango-capa' }, c.desde <= 0.05 && c.hasta >= total - 0.05 ? 'todo el clip' : `de ${tiempoTexto(c.desde)} a ${tiempoTexto(c.hasta)}`),
+        boton('Desde acá', cambio(() => { c.desde = Math.min(tSalida(), c.hasta - 0.2); }), 'chico'),
+        boton('Hasta acá', cambio(() => { c.hasta = Math.max(tSalida(), c.desde + 0.2); }), 'chico'),
+        boton('Todo el clip', cambio(() => { c.desde = 0; c.hasta = total; }), 'chico'),
+        h('span', { style: 'flex:1' }),
+        boton('Duplicar', cambio(() => { E.capas.push({ ...c, x: Math.min(0.9, c.x + 0.04), y: Math.min(0.9, c.y + 0.04) }); capaSel = E.capas.length - 1; }), 'chico'),
+        boton('Quitar', cambio(() => { E.capas.splice(capaSel, 1); capaSel = -1; }), 'chico peligro'))) : null;
     panelEdicion.replaceChildren(
-      h('summary', {}, h('b', {}, 'Edición'), h('span', { class: 'nota' }, resumenEd || 'cortar en pedazos, copiar y pegar, velocidad, vertical para Shorts, textos y recuadros')),
+      h('summary', {}, h('b', {}, 'Edición'), h('span', { class: 'nota' }, resumenEd || 'cortar, velocidad, vertical, textos y recuadros'),
+        h('span', { style: 'flex:1' }),
+        deshechos.length ? h('button', { type: 'button', class: 'boton chico', title: 'Deshacer (Ctrl+Z)', onclick: (e) => { e.preventDefault(); deshacerEdicion(); } }, 'Deshacer') : null),
+      // Pedazos
       h('div', { class: 'pe-bloque' },
-        h('span', { class: 'et' }, 'Pedazos, en orden'),
-        tiras,
         h('div', { class: 'fila' },
-          boton('Cortar acá', cortarAca, 'chico'),
-          boton('Copiar', copiar, 'chico'),
-          boton('Pegar', pegar, 'chico', !portapapelesClip),
-          boton('← Antes', () => ordenar(() => { const [y] = E.tramos.splice(E.sel, 1); E.tramos.splice(E.sel - 1, 0, y); E.sel -= 1; }), 'chico', E.sel === 0),
-          boton('Después →', () => ordenar(() => { const [y] = E.tramos.splice(E.sel, 1); E.tramos.splice(E.sel + 1, 0, y); E.sel += 1; }), 'chico', E.sel >= E.tramos.length - 1),
-          boton('Borrar pedazo', () => { ordenar(() => { E.tramos.splice(E.sel, 1); }); elegirPedazo(E.sel); }, 'chico', E.tramos.length < 2),
+          h('span', { class: 'et' }, varios ? `Pedazos (elegí uno para recortarlo, moverlo o cambiarle la velocidad)` : 'Pedazos'),
+          h('span', { style: 'flex:1' }),
           otros.length ? h('select', { class: 'chico', 'aria-label': 'Sumar otro clip al final', onchange: (e) => { const v = e.target.value; e.target.value = ''; if (v) sumarClip(v); } },
-            h('option', { value: '' }, '+ Sumar otro clip…'), otros.map((c) => h('option', { value: c.archivo }, c.nombre || nombreDe(c.archivo)))) : null),
-        h('p', { class: 'nota' }, 'Elegí un pedazo para recortarlo con las manijas. "Cortar acá" lo parte donde está el video; con Copiar y Pegar se repite (también en otro clip).')),
+            h('option', { value: '' }, '+ Sumar otro clip'), otros.map((y) => h('option', { value: y.archivo }, y.nombre || nombreDe(y.archivo)))) : null),
+        varios ? tiras : h('p', { class: 'nota' }, 'Todo el clip es un solo pedazo. Con "Cortar acá" (arriba, o la tecla S) lo partís donde está el video para sacar o repetir partes.'),
+        h('div', { class: 'fila' },
+          boton('Duplicar', () => { guardarPaso(); portapapelesClip = { ...E.tramos[E.sel] }; pegar(); }, 'chico'),
+          boton('Copiar', copiar, 'chico'),
+          portapapelesClip ? boton('Pegar', () => { guardarPaso(); pegar(); }, 'chico') : null,
+          varios ? boton('◀ Antes', () => { guardarPaso(); ordenar(() => { const [y] = E.tramos.splice(E.sel, 1); E.tramos.splice(E.sel - 1, 0, y); E.sel -= 1; }); }, 'chico', E.sel === 0) : null,
+          varios ? boton('Después ▶', () => { guardarPaso(); ordenar(() => { const [y] = E.tramos.splice(E.sel, 1); E.tramos.splice(E.sel + 1, 0, y); E.sel += 1; }); }, 'chico', E.sel >= E.tramos.length - 1) : null,
+          varios ? boton('Borrar pedazo', () => { guardarPaso(); ordenar(() => { E.tramos.splice(E.sel, 1); }); elegirPedazo(E.sel); }, 'chico peligro') : null)),
+      // Velocidad y sonido
       h('div', { class: 'pe-bloque' },
-        h('span', { class: 'et' }, `Velocidad del pedazo ${E.sel + 1}`),
+        h('span', { class: 'et' }, varios ? `Velocidad y sonido del pedazo ${E.sel + 1}` : 'Velocidad y sonido'),
         h('div', { class: 'fila' },
           seg([[0.5, '0,5x'], [0.75, '0,75x'], [1, 'Normal'], [1.25, '1,25x'], [1.5, '1,5x'], [2, '2x']], x.velocidad, (v) => { x.velocidad = v; }, 'Velocidad'),
-          E.tramos.length > 1 ? boton('A todos', () => { E.tramos.forEach((y) => { y.velocidad = x.velocidad; }); refrescar(); pintarEdicion(); }, 'chico') : null),
-        h('label', { class: 'casilla-texto' }, h('input', { type: 'checkbox', checked: !!x.mudo, onchange: (e) => { x.mudo = e.target.checked; refrescar(); pintarEdicion(); } }), h('span', {}, 'Sin sonido en este pedazo'))),
+          varios ? boton('Esta velocidad a todos', cambio(() => { E.tramos.forEach((y) => { y.velocidad = x.velocidad; }); }), 'chico') : null,
+          h('label', { class: 'casilla-texto' }, h('input', { type: 'checkbox', checked: !!x.mudo, onchange: (e) => { guardarPaso(); x.mudo = e.target.checked; refrescar(); pintarEdicion(); } }), h('span', {}, 'Sin sonido')))),
+      // Formato
       h('div', { class: 'pe-bloque' },
         h('span', { class: 'et' }, 'Formato'),
-        seg([['original', 'Original'], ['vertical', 'Vertical 9:16'], ['cuadrado', 'Cuadrado']], E.formato, (v) => { E.formato = v; }, 'Formato'),
-        E.formato !== 'original' ? h('label', { class: 'fila' }, h('span', { class: 'nota' }, 'Encuadre'), h('input', { type: 'range', min: 0, max: 1, step: 0.01, value: E.encuadre, 'aria-label': 'Encuadre de izquierda a derecha', oninput: (e) => { E.encuadre = Number(e.target.value); pintarMascara(); pintarCapas(); } })) : null),
-      h('div', { class: 'pe-bloque' },
-        h('span', { class: 'et' }, 'Textos y recuadros'),
         h('div', { class: 'fila' },
-          boton('+ Texto', () => sumarCapa({ tipo: 'texto', texto: 'Texto', x: 0.5, y: 0.15, tam: 0.08, color: '#ffffff', fondo: false }), 'chico'),
-          boton('+ Recuadro', () => sumarCapa({ tipo: 'recuadro', x: 0.35, y: 0.35, w: 0.3, h: 0.3, color: '#ff3b30', relleno: false }), 'chico'),
-          h('span', { class: 'nota' }, 'Arrastralos sobre el video. Aparecen desde donde está el video, 3 segundos.')),
-        E.capas.map(filaCapa)),
+          seg([['original', 'Original'], ['vertical', 'Vertical 9:16'], ['cuadrado', 'Cuadrado']], E.formato, (v) => { E.formato = v; }, 'Formato'),
+          E.formato !== 'original' ? h('label', { class: 'fila encuadre' }, h('span', { class: 'nota' }, 'Encuadre'), h('input', { type: 'range', min: 0, max: 1, step: 0.01, value: E.encuadre, 'aria-label': 'Encuadre de izquierda a derecha', onpointerdown: () => guardarPaso(), oninput: (e) => { E.encuadre = Number(e.target.value); pintarMascara(); pintarCapas(); } })) : null)),
+      // Textos y recuadros
       h('div', { class: 'pe-bloque' },
-        h('label', { class: 'casilla-texto' }, h('input', { type: 'checkbox', checked: E.fundido, onchange: (e) => { E.fundido = e.target.checked; refrescar(); pintarEdicion(); } }), h('span', {}, 'Fundido a negro al empezar y al terminar'))));
+        h('div', { class: 'fila' },
+          h('span', { class: 'et' }, 'Textos y recuadros'),
+          boton('+ Texto', () => sumarCapa({ tipo: 'texto', texto: 'Texto', x: 0.5, y: 0.15, tam: 0.08, color: '#ffffff', fondo: false }), 'chico'),
+          boton('+ Recuadro', () => sumarCapa({ tipo: 'recuadro', x: 0.35, y: 0.35, w: 0.3, h: 0.3, color: '#ff3b30', relleno: false }), 'chico')),
+        E.capas.length ? h('div', { class: 'chips-capas', role: 'listbox', 'aria-label': 'Textos y recuadros' }, E.capas.map((y, k) => h('button', { type: 'button', role: 'option', 'aria-selected': String(k === capaSel), class: `chip-capa${k === capaSel ? ' elegida' : ''}`, onclick: () => elegirCapa(k === capaSel ? -1 : k) }, h('i', { style: `background:${y.color}` }), nombreCapa(y)))) : null,
+        editorCapa || (E.capas.length ? h('p', { class: 'nota' }, 'Tocá uno (acá o sobre el video) para editarlo. Sobre el video: arrastrá para mover, la esquina para el tamaño, doble clic en un texto para escribir. Supr lo quita.') : h('p', { class: 'nota' }, 'Para poner un título o marcar algo (borde) o taparlo (relleno). Se acomodan arrastrándolos sobre el video.'))),
+      // Fundido
+      h('div', { class: 'pe-bloque' },
+        h('label', { class: 'casilla-texto' }, h('input', { type: 'checkbox', checked: E.fundido, onchange: (e) => { guardarPaso(); E.fundido = e.target.checked; refrescar(); pintarEdicion(); } }), h('span', {}, 'Fundido a negro al empezar y al terminar'))));
   }
+  // Atajos del editor: S corta, Ctrl+Z deshace, Ctrl+C / Ctrl+V / Ctrl+D con el pedazo, Supr y flechas con el texto o recuadro elegido.
+  ed.teclas = (e) => {
+    if (escribiendo()) return false;
+    const k = e.key; const ctrl = e.ctrlKey || e.metaKey;
+    if (ctrl && (k === 'z' || k === 'Z')) { deshacerEdicion(); return true; }
+    if (ctrl && (k === 'c' || k === 'C') && capaSel === -1) { copiar(); return true; }
+    if (ctrl && (k === 'v' || k === 'V') && portapapelesClip) { guardarPaso(); pegar(); return true; }
+    if (ctrl && (k === 'd' || k === 'D')) { guardarPaso(); if (capaSel !== -1) { const c = E.capas[capaSel]; E.capas.push({ ...c, x: Math.min(0.9, c.x + 0.04), y: Math.min(0.9, c.y + 0.04) }); capaSel = E.capas.length - 1; refrescar(); pintarEdicion(); } else { portapapelesClip = { ...E.tramos[E.sel] }; pegar(); } return true; }
+    if (ctrl || e.altKey) return false;
+    if (k === 's' || k === 'S') { cortarAca(); return true; }
+    const c = E.capas[capaSel];
+    if (!c) return false;
+    if (k === 'Delete' || k === 'Backspace') { guardarPaso(); E.capas.splice(capaSel, 1); capaSel = -1; refrescar(); pintarEdicion(); return true; }
+    if (k === 'Escape') { capaSel = -1; pintarCapas(); pintarEdicion(); return true; }
+    const paso = e.shiftKey ? 0.05 : 0.01;
+    const mov = { ArrowLeft: [-paso, 0], ArrowRight: [paso, 0], ArrowUp: [0, -paso], ArrowDown: [0, paso] }[k];
+    if (mov) { guardarPaso(); c.x = Math.max(0, Math.min(c.tipo === 'texto' ? 1 : 1 - c.w, c.x + mov[0])); c.y = Math.max(0, Math.min(c.tipo === 'texto' ? 1 : 1 - c.h, c.y + mov[1])); pintarCapas(); return true; }
+    return false;
+  };
   pintarEdicion();
   ed.favorito = !!ed.favorito;
   const estrella = h('button', { type: 'button', class: `boton icono-solo estrella${ed.favorito ? ' on' : ''}`, title: 'Favorito', 'aria-pressed': String(ed.favorito), 'aria-label': 'Marcar como favorito', html: icono('estrella', 18), onclick: async () => {
@@ -1355,7 +1427,7 @@ function editorDeClip() {
         h('span', { class: 'et' }, 'Inicio'), nDesde, h('span', { class: 'nota' }, 's'), acaDesde,
         h('span', { class: 'sep' }),
         h('span', { class: 'et' }, 'Fin'), nHasta, h('span', { class: 'nota' }, 's'), acaHasta,
-        h('span', { style: 'flex:1' }), aVer),
+        h('span', { style: 'flex:1' }), aCortar, aVer),
       resumen),
     panelEdicion,
     panelComprimir,
@@ -1552,6 +1624,7 @@ document.addEventListener('keydown', (e) => {
   const enCine = document.body.classList.contains('con-cine');
   if (e.key === 'Escape' && enCine) { e.preventDefault(); clipEditor.alternarCine(false); }
   else if ((e.key === 'f' || e.key === 'F') && !escribiendo() && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); clipEditor.alternarCine(); }
+  else if (clipEditor.teclas && clipEditor.teclas(e)) e.preventDefault();
 });
 
 // Un aviso con un botón "Deshacer" (el mismo cartel de abajo).

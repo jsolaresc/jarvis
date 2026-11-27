@@ -700,13 +700,13 @@ async function hasta(fn, ms = 20000, que = '') {
     await ajustes.screenshot({ path: path.join(SALIDA, '18d-pc-clip-comprimir.png'), fullPage: true });
     await ajustes.locator('.panel-comprimir button', { hasText: 'Cancelar' }).click();
     // Edición: vertical 9:16, 1,5x, cortar en dos, copiar y pegar un pedazo, un texto y un recuadro; se guarda una copia.
-    await ajustes.click('.panel-edicion > summary');
+    assert.ok(await ajustes.locator('.panel-edicion[open]').count(), 'Edición abierta de entrada');
     await ajustes.click('.panel-edicion button:has-text("Vertical 9:16")');
     assert.ok(await ajustes.locator('.mascara-formato:not([hidden])').count(), 'recuadro 9:16 sobre el video');
     await ajustes.click('.panel-edicion button:has-text("1,5x")');
     await ajustes.evaluate(() => { const v = document.querySelector('.editor-video'); v.currentTime = v.duration / 2; });
     await esperar(400);
-    await ajustes.click('.panel-edicion button:has-text("Cortar acá")');
+    await ajustes.click('.fila-recorte button:has-text("Cortar acá")');
     await hasta(async () => (await ajustes.locator('.tiras .tira').count()) === 2, 3000, 'dos pedazos');
     await ajustes.click('.panel-edicion button:has-text("Copiar")');
     await ajustes.click('.panel-edicion button:has-text("Pegar")');
@@ -715,10 +715,32 @@ async function hasta(fn, ms = 20000, que = '') {
     assert.strictEqual(largos[1], largos[2], `el pegado es igual al copiado: ${largos}`);
     assert.notStrictEqual(largos[0], '0:02.7 · 1,5x', 'cortar no deja el clip entero en un pedazo');
     await ajustes.click('.panel-edicion button:has-text("+ Texto")');
-    await ajustes.fill('.capa-fila input[aria-label="Texto"]', 'QUE JUGADA');
+    await ajustes.fill('.capa-editor input[aria-label="Texto"]', 'QUE JUGADA');
     await ajustes.click('.panel-edicion button:has-text("+ Recuadro")');
     await hasta(() => ajustes.locator('.capas-video .capa-texto:has-text("QUE JUGADA")').count(), 3000, 'texto sobre el video');
     assert.ok(await ajustes.locator('.capas-video .capa-cuadro').count(), 'recuadro sobre el video');
+    // Arrastrar el recuadro lo mueve; Ctrl+Z lo devuelve.
+    await ajustes.locator('.video-caja').scrollIntoViewIfNeeded();
+    const cuadro = ajustes.locator('.capas-video .capa-cuadro');
+    const antesCuadro = await cuadro.boundingBox();
+    await ajustes.mouse.move(antesCuadro.x + antesCuadro.width / 2, antesCuadro.y + antesCuadro.height / 2);
+    await ajustes.mouse.down();
+    await ajustes.mouse.move(antesCuadro.x + antesCuadro.width / 2 + 60, antesCuadro.y + antesCuadro.height / 2 + 30, { steps: 8 });
+    await ajustes.mouse.up();
+    const despuesCuadro = await cuadro.boundingBox();
+    assert.ok(Math.abs(despuesCuadro.x - antesCuadro.x - 60) < 4 && Math.abs(despuesCuadro.y - antesCuadro.y - 30) < 4, `el recuadro se movió: ${JSON.stringify([antesCuadro, despuesCuadro])}`);
+    // La esquina lo agranda.
+    await ajustes.mouse.move(despuesCuadro.x + despuesCuadro.width + 1, despuesCuadro.y + despuesCuadro.height + 1);
+    await ajustes.mouse.down();
+    await ajustes.mouse.move(despuesCuadro.x + despuesCuadro.width + 41, despuesCuadro.y + despuesCuadro.height + 21, { steps: 6 });
+    await ajustes.mouse.up();
+    const grande = await cuadro.boundingBox();
+    assert.ok(grande.width - despuesCuadro.width > 15 && grande.height - despuesCuadro.height > 15, `el recuadro se agrandó: ${despuesCuadro.width} → ${grande.width}`);
+    await ajustes.click('.panel-edicion button:has-text("Relleno (tapar)")');
+    await ajustes.keyboard.press('Control+z');
+    await ajustes.keyboard.press('Control+z');
+    const deshecho = await cuadro.boundingBox();
+    assert.ok(Math.abs(deshecho.width - despuesCuadro.width) < 3, 'Ctrl+Z deshace el tamaño');
     assert.ok(!(await ajustes.locator('.editor-pie .boton-dividido > button').first().isDisabled()), 'con edición, Guardar se prende');
     await ajustes.screenshot({ path: path.join(SALIDA, '18f-pc-clip-mas-edicion.png'), fullPage: true });
     await ajustes.locator('.video-caja').scrollIntoViewIfNeeded();

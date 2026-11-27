@@ -2,6 +2,17 @@
 
 Cada Release de GitHub toma de acá la sección de su versión. Al subir de versión, sumar la sección nueva arriba de todo.
 
+## 1.1.10
+
+**PC**
+- Editor de clips más claro:
+  - Los textos y recuadros ahora se pueden mover arrastrándolos sobre el video (antes no andaba) y cambiar de tamaño desde la esquina. Doble clic en un texto para escribirlo; Supr lo quita; las flechas lo corren.
+  - Un texto o recuadro nuevo se ve en todo el clip; con "Desde acá" / "Hasta acá" lo acotás.
+  - Se edita uno a la vez: los demás quedan como etiquetas arriba para elegirlos.
+  - "✂ Cortar acá" (o la tecla S) está junto a la línea de tiempo. Los pedazos se ven solo cuando hay más de uno, y se pueden duplicar de un toque.
+  - Deshacer (Ctrl+Z) para todo lo editado, incluidas las manijas. Ctrl+C / Ctrl+V / Ctrl+D copian, pegan y duplican.
+  - El panel de edición arranca abierto.
+
 ## 1.1.9
 
 **PC**
