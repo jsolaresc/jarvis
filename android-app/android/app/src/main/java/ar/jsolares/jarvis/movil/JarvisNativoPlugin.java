@@ -28,7 +28,9 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.OutputStream;
+import java.net.HttpURLConnection;
 import java.net.Inet4Address;
+import java.net.URL;
 import java.net.InterfaceAddress;
 import java.net.NetworkInterface;
 import java.util.Collections;
@@ -49,6 +51,8 @@ import java.util.UUID;
 public class JarvisNativoPlugin extends Plugin {
 
     private String compartidoPendiente = null;
+    private JSONArray archivosPendientes = null;
+    private String atajoPendiente = null;
 
     private static class Abierto {
         String destino;
@@ -73,7 +77,33 @@ public class JarvisNativoPlugin extends Plugin {
     }
 
     private void leerIntent(Intent intent, boolean avisar) {
-        if (intent == null || !Intent.ACTION_SEND.equals(intent.getAction())) return;
+        if (intent == null) return;
+        // Un atajo (mantener apretado el ícono, el widget o un aviso tocado).
+        String atajo = intent.getStringExtra("atajo");
+        if (atajo != null && !atajo.isEmpty()) {
+            intent.removeExtra("atajo");
+            if (avisar && hasListeners("atajo")) { JSObject r = new JSObject(); r.put("atajo", atajo); notifyListeners("atajo", r); }
+            else atajoPendiente = atajo;
+            return;
+        }
+        String accion = intent.getAction();
+        // Archivos compartidos desde otra app (no texto): se mandan a la PC.
+        if (Intent.ACTION_SEND_MULTIPLE.equals(accion) || (Intent.ACTION_SEND.equals(accion) && intent.getParcelableExtra(Intent.EXTRA_STREAM) != null)) {
+            JSONArray lista = new JSONArray();
+            java.util.ArrayList<Uri> uris = new java.util.ArrayList<>();
+            if (Intent.ACTION_SEND_MULTIPLE.equals(accion)) { java.util.ArrayList<Uri> l = intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM); if (l != null) uris.addAll(l); }
+            else uris.add(intent.getParcelableExtra(Intent.EXTRA_STREAM));
+            for (Uri u : uris) {
+                if (u == null) continue;
+                try { lista.put(describir(u)); } catch (Exception ignored) {}
+            }
+            intent.setAction(Intent.ACTION_MAIN);
+            if (lista.length() == 0) return;
+            if (avisar && hasListeners("compartidoArchivos")) { JSObject r = new JSObject(); r.put("archivos", lista); notifyListeners("compartidoArchivos", r); }
+            else archivosPendientes = lista;
+            return;
+        }
+        if (!Intent.ACTION_SEND.equals(accion)) return;
         String texto = intent.getStringExtra(Intent.EXTRA_TEXT);
         String asunto = intent.getStringExtra(Intent.EXTRA_SUBJECT);
         String todo = ((asunto != null ? asunto + " " : "") + (texto != null ? texto : "")).trim();
@@ -157,13 +187,18 @@ public class JarvisNativoPlugin extends Plugin {
     public void configurarPC(PluginCall call) {
         boolean activos = call.getBoolean("avisos", true);
         String token = call.getString("token", "");
-        Avisos.prefs(getContext()).edit()
-            .putString("base", call.getString("base", ""))
+        String base = call.getString("base", "");
+        android.content.SharedPreferences.Editor e = Avisos.prefs(getContext()).edit()
             .putString("token", token)
+            .putString("publica", call.getString("publica", ""))
             .putBoolean("activos", activos)
-            .apply();
+            .putBoolean("alInstante", Boolean.TRUE.equals(call.getBoolean("alInstante", false)));
+        // La dirección de casa (la pública se guarda aparte): así el trabajo de fondo sabe si está en casa o afuera.
+        if (base.startsWith("http://")) e.putString("base", base);
+        e.apply();
         Avisos.crearCanal(getContext());
-        Avisos.seguir(getContext(), activos && !token.isEmpty());
+        Avisos.seguir(getContext(), !token.isEmpty());
+        AlInstanteService.aplicar(getContext());
         call.resolve();
     }
 
@@ -189,8 +224,148 @@ public class JarvisNativoPlugin extends Plugin {
     public void compartidoPendiente(PluginCall call) {
         JSObject r = new JSObject();
         r.put("texto", compartidoPendiente != null ? compartidoPendiente : "");
+        if (archivosPendientes != null) r.put("archivos", archivosPendientes);
         compartidoPendiente = null;
+        archivosPendientes = null;
         call.resolve(r);
+    }
+
+    @PluginMethod
+    public void atajoPendiente(PluginCall call) {
+        JSObject r = new JSObject();
+        if (atajoPendiente != null) r.put("atajo", atajoPendiente);
+        atajoPendiente = null;
+        call.resolve(r);
+    }
+
+    /** Nombre, tamaño y tipo de un archivo compartido (content://…). */
+    private JSONObject describir(Uri u) throws Exception {
+        JSONObject o = new JSONObject();
+        o.put("uri", u.toString());
+        String nombre = null; long bytes = 0;
+        try (android.database.Cursor c = getContext().getContentResolver().query(u, new String[]{android.provider.OpenableColumns.DISPLAY_NAME, android.provider.OpenableColumns.SIZE}, null, null, null)) {
+            if (c != null && c.moveToFirst()) { nombre = c.getString(0); if (!c.isNull(1)) bytes = c.getLong(1); }
+        } catch (Exception ignored) {}
+        if (nombre == null) nombre = u.getLastPathSegment() != null ? u.getLastPathSegment() : "archivo";
+        o.put("nombre", limpiarNombre(nombre));
+        o.put("bytes", bytes);
+        String mime = getContext().getContentResolver().getType(u);
+        o.put("mime", mime != null ? mime : "application/octet-stream");
+        return o;
+    }
+
+    /** Sube un archivo compartido directo a la PC (sin pasarlo por la página): con progreso (evento "subida"). */
+    @PluginMethod
+    public void subirArchivo(PluginCall call) {
+        String uri = call.getString("uri", "");
+        String url = call.getString("url", "");
+        String token = call.getString("token", "");
+        if (uri.isEmpty() || !(url.startsWith("http://") || url.startsWith("https://"))) { call.reject("Faltan datos para subir."); return; }
+        new Thread(() -> {
+            HttpURLConnection c = null;
+            try {
+                Uri u = Uri.parse(uri);
+                long total = -1;
+                try (android.content.res.AssetFileDescriptor fd = getContext().getContentResolver().openAssetFileDescriptor(u, "r")) { if (fd != null) total = fd.getLength(); } catch (Exception ignored) {}
+                c = (HttpURLConnection) new URL(url).openConnection();
+                c.setDoOutput(true);
+                c.setRequestMethod("POST");
+                c.setConnectTimeout(8000);
+                c.setReadTimeout(120000);
+                c.setRequestProperty("Authorization", "Bearer " + token);
+                c.setRequestProperty("Content-Type", "application/octet-stream");
+                if (total > 0) c.setFixedLengthStreamingMode(total); else c.setChunkedStreamingMode(256 * 1024);
+                try (java.io.InputStream in = getContext().getContentResolver().openInputStream(u); OutputStream out = c.getOutputStream()) {
+                    if (in == null) throw new Exception("No pude leer el archivo.");
+                    byte[] buf = new byte[256 * 1024];
+                    long n = 0; int ultimo = -1;
+                    for (int k; (k = in.read(buf)) > 0; ) {
+                        out.write(buf, 0, k);
+                        n += k;
+                        int pct = total > 0 ? (int) (n * 100 / total) : -1;
+                        if (pct != ultimo) { ultimo = pct; JSObject p = new JSObject(); p.put("uri", uri); p.put("pct", pct); notifyListeners("subida", p); }
+                    }
+                }
+                int st = c.getResponseCode();
+                java.io.InputStream resp = st < 400 ? c.getInputStream() : c.getErrorStream();
+                java.io.ByteArrayOutputStream b = new java.io.ByteArrayOutputStream();
+                if (resp != null) { byte[] buf = new byte[8192]; for (int k; (k = resp.read(buf)) > 0; ) b.write(buf, 0, k); }
+                JSONObject d = new JSONObject();
+                try { d = new JSONObject(b.toString("UTF-8")); } catch (Exception ignored) {}
+                if (st >= 300) { call.reject(d.optString("error", "La PC contestó " + st)); return; }
+                call.resolve(JSObject.fromJSONObject(d));
+            } catch (Throwable t) {
+                call.reject(t instanceof java.io.IOException ? "Tu PC no responde." : String.valueOf(t.getMessage()));
+            } finally { if (c != null) c.disconnect(); }
+        }).start();
+    }
+
+    /** Wake-on-LAN: el "paquete mágico" (6 × FF y 16 veces la MAC) por broadcast en la Wi-Fi de casa. */
+    @PluginMethod
+    public void despertar(PluginCall call) {
+        String mac = call.getString("mac", "");
+        String broadcast = call.getString("broadcast", "255.255.255.255");
+        String[] partes = mac.split("[:-]");
+        if (partes.length != 6) { call.reject("Dirección MAC inválida."); return; }
+        new Thread(() -> {
+            try {
+                byte[] m = new byte[6];
+                for (int i = 0; i < 6; i++) m[i] = (byte) Integer.parseInt(partes[i], 16);
+                byte[] paquete = new byte[6 + 16 * 6];
+                for (int i = 0; i < 6; i++) paquete[i] = (byte) 0xff;
+                for (int i = 6; i < paquete.length; i += 6) System.arraycopy(m, 0, paquete, i, 6);
+                try (java.net.DatagramSocket s = new java.net.DatagramSocket()) {
+                    s.setBroadcast(true);
+                    for (String destino : new String[]{broadcast, "255.255.255.255"}) {
+                        java.net.InetAddress a = java.net.InetAddress.getByName(destino);
+                        for (int puerto : new int[]{9, 7}) s.send(new java.net.DatagramPacket(paquete, paquete.length, a, puerto));
+                    }
+                }
+                call.resolve();
+            } catch (Throwable t) { call.reject("No pude mandar la señal: " + t.getMessage()); }
+        }).start();
+    }
+
+    /** Huella, cara o bloqueo de pantalla (opcional, se prende en Ajustes). */
+    @PluginMethod
+    public void huella(PluginCall call) {
+        if (getActivity() == null) { call.reject("La app no está abierta."); return; }
+        int quien = Build.VERSION.SDK_INT >= 30
+            ? androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_WEAK | androidx.biometric.BiometricManager.Authenticators.DEVICE_CREDENTIAL
+            : androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_WEAK;
+        int puede = androidx.biometric.BiometricManager.from(getContext()).canAuthenticate(quien);
+        if (puede != androidx.biometric.BiometricManager.BIOMETRIC_SUCCESS && Build.VERSION.SDK_INT >= 30) { call.reject("Este celular no tiene huella ni bloqueo de pantalla configurado."); return; }
+        String titulo = call.getString("titulo", "Desbloquear Jarvis");
+        getActivity().runOnUiThread(() -> {
+            androidx.biometric.BiometricPrompt.PromptInfo.Builder info = new androidx.biometric.BiometricPrompt.PromptInfo.Builder().setTitle(titulo);
+            if (Build.VERSION.SDK_INT >= 30) info.setAllowedAuthenticators(quien);
+            else info.setDeviceCredentialAllowed(true);
+            androidx.biometric.BiometricPrompt p = new androidx.biometric.BiometricPrompt((androidx.fragment.app.FragmentActivity) getActivity(),
+                androidx.core.content.ContextCompat.getMainExecutor(getContext()),
+                new androidx.biometric.BiometricPrompt.AuthenticationCallback() {
+                    @Override public void onAuthenticationSucceeded(androidx.biometric.BiometricPrompt.AuthenticationResult r) { JSObject o = new JSObject(); o.put("ok", true); call.resolve(o); }
+                    @Override public void onAuthenticationError(int codigo, CharSequence texto) {
+                        if (codigo == androidx.biometric.BiometricPrompt.ERROR_NO_BIOMETRICS || codigo == androidx.biometric.BiometricPrompt.ERROR_NO_DEVICE_CREDENTIAL || codigo == androidx.biometric.BiometricPrompt.ERROR_HW_NOT_PRESENT)
+                            call.reject("Este celular no tiene huella ni bloqueo de pantalla configurado.");
+                        else { JSObject o = new JSObject(); o.put("ok", false); o.put("texto", String.valueOf(texto)); call.resolve(o); }
+                    }
+                });
+            p.authenticate(info.build());
+        });
+    }
+
+    /** Avisos al instante (servicio en primer plano conectado a la PC). */
+    @PluginMethod
+    public void avisosAlInstante(PluginCall call) {
+        boolean activo = Boolean.TRUE.equals(call.getBoolean("activo", false));
+        android.content.SharedPreferences.Editor e = Avisos.prefs(getContext()).edit().putBoolean("alInstante", activo);
+        String base = call.getString("base", ""); String token = call.getString("token", "");
+        if (!token.isEmpty()) e.putString("token", token);
+        if (!base.isEmpty() && base.startsWith("http://")) e.putString("base", base);
+        e.apply();
+        AlInstanteService.crearCanales(getContext());
+        AlInstanteService.aplicar(getContext());
+        call.resolve();
     }
 
     @PluginMethod

@@ -15,7 +15,8 @@ public class AvisoReceiver extends BroadcastReceiver {
         String accion = intent.getAction();
         if (Intent.ACTION_BOOT_COMPLETED.equals(accion) || "android.intent.action.MY_PACKAGE_REPLACED".equals(accion)) {
             Avisos.reprogramar(c);
-            Avisos.seguir(c, Avisos.prefs(c).getBoolean("activos", true) && !Avisos.prefs(c).getString("token", "").isEmpty());
+            Avisos.seguir(c, !Avisos.prefs(c).getString("token", "").isEmpty());
+            AlInstanteService.aplicar(c);
             return;
         }
         if (!Avisos.prefs(c).getBoolean("activos", true)) return;

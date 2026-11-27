@@ -84,7 +84,8 @@ public final class Avisos {
 
     public static void seguir(Context c, boolean activos) {
         WorkManager wm = WorkManager.getInstance(c);
-        if (!activos) { wm.cancelUniqueWork(TRABAJO); programar(c, new JSONArray()); return; }
+        if (!prefs(c).getBoolean("activos", true)) programar(c, new JSONArray());
+        if (!activos) { wm.cancelUniqueWork(TRABAJO); return; }
         Constraints red = new Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build();
         PeriodicWorkRequest p = new PeriodicWorkRequest.Builder(AvisosWorker.class, 15, TimeUnit.MINUTES).setConstraints(red).build();
         wm.enqueueUniquePeriodicWork(TRABAJO, ExistingPeriodicWorkPolicy.KEEP, p);

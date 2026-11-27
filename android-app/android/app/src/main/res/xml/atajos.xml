@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut android:shortcutId="hablar" android:enabled="true" android:icon="@drawable/ic_aviso" android:shortcutShortLabel="@string/atajo_hablar">
+        <intent android:action="ar.jsolares.jarvis.ATAJO.hablar" android:targetPackage="ar.jsolares.jarvis.movil" android:targetClass="ar.jsolares.jarvis.movil.MainActivity">
+            <extra android:name="atajo" android:value="hablar" />
+        </intent>
+    </shortcut>
+    <shortcut android:shortcutId="camara" android:enabled="true" android:icon="@drawable/ic_aviso" android:shortcutShortLabel="@string/atajo_camara">
+        <intent android:action="ar.jsolares.jarvis.ATAJO.camara" android:targetPackage="ar.jsolares.jarvis.movil" android:targetClass="ar.jsolares.jarvis.movil.MainActivity">
+            <extra android:name="atajo" android:value="camara" />
+        </intent>
+    </shortcut>
+    <shortcut android:shortcutId="clip" android:enabled="true" android:icon="@drawable/ic_aviso" android:shortcutShortLabel="@string/atajo_clip">
+        <intent android:action="ar.jsolares.jarvis.ATAJO.clip" android:targetPackage="ar.jsolares.jarvis.movil" android:targetClass="ar.jsolares.jarvis.movil.MainActivity">
+            <extra android:name="atajo" android:value="clip" />
+        </intent>
+    </shortcut>
+    <shortcut android:shortcutId="archivos" android:enabled="true" android:icon="@drawable/ic_aviso" android:shortcutShortLabel="@string/atajo_archivos">
+        <intent android:action="ar.jsolares.jarvis.ATAJO.archivos" android:targetPackage="ar.jsolares.jarvis.movil" android:targetClass="ar.jsolares.jarvis.movil.MainActivity">
+            <extra android:name="atajo" android:value="archivos" />
+        </intent>
+    </shortcut>
+</shortcuts>

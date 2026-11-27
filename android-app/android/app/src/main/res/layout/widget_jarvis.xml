@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="horizontal"
+    android:padding="6dp"
+    android:background="@drawable/widget_fondo">
+    <TextView android:id="@+id/w_hablar" style="@style/BotonWidget" android:text="Hablar" />
+    <TextView android:id="@+id/w_camara" style="@style/BotonWidget" android:text="Cámara" />
+    <TextView android:id="@+id/w_clip" style="@style/BotonWidget" android:text="Clip" />
+    <TextView android:id="@+id/w_control" style="@style/BotonWidget" android:text="Control" />
+</LinearLayout>
