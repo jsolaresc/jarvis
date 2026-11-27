@@ -144,13 +144,15 @@ while ($true) {
   hijo.stdout.on('data', (d) => {
     resto += d;
     const lineas = resto.split('\n'); resto = lineas.pop();
-    for (const l of lineas) { const m = lineaAMuestra(l); if (m) { muestras.push(m); } }
+    for (const l of lineas) { const m = lineaAMuestra(l); if (m) { muestras.push(m); try { alMuestra(m); } catch {} } }
     const corte = Date.now() - (cfg().segundos + 120) * 1000;
     while (muestras.length && muestras[0].t < corte) muestras.shift();
   });
   hijo.on('close', () => { if (espiaPrimerPlano === hijo) espiaPrimerPlano = null; });
   hijo.on('error', () => { espiaPrimerPlano = null; });
 }
+let alMuestra = () => {}; // (muestra) qué programa está al frente, cada 2 s (para las jugadas de League)
+function observarPrograma(fn) { alMuestra = typeof fn === 'function' ? fn : () => {}; }
 function dejarDeEspiar() {
   if (espiaPrimerPlano) { try { espiaPrimerPlano.kill(); } catch {} espiaPrimerPlano = null; }
 }
@@ -1092,7 +1094,7 @@ const ultimo = () => ultimoClip;
 module.exports = {
   asegurarFfmpeg, rutaFfmpeg, correrFfmpeg: correr, duracionDe,
   aLaPapelera, deshacerBorrado, finalizarBorrados, SUFIJO_BORRANDO,
-  matarFfmpeg, pausarPorBloqueo, listar, miniatura, medidas, argumentosDeMontaje, validarMontaje, dentroDeCarpeta, enviarGuardado, renombrar, recortar, enviarRecorte,
+  matarFfmpeg, pausarPorBloqueo, observarPrograma, listar, miniatura, medidas, argumentosDeMontaje, validarMontaje, dentroDeCarpeta, enviarGuardado, renombrar, recortar, enviarRecorte,
   deshacerRecorte, terminarRecortesPendientes, enCarpeta, marcarFavorito, VELOCIDADES, transformar, vistaPrevia, TRANSFORMACIONES, SUFIJO_DESHACER,
   configurar, usarAtajos, sincronizar, apagar, guardar, guardarYAvisar, capturar, capturarYAvisar, capturaParaEnviar, ultimaDeCaptura, marcarPedidoDeVoz, olvidarPedido, finDelPedido, elegirPedazos, silenciarJarvis, jarvisHabla, mudosEnLinea, argumentosDeUnion, _reiniciarJarvis: () => { intervalosJarvis = []; jarvisDesde = 0; }, prepararParaEnviar, empezarGrabacion, cancelarGrabacion, pausarGrabacion, terminarGrabacion,
   recibirPedazo, recibirTrozo, finDeTrozos, recibirEstado, estado, ultimo, registrarAtajo, permitidoAhora,

@@ -86,8 +86,11 @@ const CONFIG_DEFECTO = {
     enviarA: '', // a quién va "enviar el último clip" si no se dice
     sinJarvis: true, // los clips no muestran a Jarvis (el notch y Ajustes se ocultan de la captura) ni se escucha tu voz hablándole ni la suya
     recorteDeVoz: 0, // el clip pedido por voz termina estos segundos antes de que empieces a hablar (0 = justo cuando empezás)
-    segundosJugada: 30, // cuánto dura el clip de "grabá la última kill" / "cómo morí recién"
+    segundosJugada: 30, // "grabá la última kill" en un juego que no cuenta sus jugadas: los últimos N segundos
+    antesJugada: 7, despuesJugada: 3, // en los que sí (CS2, Dota 2, League): cuánto antes y después de la jugada
   },
+  // Jugadas de los juegos (CS2 y Dota 2 por Game State Integration, League por su API local). conectar: dejar el archivo en los juegos.
+  juegos: { conectar: true, clave: '' },
   // Contexto: que Jarvis mire la pantalla cuando se lo pedís ("¿qué estoy viendo?"). Apagado hasta que lo prendas, porque la
   // captura viaja al modelo que la mira (Groq, Gemini u Ollama). anchoCaptura: tamaño máximo de esa captura.
   contexto: { verPantalla: false, anchoCaptura: 1280 },

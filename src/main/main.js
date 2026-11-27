@@ -43,6 +43,7 @@ const camara = require('./camara');
 const estadopc = require('./estadopc');
 const disparadores = require('./disparadores');
 const remoto = require('./remoto');
+const juegos = require('./juegos');
 const descargas = require('./descargas');
 
 const ANCHO = 380; // tamaño de la ventana del notch (la pastilla y el panel viven adentro)
@@ -736,6 +737,8 @@ manejar('clips:enviar', ({ archivo, contacto }) => clips.enviarGuardado(archivo,
 manejar('clips:vista', (archivo) => { if (!clips.dentroDeCarpeta(archivo)) throw new Error('Ese video no está en la carpeta de clips.'); return servidor.compartirLocal(archivo); });
 manejar('clips:renombrar', ({ archivo, nombre }) => clips.renombrar(archivo, nombre));
 manejar('clips:recortar', ({ archivo, desde, hasta, reemplazar, edicion }) => clips.recortar(archivo, { desde, hasta, reemplazar: !!reemplazar, edicion: edicion || {}, mandar: (ruta) => shell.trashItem(ruta) }));
+manejar('juegos:estado', () => juegos.resumen());
+manejar('juegos:conectar', () => { const r = juegos.conectarJuegos(pc.listarJuegosSteam({ forzar: true })); const c = leerConfig(); c.juegos.conectar = true; guardarConfig(c); return r; });
 manejar('clips:medidas', (archivo) => clips.medidas(archivo));
 manejar('clips:favorito', ({ archivo, si }) => clips.marcarFavorito(archivo, !!si));
 // Pantalla completa de Ajustes (el editor de clips la usa para ver el video grande).
@@ -1523,7 +1526,7 @@ manejar('celular:renombrar', ({ id, nombre }) => celular.renombrar(String(id), n
 manejar('celular:publicar', async () => { await sincronizarCelular(); if (!celular.puerto()) throw new Error('Primero prendé "Usar Jarvis desde el celular".'); return celular.publicarEnTailscale(Number((leerConfig().celular || {}).https) || 443); });
 manejar('celular:despublicar', () => celular.despublicarDeTailscale(Number((leerConfig().celular || {}).https) || 443));
 
-app.on('will-quit', () => { remoto.cerrar(); camara.cortarTodo(); clips.terminarRecortesPendientes().catch(() => {}); red.detener(); celular.detener().catch(() => {}); globalShortcut.unregisterAll(); oido.apagar(); clips.apagar(); clips.matarFfmpeg(); });
+app.on('will-quit', () => { remoto.cerrar(); juegos.cerrar(); camara.cortarTodo(); clips.terminarRecortesPendientes().catch(() => {}); red.detener(); celular.detener().catch(() => {}); globalShortcut.unregisterAll(); oido.apagar(); clips.apagar(); clips.matarFfmpeg(); });
 
 app.whenReady().then(async () => {
   arranque.iniciar(DATOS);
@@ -1531,6 +1534,18 @@ app.whenReady().then(async () => {
   const interfaz = await servidor.iniciarInterfaz();
   urlBase = interfaz.url;
   camara.configurar({ urlBase });
+  // Jugadas de los juegos: "grabá esa kill" arma el clip alrededor de la jugada.
+  juegos.configurar({ leerConfig, guardarConfig });
+  if (process.platform === 'win32' || process.env.JARVIS_JUEGOS) {
+    juegos.iniciarServidor().then(() => {
+      if (leerConfig().juegos.conectar !== false) { try { juegos.conectarJuegos(pc.listarJuegosSteam()); } catch (e) { console.error('[juegos]', e.message); } }
+    });
+    let lolVisto = 0;
+    clips.observarPrograma((m) => {
+      if (/^league of legends$/i.test(m.proceso)) lolVisto = m.t;
+      juegos.seguirLol(lolVisto && m.t - lolVisto < 10 * 60 * 1000);
+    });
+  }
   // Optimización: la repetición instantánea se pausa con la PC bloqueada o suspendida, y vuelve sola al desbloquear.
   try {
     const { powerMonitor } = require('electron');

@@ -14,6 +14,7 @@ const notificaciones = require('./notificaciones');
 const historial = require('./historial');
 const calendario = require('./calendario');
 const clips = require('./clips');
+const juegos = require('./juegos');
 const notas = require('./notas');
 const descargas = require('./descargas');
 const fs = require('fs');
@@ -40,12 +41,29 @@ async function pasoClip(paso) {
   const { leerConfig: leer, guardarConfig } = require('./config');
   switch (paso.accion) {
     case 'guardar': {
-      // Un clip "de jugada" ("grabá la última kill"): Jarvis no detecta qué pasó en el juego, guarda los últimos segundos y los rotula.
+      // Un clip "de jugada" ("grabá esa kill"): si el juego cuenta sus jugadas (CS2, Dota 2, League), el clip queda alrededor de la
+      // jugada (unos segundos antes y después). Si no, guarda los últimos segundos y los rotula.
       const jugada = paso.evento ? { kill: 'Kill', muerte: 'Muerte', jugada: 'Jugada' }[paso.evento] || 'Jugada' : '';
+      const hasta = clips.finDelPedido();
+      if (jugada && !paso.segundos) {
+        const c0 = leer().clips;
+        const n = Math.max(1, Math.min(10, Number(paso.cuantas) || 1));
+        const halladas = juegos.ultimas(paso.evento, { n, dentroDe: Math.max(30, Number(c0.segundos) || 120) * 1000, hasta: hasta || Date.now() });
+        if (halladas.length) {
+          const antes = Math.max(2, Number(c0.antesJugada) || 7) * 1000;
+          const despues = Math.max(0, Number.isFinite(Number(c0.despuesJugada)) ? Number(c0.despuesJugada) : 3) * 1000;
+          const fin = Math.min(halladas[halladas.length - 1].t + despues, hasta || Date.now());
+          const segundos = Math.max(5, (fin - (halladas[0].t - antes)) / 1000);
+          const etiqueta = halladas.length > 1 ? `${halladas.length} ${paso.evento === 'muerte' ? 'muertes' : 'kills'}` : (halladas[0].detalle || jugada);
+          const c = await clips.guardarYAvisar({ segundos, etiqueta, hasta: fin });
+          const hace = Math.round((Date.now() - halladas[halladas.length - 1].t) / 1000);
+          return `Listo: ${halladas.length > 1 ? `las ${halladas.length} ${paso.evento === 'muerte' ? 'muertes' : 'kills'}` : paso.evento === 'muerte' ? 'tu muerte' : `la ${paso.evento === 'kill' ? 'kill' : 'jugada'}`} de hace ${mmss(hace)}, en un clip de ${mmss(c.segundos)}${halladas[0].juego ? ` (${halladas[0].juego})` : ''}.`;
+        }
+      }
       const segundos = paso.segundos || (jugada ? (leer().clips.segundosJugada || 30) : undefined);
-      const c = await clips.guardarYAvisar({ segundos, etiqueta: jugada, hasta: clips.finDelPedido() });
+      const c = await clips.guardarYAvisar({ segundos, etiqueta: jugada, hasta });
       return jugada
-        ? `Listo, guardé los últimos ${mmss(c.segundos)} como "${jugada}"${c.juego ? ` de ${c.juego}` : ''}. Si la jugada fue más atrás, decime por ejemplo "hacé un clip del último minuto".`
+        ? `Listo, guardé los últimos ${mmss(c.segundos)} como "${jugada}"${c.juego ? ` de ${c.juego}` : ''}. ${juegos.resumen().cs2.activo || juegos.resumen().dota2.activo || juegos.resumen().lol.activo ? 'No encontré esa jugada en los datos del juego.' : 'Este juego no me cuenta sus jugadas: si fue más atrás, pedí más tiempo ("hacé un clip del último minuto").'}`
         : `Clip guardado: ${mmss(c.segundos)}${c.juego ? ` de ${c.juego}` : ''}.`;
     }
     case 'enviar': {

@@ -748,6 +748,12 @@ async function hasta(fn, ms = 20000, que = '') {
     await hasta(() => ajustes.locator('.fila-pc:not(.cabeza)').count(), 8000, 'procesos de Jarvis');
     await esperar(2500);
     await ajustes.screenshot({ path: path.join(SALIDA, '22-pc-estado.png'), fullPage: true });
+    // Grabación de clips → Jugadas de los juegos.
+    await ajustes.click('#menu button[data-grupo="multimedia"]');
+    await ajustes.click('.pestanas button:has-text("Grabación de clips")').catch(() => ajustes.click('button:has-text("Grabación de clips")'));
+    await hasta(() => ajustes.locator('.jugadas .renglon:has-text("Counter-Strike 2")').count(), 8000, 'jugadas de los juegos');
+    await ajustes.locator('h2:text-is("Jugadas de los juegos")').scrollIntoViewIfNeeded();
+    await ajustes.screenshot({ path: path.join(SALIDA, '22b-pc-jugadas.png') });
     // Rutinas: que se haga sola a una hora, de lunes a viernes.
     await ajustes.click('#menu button[data-grupo="rutinas"]');
     await ajustes.selectOption('.disparadores select', 'hora');

@@ -2281,6 +2281,67 @@ prueba('acciones: un clip de jugada dura lo que dice Ajustes, se rotula y avisa 
   } finally { clips.guardarYAvisar = original; config.guardarConfig(previo); }
 });
 
+prueba('jugadas de los juegos: CS2 y Dota 2 por Game State Integration, League por su API, y "grabá esa kill" arma el clip alrededor', async () => {
+  const juegos = require('../src/main/juegos');
+  const clips = require('../src/main/clips');
+  const previo = config.leerConfig();
+  let reloj = 1_000_000;
+  juegos._reiniciar();
+  juegos.configurar({ leerConfig: config.leerConfig, guardarConfig: config.guardarConfig, ahora: () => reloj });
+  // El archivo que se deja en la carpeta del juego.
+  const dir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'cs2-'));
+  const r = juegos.conectarJuegos([{ id: 730, nombre: 'Counter-Strike 2', carpeta: dir }]);
+  assert.match(r.cs2, /^listo/); assert.strictEqual(r.dota2, 'no instalado');
+  const cfgTexto = fs.readFileSync(path.join(dir, 'game', 'csgo', 'cfg', 'gamestate_integration_jarvis.cfg'), 'utf8');
+  const clave = config.leerConfig().juegos.clave;
+  assert.ok(clave && cfgTexto.includes(`"token" "${clave}"`) && cfgTexto.includes('/gsi/cs2'));
+  assert.strictEqual(juegos.conectarJuegos([{ id: 730, nombre: 'Counter-Strike 2', carpeta: dir }]).cs2, 'listo', 'la segunda vez no reescribe');
+  // CS2: la primera lectura es la base; después cada kill, muerte y asistencia queda con su hora. Mirando a otro no cuenta.
+  const cs = (kills, deaths, assists, extra = {}) => juegos.recibirCs2({ provider: { steamid: '1' }, map: { name: 'de_dust2', mode: 'competitive' }, player: { steamid: extra.steamid || '1', match_stats: { kills, deaths, assists }, state: { round_kills: extra.ronda || 0 } } });
+  cs(3, 1, 0); reloj += 5000; cs(4, 1, 0, { ronda: 1 }); reloj += 3000; cs(4, 2, 0); reloj += 1000; cs(9, 9, 9, { steamid: '2' }); reloj += 1000; cs(5, 2, 1, { ronda: 5 });
+  const lista = juegos.resumen().jugadas.map((j) => `${j.tipo}${j.detalle ? `:${j.detalle}` : ''}@${j.t - 1_000_000}`).reverse();
+  assert.deepStrictEqual(lista, ['kill@5000', 'muerte@8000', 'kill:Ace@10000', 'asistencia@10000']);
+  assert.deepStrictEqual(juegos.ultimas('kill', { n: 2 }).map((j) => j.t - 1_000_000), [5000, 10000]);
+  // El servidor solo acepta lo que trae la clave.
+  await juegos.iniciarServidor();
+  const mandar = (token, kills) => fetch(`http://127.0.0.1:${juegos.PUERTO}/gsi/dota2`, { method: 'POST', body: JSON.stringify({ auth: { token }, map: { matchid: '77' }, player: { kills, deaths: 0, assists: 0 } }) });
+  await mandar(clave, 0); reloj += 1000; await mandar('otra', 5); await mandar(clave, 1);
+  assert.deepStrictEqual(juegos.ultimas('kill', { n: 5 }).filter((j) => j.juego === 'Dota 2').length, 1);
+  juegos.cerrar();
+  // League: lo que ya había pasado no cuenta; la hora sale del tiempo de partida.
+  let eventos = [{ EventID: 1, EventName: 'ChampionKill', EventTime: 10, KillerName: 'Yo', VictimName: 'Otro' }];
+  let tiempo = 100;
+  juegos.configurar({ pedirLol: async (ruta) => (ruta === 'eventdata' ? { Events: eventos } : ruta === 'gamestats' ? { gameTime: tiempo, mapName: 'Map11' } : 'Yo#LAS') });
+  await juegos.vueltaLol();
+  eventos = [...eventos, { EventID: 2, EventName: 'ChampionKill', EventTime: 118, KillerName: 'Otro', VictimName: 'Yo#LAS' }, { EventID: 3, EventName: 'ChampionKill', EventTime: 119, KillerName: 'X', VictimName: 'Z', Assisters: ['Yo'] }];
+  tiempo = 120;
+  await juegos.vueltaLol();
+  const lol = juegos.resumen().jugadas.filter((j) => j.juego === 'League of Legends').reverse();
+  assert.deepStrictEqual(lol.map((j) => [j.tipo, reloj - j.t]), [['muerte', 2000], ['asistencia', 1000]]);
+  // "Grabá esa kill": el clip va de 7 s antes a 3 s después de la última kill (y nunca más allá del pedido).
+  const original = clips.guardarYAvisar;
+  const pedidos = [];
+  clips.guardarYAvisar = async (o) => { pedidos.push(o); return { archivo: 'x.mp4', segundos: o.segundos }; };
+  try {
+    juegos._reiniciar();
+    reloj = Date.now() - 12000; juegos.anotar('kill', 'Counter-Strike 2');
+    reloj = Date.now() - 6000; juegos.anotar('kill', 'Counter-Strike 2', 'Headshot');
+    juegos.configurar({ ahora: () => Date.now() });
+    const r1 = await acciones.ejecutarPaso({ tipo: 'clip', accion: 'guardar', evento: 'kill' });
+    assert.ok(Math.abs(pedidos[0].segundos - 10) < 0.1 && Math.abs(pedidos[0].hasta - (Date.now() - 3000)) < 200 && pedidos[0].etiqueta === 'Headshot', JSON.stringify(pedidos[0]));
+    assert.match(r1, /la kill de hace 6 segundos.*Counter-Strike 2/);
+    await acciones.ejecutarPaso({ tipo: 'clip', accion: 'guardar', evento: 'kill', cuantas: 2 });
+    assert.ok(Math.abs(pedidos[1].segundos - 16) < 0.1 && pedidos[1].etiqueta === '2 kills', JSON.stringify(pedidos[1]));
+    const r3 = await acciones.ejecutarPaso({ tipo: 'clip', accion: 'guardar', evento: 'muerte' });
+    assert.strictEqual(pedidos[2].etiqueta, 'Muerte', 'sin muertes anotadas: los últimos segundos');
+    assert.match(r3, /No encontré esa jugada|no me cuenta/);
+  } finally { clips.guardarYAvisar = original; juegos._reiniciar(); juegos.configurar({ ahora: () => Date.now() }); config.guardarConfig(previo); fs.rmSync(dir, { recursive: true, force: true }); }
+  const paso = (t) => (comandos.resolver(t) || { pasos: [{}] }).pasos[0];
+  assert.deepStrictEqual(paso('Grabá las últimas dos kills'), { tipo: 'clip', accion: 'guardar', evento: 'kill', cuantas: 2 });
+  assert.deepStrictEqual(paso('Clipeá el triple'), { tipo: 'clip', accion: 'guardar', evento: 'kill', cuantas: 3 });
+  assert.deepStrictEqual(paso('Che Jarvis, clipeá esa kill'), { tipo: 'clip', accion: 'guardar', evento: 'kill' });
+});
+
 prueba('contexto: el link se lee de la barra del navegador y el título se limpia', async () => {
   const contexto = require('../src/main/contexto');
   assert.strictEqual(contexto.limpiarTitulo('Mi video - YouTube - Google Chrome'), 'Mi video - YouTube');

@@ -290,12 +290,22 @@ const VERBO_MANDAR = '(?:envia|enviar|enviame|enviale|enviarle|manda|mandame|man
 function eventoDeJugada(t) {
   const muerte = /\b(?:mori|morir|muerte|me mataron|me mato|me matan|me liquidaron|me bajaron|me reventaron|me hicieron|perdi el round|perdi la ronda)\b/.test(t);
   const kill = /\b(?:kills?|bajas?|asesinato|ace|clutch|headshot|multikill|triple|cuadruple|penta)\b/.test(t);
-  const jugada = /\b(?:jugada|jugadon|highlight|momento|escena)\b/.test(t);
+  const jugada = /\b(?:jugada|jugadon|highlight|momento|escena|gol|golazo|atajada|tapada)\b/.test(t);
   if (!muerte && !kill && !jugada) return null;
   const clipea = /^(?:graba|grabame|grabalo|guarda|guardame|guardalo|clipea|clipeame|clipealo|captura|capturame|registra|registrame|salva|salvame)\b/.test(t);
   const hace = /^(?:hace|haceme|hacer|crea|creame|crear|saca|sacame|sacar|arma|armame|armar|genera|generame|toma|tomame)\b/.test(t) && /\b(?:clip|clips|clipcito|video)\b/.test(t);
   if (!clipea && !hace) return null;
   return muerte ? 'muerte' : kill ? 'kill' : 'jugada';
+}
+// Cuántas jugadas: "las últimas dos kills" = 2, "el triple" = 3, "el ace" = 5. Sin decirlo, una.
+function cuantasJugadas(t) {
+  if (/\b(?:ace|penta)\b/.test(t)) return 5;
+  if (/\bcuadruple\b/.test(t)) return 4;
+  if (/\btriple\b/.test(t)) return 3;
+  if (/\bdoble\b/.test(t)) return 2;
+  const m = new RegExp(`\\b(?:ultim\\w* |las )${NUMERO} (?:kills?|bajas?|muertes?|jugadas?)\\b`).exec(t);
+  const n = m ? numeroDe(m[1]) : null;
+  return n && n > 1 && n <= 10 ? n : 1;
 }
 
 // ¿Pide mirar la pantalla? "¿qué estoy viendo?", "mirá mi pantalla", "¿cómo avanzo en este juego?", "¿qué dice acá?".
@@ -396,7 +406,8 @@ function reglaClips(t, dicho) {
   // últimos segundos (30 por defecto, se cambia en Ajustes → Clips) y los rotula.
   const jugada = eventoDeJugada(t);
   if (jugada && !/\b(foto|audio|mensaje|mail|nota|musica)\b/.test(t)) {
-    return { pasos: [{ tipo: 'clip', accion: 'guardar', evento: jugada, ...(cuanto ? { segundos: cuanto } : {}) }] };
+    const n = cuantasJugadas(t);
+    return { pasos: [{ tipo: 'clip', accion: 'guardar', evento: jugada, ...(n > 1 ? { cuantas: n } : {}), ...(cuanto ? { segundos: cuanto } : {}) }] };
   }
   // Guardar: "guardá un clip", "clipeá", "guardá el último minuto", "guardame los últimos 30 segundos".
   if ((m = /^(?:guarda|guardame|guardar|guardalo|clipea|clipeame|clipear|clipealo|salva|salvame|captura|capturame|grabame|graba|grabalo)(?: un| el| ese| eso| lo| los| las| la)?(?: (.*))?$/.exec(t))) {

@@ -2367,7 +2367,12 @@ const secciones = {
       campo('Duración del clip', duracion(c, 'segundos', { base: 's', unidades: ['s', 'min'], min: 5, max: 600, porDefecto: 90 }, guardar), 'Cuánto tiempo hacia atrás guarda cuando pedís un clip (de 5 segundos a 10 minutos). Podés pedir otro tiempo por voz ("guardá los últimos 20 segundos").'),
       campo('Que Jarvis no salga en los clips', casilla(c, 'sinJarvis', guardar, true), 'El notch no se ve en los clips ni en las capturas de pantalla, y si Jarvis habla en el medio de un clip, esos segundos quedan sin sonido. Tu voz nunca se silencia. Para sacarle una captura al notch, apagá esto (o usá la bandeja → "Ocultar a Jarvis en clips y capturas").'),
       campo('Margen antes de mi pedido', duracion(c, 'recorteDeVoz', { base: 's', unidades: ['s'], min: 0, max: 30, porDefecto: 0 }, guardar), 'Un clip pedido por voz ("mandale los últimos 30 segundos a Eva") termina cuando empezaste a hablarle a Jarvis, así no se oye el pedido ni su respuesta. Si contesta con una pregunta y le decís "sí", cuenta el primer pedido. Con 0 puede llegar a oírse el "ey Jarvis" del final; subilo si preferís cortar antes.'),
-      campo('Clip de una jugada', duracion(c, 'segundosJugada', { base: 's', unidades: ['s', 'min'], min: 5, max: 300, porDefecto: 30 }, guardar), 'Para "grabá la última kill" o "hacé un clip de cómo morí recién". Jarvis no detecta qué pasó en el juego: guarda los últimos segundos y los rotula "Kill", "Muerte" o "Jugada". Si fue antes, pedí más tiempo ("hacé un clip del último minuto").'),
+      h('h2', {}, 'Jugadas de los juegos'),
+      h('p', { class: 'bajada' }, 'Para "grabá esa kill", "clipeá cómo me mataron" o "las últimas dos kills". En Counter-Strike 2, Dota 2 y League of Legends el juego le cuenta a Jarvis cuándo pasó cada jugada y el clip queda justo alrededor. En los demás, guarda los últimos segundos.'),
+      bloqueJugadas(),
+      campo('Antes de la jugada', duracion(c, 'antesJugada', { base: 's', unidades: ['s'], min: 2, max: 60, porDefecto: 7 }, guardar), 'Cuánto del clip va antes de la kill o la muerte.'),
+      campo('Después de la jugada', duracion(c, 'despuesJugada', { base: 's', unidades: ['s'], min: 0, max: 30, porDefecto: 3 }, guardar)),
+      campo('En los otros juegos', duracion(c, 'segundosJugada', { base: 's', unidades: ['s', 'min'], min: 5, max: 300, porDefecto: 30 }, guardar), 'Los juegos que no cuentan sus jugadas: se guardan estos últimos segundos (hasta que empezás a hablar) y se rotulan "Kill", "Muerte" o "Jugada".'),
       campo('Resolución', segmentado(c, 'calidad', [['480p', '480p'], ['720p', '720p'], ['1080p', '1080p'], ['1440p', '1440p']], () => { guardar(); setTimeout(refrescarClips, 1800); }, { porDefecto: '720p' }), 'Más resolución = más nitidez, más peso y más trabajo para la PC mientras jugás. 720p es lo mejor para mandar por WhatsApp.'),
       campo('Cuadros por segundo', segmentado(c, 'fps', [[30, '30 fps'], [60, '60 fps']], () => { c.fps = Number(c.fps) || 30; guardar(); setTimeout(refrescarClips, 1800); }, { porDefecto: 30 })),
       h('h2', {}, 'Audio'),
@@ -3609,6 +3614,23 @@ const TIPOS_PASO = {
   pedido: { titulo: 'Pedirle algo a Jarvis', campos: (p) => [texto(p, 'texto', guardarRutinas, { placeholder: 'Lo que le dirías, por ejemplo "apagá la tele del comedor"' })] },
 };
 
+// Jugadas de los juegos: si CS2, Dota 2 o League le están contando a Jarvis lo que pasa, y las últimas que vio.
+let estadoJugadas = null;
+function bloqueJugadas() {
+  if (!estadoJugadas) { pedir('juegos:estado').then((e) => { estadoJugadas = e; pintar(); }).catch(() => { estadoJugadas = { jugadas: [] }; }); return h('p', { class: 'nota' }, 'Cargando…'); }
+  const e = estadoJugadas;
+  const linea = (nombre, x, extra) => h('div', { class: 'renglon' }, h('b', {}, nombre), h('span', { class: `nota ${x && x.activo ? 'bien' : ''}` }, x && x.error ? x.error : x && x.activo ? 'Contando jugadas' : extra));
+  const TIPO = { kill: 'Kill', muerte: 'Muerte', asistencia: 'Asistencia' };
+  return h('div', { class: 'jugadas' },
+    linea('Counter-Strike 2', e.cs2, e.cs2 && e.cs2.conectado ? 'Conectado (sin partida ahora)' : 'Se conecta solo: abrí el juego (si ya estaba abierto, reinicialo)'),
+    linea('Dota 2', e.dota2, e.dota2 && e.dota2.conectado ? 'Conectado (sin partida ahora)' : 'Necesita la opción de inicio -gamestateintegration (Steam → Dota 2 → Propiedades)'),
+    linea('League of Legends', e.lol, 'Se conecta solo durante una partida'),
+    h('div', { class: 'fila' },
+      boton('Conectar de nuevo', async () => { try { const r = await pedir('juegos:conectar'); avisarGuardado(`CS2: ${r.cs2} · Dota 2: ${r.dota2}`); } catch (er) { avisarGuardado(er.message); } estadoJugadas = null; pintar(); }, 'chico'),
+      boton('Actualizar', () => { estadoJugadas = null; pintar(); }, 'chico')),
+    e.jugadas && e.jugadas.length ? h('div', {}, h('span', { class: 'et' }, 'Últimas jugadas'),
+      h('ul', { class: 'lista-jugadas' }, e.jugadas.map((j) => h('li', {}, h('b', {}, j.detalle || TIPO[j.tipo] || j.tipo), h('span', { class: 'nota' }, ` ${j.juego} · ${new Date(j.t).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`))))) : null);
+}
 // Carpetas compartidas con el celular (sin elegir: Descargas, Escritorio, Documentos, Imágenes y Clips).
 let carpetasCel = null;
 function bloqueCarpetasCelular() {
