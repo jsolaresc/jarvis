@@ -720,7 +720,86 @@ function argumentosDeEdicion(origen, desde, hasta, ed, conAudio, cod, salida) {
     : ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '21', '-threads', '4'];
   return ['-y', '-hide_banner', ...(base > 0 ? ['-ss', base.toFixed(3)] : []), '-i', origen, '-filter_complex', f.join(';'), '-map', '[v]', ...(conAudio ? ['-map', '[a]', '-c:a', 'aac', '-b:a', `${kbpsAudio()}k`] : []), ...video, '-pix_fmt', 'yuv420p', '-movflags', '+faststart', salida];
 }
+// ---------- Montaje: pedazos de uno o varios clips (en cualquier orden, repetidos), con velocidad y sonido por pedazo,
+// formato, textos y recuadros (llegan ya dibujados como PNG transparentes del tamaño del video) y fundido. ----------
+const PNG_DATOS = /^data:image\/png;base64,([A-Za-z0-9+/=]+)$/;
+function validarMontaje(ed, principal) {
+  const tramos = (ed.tramos || []).slice(0, 60).map((x) => ({
+    fuente: x && x.fuente ? String(x.fuente) : principal,
+    desde: Math.max(0, Number(x && x.desde) || 0), hasta: Number(x && x.hasta) || 0,
+    velocidad: VELOCIDADES.includes(Number(x && x.velocidad)) ? Number(x.velocidad) : 1, mudo: !!(x && x.mudo),
+  }));
+  if (!tramos.length) throw new Error('El clip quedó sin pedazos: dejá al menos uno.');
+  for (const x of tramos) {
+    if (!dentroDeCarpeta(x.fuente) || !fs.existsSync(x.fuente)) throw new Error('Uno de los pedazos es de un clip que ya no está en la carpeta.');
+    if (!(x.hasta - x.desde >= 0.2)) throw new Error('Hay un pedazo demasiado corto (menos de 0,2 s).');
+  }
+  const capas = (ed.capas || []).slice(0, 20).map((c) => {
+    const m = PNG_DATOS.exec(String((c && c.png) || ''));
+    if (!m || m[1].length > 12e6) return null;
+    return { png: Buffer.from(m[1], 'base64'), desde: Math.max(0, Number(c.desde) || 0), hasta: Math.max(0, Number(c.hasta) || 0) };
+  }).filter((c) => c && c.hasta > c.desde);
+  return { tramos, capas };
+}
+const largoDeTramos = (tramos) => tramos.reduce((t, x) => t + (x.hasta - x.desde) / x.velocidad, 0);
+function argumentosDeMontaje({ tramos, capas, infos, ed, pngs }, cod, salida) {
+  const principal = infos[0];
+  const W = Math.max(2, Math.round((principal.ancho || 1920) / 2) * 2); const H = Math.max(2, Math.round((principal.alto || 1080) / 2) * 2);
+  const fps = Math.min(60, Math.max(24, Math.round(principal.fps || cfg().fps || 30)));
+  const conAudio = infos.some((i) => i.audio);
+  const entradas = []; const f = [];
+  tramos.forEach((x, i) => {
+    const d = x.hasta - x.desde; const dSal = d / x.velocidad;
+    entradas.push('-ss', x.desde.toFixed(3), '-t', d.toFixed(3), '-i', x.fuente);
+    f.push(`[${i}:v]setpts=(PTS-STARTPTS)/${x.velocidad},scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=${fps},trim=duration=${dSal.toFixed(3)}[v${i}]`);
+    if (conAudio) {
+      f.push(infos[i].audio
+        ? `[${i}:a]asetpts=PTS-STARTPTS,aresample=48000,aformat=channel_layouts=stereo${x.velocidad !== 1 ? `,atempo=${x.velocidad}` : ''}${x.mudo ? ',volume=0' : ''},apad,atrim=duration=${dSal.toFixed(3)}[a${i}]`
+        : `anullsrc=r=48000:cl=stereo,atrim=duration=${dSal.toFixed(3)}[a${i}]`);
+    }
+  });
+  pngs.forEach((p) => entradas.push('-i', p));
+  f.push(`${tramos.map((_, i) => `[v${i}]${conAudio ? `[a${i}]` : ''}`).join('')}concat=n=${tramos.length}:v=1:a=${conAudio ? 1 : 0}[vc]${conAudio ? '[ac]' : ''}`);
+  const enc = Math.max(0, Math.min(1, Number.isFinite(Number(ed.encuadre)) ? Number(ed.encuadre) : 0.5));
+  let actual = 'vc';
+  const post = [];
+  if (ed.formato === 'vertical') post.push(`crop=trunc(ih*9/16/2)*2:ih:(iw-trunc(ih*9/16/2)*2)*${enc.toFixed(3)}:0`);
+  if (ed.formato === 'cuadrado') post.push(`crop=trunc(ih/2)*2:ih:(iw-trunc(ih/2)*2)*${enc.toFixed(3)}:0`);
+  if (post.length) { f.push(`[vc]${post.join(',')}[vf]`); actual = 'vf'; }
+  capas.forEach((c, k) => {
+    f.push(`[${actual}][${tramos.length + k}:v]overlay=0:0:eval=init:enable='between(t,${c.desde.toFixed(2)},${c.hasta.toFixed(2)})'[vo${k}]`);
+    actual = `vo${k}`;
+  });
+  const total = largoDeTramos(tramos);
+  const fade = ed.fundido && total > 1.5 ? Math.min(0.5, total / 6) : 0;
+  f.push(`[${actual}]${fade ? `fade=t=in:st=0:d=${fade.toFixed(2)},fade=t=out:st=${(total - fade).toFixed(2)}:d=${fade.toFixed(2)},` : ''}format=yuv420p[v]`);
+  if (conAudio) f.push(`[ac]${fade ? `afade=t=in:st=0:d=${fade.toFixed(2)},afade=t=out:st=${(total - fade).toFixed(2)}:d=${fade.toFixed(2)}` : 'anull'}[a]`);
+  const video = cod === 'h264_nvenc'
+    ? ['-c:v', 'h264_nvenc', '-preset', 'p4', '-rc', 'vbr', '-cq', '22', '-b:v', '0']
+    : ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '21', '-threads', '4'];
+  return ['-y', '-hide_banner', ...entradas, '-filter_complex', f.join(';'), '-map', '[v]', ...(conAudio ? ['-map', '[a]', '-c:a', 'aac', '-b:a', `${kbpsAudio()}k`] : []), ...video, '-pix_fmt', 'yuv420p', '-movflags', '+faststart', salida];
+}
+// Medidas del clip (para dibujar textos y recuadros del tamaño justo).
+async function medidas(archivo) {
+  if (!dentroDeCarpeta(archivo)) throw new Error('Ese video no está en la carpeta de clips.');
+  const i = await infoDe(await asegurarFfmpeg(), archivo);
+  return { ancho: i.ancho, alto: i.alto, fps: i.fps, duracion: i.duracion, audio: i.audio };
+}
 async function argsPara(ruta, archivo, t, ed) {
+  if (Array.isArray(ed.tramos)) {
+    const { tramos, capas } = validarMontaje(ed, archivo);
+    const infos = [];
+    const cache = new Map();
+    // Las medidas del video salen del clip que se está editando (los pedazos de otros clips se acomodan a él).
+    const deFuente = async (fu) => { if (!cache.has(fu)) cache.set(fu, await infoDe(ruta, fu)); return cache.get(fu); };
+    const base = await deFuente(archivo);
+    for (const x of tramos) infos.push(await deFuente(x.fuente));
+    infos[0] = { ...infos[0], ancho: base.ancho, alto: base.alto, fps: base.fps || infos[0].fps };
+    const dir = path.join(require('os').tmpdir(), `jarvis-capas-${Date.now().toString(36)}`);
+    const pngs = [];
+    if (capas.length) { fs.mkdirSync(dir, { recursive: true }); capas.forEach((c, k) => { const p = path.join(dir, `capa${k}.png`); fs.writeFileSync(p, c.png); pngs.push(p); }); }
+    return { largo: largoDeTramos(tramos), limpiar: () => { try { fs.rmSync(dir, { recursive: true, force: true }); } catch {} }, hacer: (cod, salida) => argumentosDeMontaje({ tramos, capas, infos, ed, pngs }, cod, salida) };
+  }
   if (edicionSimple(ed)) return { largo: t.largo, hacer: (cod, salida) => argumentosDeRecorte(archivo, t.desde, t.largo, cod, salida) };
   const info = await infoDe(ruta, archivo);
   return { largo: largoEditado(t.desde, t.desde + t.largo, ed), hacer: (cod, salida) => argumentosDeEdicion(archivo, t.desde, t.desde + t.largo, ed, info.audio, cod, salida) };
@@ -761,7 +840,7 @@ async function recortar(archivo, { desde, hasta, reemplazar = false, mandar = nu
     const base = path.basename(archivo, path.extname(archivo));
     const destino = nombreLibre(dir, base, reemplazar ? 'editando' : (edicion.formato === 'vertical' ? 'vertical' : 'recorte'));
     const a = await argsPara(ruta, archivo, t, edicion || {});
-    await codificar(ruta, a.hacer, destino, a.largo);
+    try { await codificar(ruta, a.hacer, destino, a.largo); } finally { if (a.limpiar) a.limpiar(); }
     if (!reemplazar) { ultimoClip = { archivo: destino, juego: (ultimoClip && ultimoClip.juego) || '', segundos: Math.round(t.largo) }; return { archivo: destino, segundos: t.largo }; } // "el último clip" pasa a ser el recorte
     const final = path.join(dir, `${base}.mp4`);
     // El original no se borra enseguida: queda apartado (oculto para la lista) para poder "Deshacer"; pasado el plazo va a la Papelera.
@@ -857,7 +936,8 @@ async function infoDe(ruta, archivo) {
     hijo.on('close', () => ok(err)); hijo.on('error', () => ok(err));
   });
   const v = /Stream #\S+.*?Video: (\w+)[^\n]*?(\d{2,5})x(\d{2,5})/.exec(salida);
-  return { duracion: duracionDe(salida), video: v ? v[1] : '', ancho: v ? +v[2] : 0, alto: v ? +v[3] : 0, audio: /Stream #\S+.*?Audio:/.test(salida) };
+  const fps = /, (\d+(?:\.\d+)?) fps/.exec(salida);
+  return { duracion: duracionDe(salida), video: v ? v[1] : '', ancho: v ? +v[2] : 0, alto: v ? +v[3] : 0, fps: fps ? +fps[1] : 0, audio: /Stream #\S+.*?Audio:/.test(salida) };
 }
 const TRANSFORMACIONES = {
   editable: { sufijo: 'para editar', ext: '.mp4', titulo: 'Convertir para editar' },
@@ -980,7 +1060,7 @@ async function enviarRecorte(archivo, { desde, hasta, edicion = {} } = {}, conta
   let p = null;
   try {
     const a = await argsPara(ruta, archivo, t, edicion || {});
-    await codificar(ruta, a.hacer, tmp, a.largo);
+    try { await codificar(ruta, a.hacer, tmp, a.largo); } finally { if (a.limpiar) a.limpiar(); }
     recortando = false;
     p = await prepararParaEnviar(tmp);
     return await enviarVideo(contacto, fs.readFileSync(p.archivo));
@@ -1004,7 +1084,7 @@ const ultimo = () => ultimoClip;
 module.exports = {
   asegurarFfmpeg, rutaFfmpeg, correrFfmpeg: correr, duracionDe,
   aLaPapelera, deshacerBorrado, finalizarBorrados, SUFIJO_BORRANDO,
-  matarFfmpeg, listar, miniatura, dentroDeCarpeta, enviarGuardado, renombrar, recortar, enviarRecorte,
+  matarFfmpeg, listar, miniatura, medidas, argumentosDeMontaje, validarMontaje, dentroDeCarpeta, enviarGuardado, renombrar, recortar, enviarRecorte,
   deshacerRecorte, terminarRecortesPendientes, enCarpeta, marcarFavorito, VELOCIDADES, transformar, vistaPrevia, TRANSFORMACIONES, SUFIJO_DESHACER,
   configurar, usarAtajos, sincronizar, apagar, guardar, guardarYAvisar, capturar, capturarYAvisar, capturaParaEnviar, ultimaDeCaptura, marcarPedidoDeVoz, olvidarPedido, finDelPedido, elegirPedazos, silenciarJarvis, jarvisHabla, mudosEnLinea, argumentosDeUnion, _reiniciarJarvis: () => { intervalosJarvis = []; jarvisDesde = 0; }, prepararParaEnviar, empezarGrabacion, cancelarGrabacion, pausarGrabacion, terminarGrabacion,
   recibirPedazo, recibirTrozo, finDeTrozos, recibirEstado, estado, ultimo, registrarAtajo, permitidoAhora,

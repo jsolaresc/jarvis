@@ -736,6 +736,7 @@ manejar('clips:enviar', ({ archivo, contacto }) => clips.enviarGuardado(archivo,
 manejar('clips:vista', (archivo) => { if (!clips.dentroDeCarpeta(archivo)) throw new Error('Ese video no está en la carpeta de clips.'); return servidor.compartirLocal(archivo); });
 manejar('clips:renombrar', ({ archivo, nombre }) => clips.renombrar(archivo, nombre));
 manejar('clips:recortar', ({ archivo, desde, hasta, reemplazar, edicion }) => clips.recortar(archivo, { desde, hasta, reemplazar: !!reemplazar, edicion: edicion || {}, mandar: (ruta) => shell.trashItem(ruta) }));
+manejar('clips:medidas', (archivo) => clips.medidas(archivo));
 manejar('clips:favorito', ({ archivo, si }) => clips.marcarFavorito(archivo, !!si));
 // Pantalla completa de Ajustes (el editor de clips la usa para ver el video grande).
 manejar('ventana:pantallaCompleta', (si) => { if (ajustes && !ajustes.isDestroyed()) ajustes.setFullScreen(!!si); return true; });

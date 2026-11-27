@@ -2166,6 +2166,16 @@ prueba('clips: renombrar y recortar un clip guardado (clip nuevo, reemplazo y so
     assert.ok(Math.abs(largo(ed9.archivo) - 3) < 0.4, `dura ${largo(ed9.archivo)}`);
     assert.match(String(spawnSync('ffmpeg', ['-hide_banner', '-i', ed9.archivo]).stderr), /202x360/);
     assert.strictEqual(path.basename(ed9.archivo), 'Ace en Mirage 1v4 (vertical).mp4');
+    // Montaje: pedazos de dos clips (uno repetido, uno al doble y otro sin sonido), vertical, un texto y fundido.
+    // nuevo1 [1–3] a 2x = 1 s; rec.archivo [0–1] mudo = 1 s; nuevo1 [1–3] de nuevo a 2x = 1 s → 3 s en total.
+    const pngDatos = `data:image/png;base64,${spawnSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i', 'color=c=red@0.5:s=202x360,format=rgba', '-frames:v', '1', '-f', 'image2pipe', '-vcodec', 'png', '-']).stdout.toString('base64')}`;
+    const mont = await clips.recortar(nuevo1, { desde: 0, hasta: 3, edicion: { tramos: [{ fuente: nuevo1, desde: 1, hasta: 3, velocidad: 2 }, { fuente: rec.archivo, desde: 0, hasta: 1, mudo: true }, { fuente: nuevo1, desde: 1, hasta: 3, velocidad: 2 }], formato: 'vertical', capas: [{ png: pngDatos, desde: 0.5, hasta: 2 }], fundido: true } });
+    assert.ok(Math.abs(largo(mont.archivo) - 3) < 0.4, `montaje dura ${largo(mont.archivo)}`);
+    assert.match(String(spawnSync('ffmpeg', ['-hide_banner', '-i', mont.archivo]).stderr), /202x360/);
+    await assert.rejects(() => clips.recortar(nuevo1, { desde: 0, hasta: 3, edicion: { tramos: [{ fuente: '/etc/passwd', desde: 0, hasta: 1 }] } }), /ya no está en la carpeta/);
+    await assert.rejects(() => clips.recortar(nuevo1, { desde: 0, hasta: 3, edicion: { tramos: [] } }), /sin pedazos/);
+    assert.ok(!fs.readdirSync(require('os').tmpdir()).some((n) => n.startsWith('jarvis-capas-')), 'no quedan capas temporales');
+    fs.unlinkSync(mont.archivo);
     // Favoritos: se marcan, aparecen en la lista y siguen al renombrar.
     clips.marcarFavorito(ed9.archivo, true);
     assert.ok(clips.listar(Infinity).find((x) => x.archivo === ed9.archivo).favorito);
