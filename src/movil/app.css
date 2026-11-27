@@ -464,3 +464,33 @@ body.arrastrando * { -webkit-user-select: none; user-select: none; }
 .dias { display: flex; gap: 6px; }
 .dias button { width: 38px; height: 38px; min-height: 0; padding: 0; border-radius: 50%; }
 .dias button.on { background: var(--ojo); color: #071019; border-color: var(--ojo); }
+.detalle-rutina { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+/* Archivos de la PC: buscar, filtros, miniaturas, cuadrícula y elegir varios */
+.pcc-buscar { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+.pcc-buscar input { flex: 1; min-width: 0; }
+.pcc-buscar select { width: auto; max-width: 38%; }
+#pcc-filtros { margin-bottom: 8px; }
+.pcc-acciones { display: flex; gap: 8px; margin-bottom: 6px; }
+.pcc-acciones button { flex: 1; margin: 0; }
+#lista-pcc .ic.mini { width: 44px; height: 44px; border-radius: 8px; overflow: hidden; display: grid; place-items: center; flex: none; background: var(--superficie); }
+#lista-pcc .ic.mini img { width: 100%; height: 100%; object-fit: cover; display: block; }
+#lista-pcc li.elegido .abrir { background: color-mix(in srgb, var(--ojo) 16%, transparent); }
+#lista-pcc .marca { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--linea); display: grid; place-items: center; flex: none; color: var(--sobre-ojo); }
+#lista-pcc li.elegido .marca { background: var(--ojo); border-color: var(--ojo); }
+#lista-pcc.cuadricula { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; }
+#lista-pcc.cuadricula li { border: 0; }
+#lista-pcc.cuadricula .abrir { position: relative; display: grid; grid-template-rows: auto auto; gap: 4px; padding: 0; text-align: left; }
+#lista-pcc.cuadricula .ic.mini { width: 100%; height: auto; aspect-ratio: 1; border-radius: 10px; }
+#lista-pcc.cuadricula .datos b { font-size: 12px; font-weight: 500; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; word-break: break-word; }
+#lista-pcc.cuadricula .datos span { font-size: 11px; }
+#lista-pcc.cuadricula .marca { position: absolute; top: 6px; right: 6px; background: rgba(0,0,0,.45); }
+#lista-pcc.cuadricula li.elegido .ic.mini { outline: 3px solid var(--ojo); outline-offset: -3px; }
+.pcc-barra { position: sticky; bottom: 8px; z-index: 5; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; padding: 8px; margin-top: 8px; border-radius: 14px; background: var(--superficie); border: 1px solid var(--linea); box-shadow: 0 6px 24px rgba(0,0,0,.35); }
+.pcc-barra span { grid-column: 1 / 3; align-self: center; padding-left: 4px; font-size: var(--t-s); color: var(--tenue); }
+.pcc-barra #pcc-b-cancelar { grid-column: 3; grid-row: 1; justify-self: end; }
+.pcc-barra button { min-height: 42px; padding: 0 8px; margin: 0; }
+.pcc-barra button:not(.principal):not(.texto) { border: 1px solid var(--linea); background: transparent; color: var(--texto); }
+#pcc-filtros { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+#pcc-filtros button { flex: none; }
+#lista-pcc.cuadricula li.elegido .abrir { background: none; }

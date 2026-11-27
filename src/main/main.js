@@ -822,7 +822,10 @@ async function correrRutina(id, origen = 'click', motivo = '') {
   const entrada = historial.empezar(`Rutina "${rutina.nombre}" (${origen === 'celular' ? 'desde el celular' : origen === 'aviso' ? `sola: ${motivo}` : 'click'})`, origen);
   try {
     const r = await acciones.ejecutarRutina(id);
-    historial.terminar(entrada, { respuesta: r.ok ? 'Salió todo bien.' : r.errores.join(' · '), ok: r.ok });
+    // El detalle de lo que hizo cada paso (no solo "salió bien"), venga de donde venga el pedido.
+    const hechos = (r.hechos || []).map((x) => String(x || '').trim()).filter(Boolean);
+    const detalle = [...hechos, ...r.errores.map((e) => `No pude: ${e}`)].join(' · ');
+    historial.terminar(entrada, { respuesta: detalle || (r.ok ? 'Salió todo bien.' : r.errores.join(' · ')), ok: r.ok });
     if (r.ok) fase('ok', r.rutina); else fase('error', r.errores[0]);
     return r;
   } catch (e) { historial.terminar(entrada, { respuesta: e.message, ok: false }); fase('error', e.message); throw e; }
@@ -1173,7 +1176,8 @@ async function accionDelCelular(b, quien) {
   switch (b.tipo) {
     case 'rutina': {
       const r = await correrRutina(String(b.id || ''), 'celular');
-      return r.ok ? `Listo: ${r.rutina || 'rutina hecha'}.` : `Hubo un problema: ${r.errores.join(' · ')}`;
+      const hechos = (r.hechos || []).map((x) => String(x || '').trim()).filter(Boolean).join(' · ');
+      return r.ok ? `Listo, "${require('./config').nombrePrincipal(r.rutina) || 'rutina'}": ${hechos || 'hecha'}` : `Hubo un problema: ${r.errores.join(' · ')}${hechos ? ` (sí: ${hechos})` : ''}`;
     }
     case 'clip': {
       const accion = String(b.accion || '');
@@ -1400,8 +1404,46 @@ function datosParaDespertar() {
   }
   return null;
 }
+// Miniaturas para "Archivos de la PC" en el celular: lo que muestra el Explorador de Windows (fotos, videos, PDFs, documentos),
+// y si no, un cuadro sacado con ffmpeg. Se guardan (por ruta, tamaño y fecha) para no volver a hacerlas.
+const MINIS_PC = path.join(app.getPath('userData'), 'miniaturas-pc');
+const EXT_IMAGEN_PC = /\.(jpe?g|png|gif|bmp|webp|heic|avif|tiff?)$/i;
+const EXT_VIDEO_PC = /\.(mp4|mkv|webm|mov|avi|m4v|wmv|flv)$/i;
+let colaMinisPC = Promise.resolve();
+function miniaturaPC(ruta) {
+  const tarea = colaMinisPC.then(async () => {
+    let st; try { st = fs.statSync(ruta); } catch { return null; }
+    if (!st.isFile()) return null;
+    const clave = require('crypto').createHash('sha1').update(`${ruta}|${st.size}|${Math.round(st.mtimeMs)}`).digest('hex').slice(0, 20);
+    const jpg = path.join(MINIS_PC, `${clave}.jpg`);
+    const vacia = `${jpg}.no`;
+    if (fs.existsSync(jpg)) return fs.readFileSync(jpg);
+    if (fs.existsSync(vacia)) return null;
+    fs.mkdirSync(MINIS_PC, { recursive: true });
+    let datos = null;
+    try {
+      if (process.platform === 'win32' || process.platform === 'darwin') {
+        const img = await nativeImage.createThumbnailFromPath(ruta, { width: 320, height: 320 });
+        if (img && !img.isEmpty()) datos = img.toJPEG(72);
+      }
+    } catch {}
+    if (!datos && EXT_IMAGEN_PC.test(ruta)) {
+      try { const img = nativeImage.createFromPath(ruta); if (!img.isEmpty()) { const t = img.getSize(); datos = img.resize(t.width >= t.height ? { width: Math.min(320, t.width) } : { height: Math.min(320, t.height) }).toJPEG(72); } } catch {}
+      if (!datos) { try { await clips.cuadroDe(ruta, jpg, { video: false }); datos = fs.readFileSync(jpg); } catch {} }
+    }
+    if (!datos && EXT_VIDEO_PC.test(ruta)) { try { await clips.cuadroDe(ruta, jpg); datos = fs.readFileSync(jpg); } catch {} }
+    if (datos && datos.length) { fs.writeFileSync(jpg, datos); return datos; }
+    try { fs.writeFileSync(vacia, ''); } catch {}
+    return null;
+  });
+  colaMinisPC = tarea.catch(() => {});
+  return tarea;
+}
+// Que la carpeta de miniaturas no crezca sin fin: se deja lo de los últimos 30 días.
+setTimeout(() => { try { for (const n of fs.readdirSync(MINIS_PC)) { const p = path.join(MINIS_PC, n); if (Date.now() - fs.statSync(p).mtimeMs > 30 * 86400000) fs.unlinkSync(p); } } catch {} }, 60000);
 celular.configurar({
   carpetas: carpetasCompartidas,
+  miniaturaPC,
   abrirEnPC: async (ruta) => { const e = await shell.openPath(ruta); if (e) throw new Error(e); return 'Lo abrí en la PC.'; },
   guardadoEnPC: (ruta, quien) => { const texto = `${quien.nombre || 'El celular'} dejó "${require('path').basename(ruta)}" en la PC.`; historial.terminar(historial.empezar('Archivo desde el celular', 'celular'), { respuesta: texto }); if (notch && !notch.isDestroyed()) notch.webContents.send('decir', { texto, voz: false }); },
   remoto: async (o, quien) => {

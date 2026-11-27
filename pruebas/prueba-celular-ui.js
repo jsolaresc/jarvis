@@ -49,6 +49,8 @@ fs.chmodSync(RED, 0o755);
 const COMPARTIDA = path.join(DATOS, 'Compartida');
 fs.mkdirSync(path.join(COMPARTIDA, 'Fotos'), { recursive: true });
 fs.writeFileSync(path.join(COMPARTIDA, 'presupuesto.pdf'), Buffer.alloc(3000, 5));
+require('child_process').spawnSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc=s=640x360', '-frames:v', '1', path.join(COMPARTIDA, 'captura.png')]);
+require('child_process').spawnSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc=s=320x240:d=2', '-pix_fmt', 'yuv420p', path.join(COMPARTIDA, 'jugada.mp4')]);
 const REMOTO_LOG = path.join(DATOS, 'remoto.log');
 fs.writeFileSync(path.join(DATOS, 'config.json'), JSON.stringify({
   nombre: 'Jarvis', usuario: 'Sofía', celular: { activo: true, puerto: PUERTO, https: 443, hablarEnPC: false, carpetas: [{ id: 'comp', nombre: 'Compartida', ruta: COMPARTIDA }] },
@@ -594,6 +596,28 @@ async function hasta(fn, ms = 20000, que = '') {
     assert.strictEqual(await pA.locator('#lista-pcc li').first().textContent().then((t) => /Fotos/.test(t)), true, 'carpetas primero');
     await pA.setInputFiles('#pcc-archivo', { name: 'foto del celu.jpg', mimeType: 'image/jpeg', buffer: Buffer.alloc(5000, 1) });
     await hasta(() => fs.existsSync(path.join(COMPARTIDA, 'foto del celu.jpg')) && fs.statSync(path.join(COMPARTIDA, 'foto del celu.jpg')).size === 5000, 10000, 'subido a la PC');
+    // Miniaturas, filtros, búsqueda, cuadrícula y elegir varios.
+    await hasta(() => pA.locator('#lista-pcc li.t-foto .ic.mini img').count(), 15000, 'miniatura de la foto');
+    await hasta(() => pA.locator('#lista-pcc li.t-video .ic.mini img').count(), 15000, 'miniatura del video');
+    await pA.click('#pcc-filtros button[data-tipo="foto"]');
+    assert.deepStrictEqual((await pA.locator('#lista-pcc li .datos b').allTextContents()).sort(), ['captura.png', 'foto del celu.jpg'], 'filtro Fotos');
+    await pA.click('#pcc-filtros button[data-tipo="todo"]');
+    await pA.fill('#pcc-buscar', 'presu');
+    assert.deepStrictEqual(await pA.locator('#lista-pcc li .datos b').allTextContents(), ['presupuesto.pdf'], 'búsqueda');
+    await pA.fill('#pcc-buscar', '');
+    await pA.selectOption('#pcc-orden', 'nombre');
+    assert.strictEqual((await pA.locator('#lista-pcc li .datos b').allTextContents()).slice(1).join(), 'captura.png,foto del celu.jpg,jugada.mp4,presupuesto.pdf', 'orden por nombre (carpetas primero)');
+    await pA.click('#pcc-vista');
+    assert.ok(await pA.locator('#lista-pcc.cuadricula').count(), 'cuadrícula');
+    await pA.screenshot({ path: path.join(SALIDA, '26b-android-archivos-cuadricula.png') });
+    await pA.click('#pcc-elegir');
+    await pA.click('#lista-pcc button[aria-label="Elegir captura.png"]');
+    await pA.click('#lista-pcc button[aria-label="Elegir jugada.mp4"]');
+    assert.strictEqual(await pA.textContent('#pcc-cuantos'), '2 elegidos');
+    await pA.screenshot({ path: path.join(SALIDA, '26c-android-archivos-elegidos.png') });
+    await pA.click('#pcc-b-bajar');
+    await hasta(() => pA.evaluate(() => ['captura.png', 'jugada.mp4'].every((n) => window.androidFalso.archivos.some((a) => a.nombre === n))), 10000, 'android: bajados los dos');
+    await pA.click('#pcc-vista');
     await pA.click('#lista-pcc button:has-text("presupuesto.pdf")');
     await pA.click('#ed-botones button:has-text("Bajar al celular")');
     await hasta(() => pA.evaluate(() => window.androidFalso.archivos.some((a) => a.nombre === 'presupuesto.pdf' && a.bytes === 3000)), 10000, 'android: bajado de la PC');

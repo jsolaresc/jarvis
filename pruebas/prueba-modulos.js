@@ -3107,6 +3107,16 @@ console.log('[download]  50.0%'); console.log('JARVIS-ARCHIVO:' + o);`);
     assert.strictEqual(d.archivo, path.join(carpeta, 'Audio', 'Tema [x].mp3'), 'en la carpeta pedida, no en Descargas');
     assert.match(avisos.at(-1), /Se lo paso al celular/);
     assert.strictEqual(typeof await descargas.iniciar({ url: 'https://youtu.be/y', carpeta }), 'string', 'iniciar sigue devolviendo el texto');
+    // Un título con acentos que yt-dlp informa con otra codificación (pasaba en Windows con X/Twitter): igual se encuentra por el [id].
+    fs.writeFileSync(falso, `#!/usr/bin/env node
+const a = process.argv.slice(2); if (a[0] === '--version') { console.log('1'); process.exit(0); }
+const o = a[a.indexOf('-o') + 1].replace('%(title).150B', 'Golazo ⚽ de Ñandú').replace('%(id)s', '2126300256094793755').replace('%(ext)s', 'mp4');
+require('fs').mkdirSync(require('path').dirname(o), { recursive: true }); require('fs').writeFileSync(o, 'abc');
+console.log('JARVIS-ARCHIVO:' + o.replace('⚽', '?').replace('Ñ', 'Ã\u0091')); console.log('JARVIS-ID:2126300256094793755');`);
+    const r2 = await descargas.encolar({ url: 'https://x.com/a/status/2126300256094793755', modo: 'video', calidad: '720', carpeta: path.join(dir, 'x'), para: 'celular' });
+    for (let i = 0; i < 40 && !['listo', 'error'].includes(descargas.buscar(r2.id).estado); i++) await new Promise((ok) => setTimeout(ok, 100));
+    assert.strictEqual(descargas.buscar(r2.id).estado, 'listo', descargas.buscar(r2.id).error);
+    assert.strictEqual(descargas.buscar(r2.id).archivo, path.join(dir, 'x', 'Golazo ⚽ de Ñandú [2126300256094793755].mp4'));
     assert.strictEqual(descargas.buscar(99999), null);
   } finally { process.env.JARVIS_YTDLP = antes || ''; if (!antes) delete process.env.JARVIS_YTDLP; await descargas.buscarYtdlp({ olvidar: true }); }
 });

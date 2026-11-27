@@ -638,6 +638,15 @@ function miniatura(archivo) {
   colaMiniaturas = tarea.catch(() => {});
   return tarea;
 }
+// Un cuadro de cualquier video (o una imagen que el visor no abre, como .webp) achicado a JPG: para las miniaturas del celular.
+async function cuadroDe(archivo, jpg, { video = true } = {}) {
+  const ruta = await asegurarFfmpeg().catch(() => rutaFfmpeg());
+  if (!ruta) throw new Error('Falta ffmpeg.');
+  fs.mkdirSync(path.dirname(jpg), { recursive: true });
+  const filtro = 'scale=320:320:force_original_aspect_ratio=decrease';
+  try { await correr(ruta, ['-y', '-hide_banner', ...(video ? ['-ss', '1'] : []), '-i', archivo, '-frames:v', '1', '-vf', filtro, '-q:v', '6', jpg], { espera: 30000 }); }
+  catch (e) { if (!video) throw e; await correr(ruta, ['-y', '-hide_banner', '-i', archivo, '-frames:v', '1', '-vf', filtro, '-q:v', '6', jpg], { espera: 30000 }); } // videos de menos de 1 s
+}
 // Manda un clip ya guardado por WhatsApp (si pesa más de ~15 MB, antes arma una copia más liviana).
 async function enviarGuardado(archivo, contacto, enviarVideo) {
   if (!dentroDeCarpeta(archivo)) throw new Error('Ese video no está en la carpeta de clips.');
@@ -1092,7 +1101,7 @@ const ultimo = () => ultimoClip;
 module.exports = {
   asegurarFfmpeg, rutaFfmpeg, correrFfmpeg: correr, duracionDe,
   aLaPapelera, deshacerBorrado, finalizarBorrados, SUFIJO_BORRANDO,
-  matarFfmpeg, pausarPorBloqueo, listar, miniatura, medidas, argumentosDeMontaje, validarMontaje, dentroDeCarpeta, enviarGuardado, renombrar, recortar, enviarRecorte,
+  matarFfmpeg, pausarPorBloqueo, listar, miniatura, cuadroDe, medidas, argumentosDeMontaje, validarMontaje, dentroDeCarpeta, enviarGuardado, renombrar, recortar, enviarRecorte,
   deshacerRecorte, terminarRecortesPendientes, enCarpeta, marcarFavorito, VELOCIDADES, transformar, vistaPrevia, TRANSFORMACIONES, SUFIJO_DESHACER,
   configurar, usarAtajos, sincronizar, apagar, guardar, guardarYAvisar, capturar, capturarYAvisar, capturaParaEnviar, ultimaDeCaptura, marcarPedidoDeVoz, olvidarPedido, finDelPedido, elegirPedazos, silenciarJarvis, jarvisHabla, mudosEnLinea, argumentosDeUnion, _reiniciarJarvis: () => { intervalosJarvis = []; jarvisDesde = 0; }, prepararParaEnviar, empezarGrabacion, cancelarGrabacion, pausarGrabacion, terminarGrabacion,
   recibirPedazo, recibirTrozo, finDeTrozos, recibirEstado, estado, ultimo, registrarAtajo, permitidoAhora,

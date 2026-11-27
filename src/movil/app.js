@@ -1,6 +1,8 @@
 // Jarvis en el celular. Todo lo que hace pasa por /api de la PC con el token de este celular.
 const $ = (s) => document.querySelector(s);
 const ICONOS = {
+  lista: '<path d="M8 6h12M8 12h12M8 18h12"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/>',
+  cuadricula: '<rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/>',
   cafe: '<path d="M4 9h12v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5z"/><path d="M16 10h1.5a2.5 2.5 0 0 1 0 5H16M8 3.5c-.6.8-.6 1.7 0 2.5M12 3.5c-.6.8-.6 1.7 0 2.5"/>',
   cama: '<path d="M3 18V7M3 13h18v5M21 13a3 3 0 0 0-3-3h-7v3"/><circle cx="7" cy="10.5" r="1.8"/>',
   auto: '<path d="M5 16V12l1.6-4.2A2 2 0 0 1 8.5 6.5h7a2 2 0 0 1 1.9 1.3L19 12v4"/><path d="M4 12h16v4H4z"/><circle cx="7.5" cy="17.5" r="1.5"/><circle cx="16.5" cy="17.5" r="1.5"/>',
@@ -1789,9 +1791,28 @@ function pintarRutinas() {
   $('#lista-rutinas').replaceChildren(...(rutinasLista.length ? rutinasLista.map((r) => h('li', {},
     h('button', { type: 'button', class: 'abrir', onclick: () => editarRutina(JSON.parse(JSON.stringify(r))) },
       h('span', { class: 'ic', html: svg(r.icono || 'rayo', 20) }),
-      h('span', { class: 'datos' }, h('b', {}, primerNombre(r.nombre) || 'Sin nombre'), h('span', {}, [`${r.pasos.length} ${r.pasos.length === 1 ? 'paso' : 'pasos'}`, r.rapida ? 'botón en el notch' : ''].filter(Boolean).join(' · ')))),
+      h('span', { class: 'datos' }, h('b', {}, primerNombre(r.nombre) || 'Sin nombre'),
+        h('span', { class: 'detalle-rutina' }, r.pasos.length ? r.pasos.map(resumenPaso).join(' · ') : 'Sin pasos todavía'),
+        (r.disparadores || []).length || r.rapida ? h('span', {}, [...(r.disparadores || []).map(resumenDisparador), r.rapida ? 'botón en el notch' : ''].filter(Boolean).join(' · ')) : null)),
     h('button', { type: 'button', class: 'chico principal', onclick: (ev) => accion({ tipo: 'rutina', id: r.id }, ev.currentTarget) }, 'Hacer')))
     : [vacio('No tenés rutinas todavía. Armá una: por ejemplo, "modo juego" que abra Steam, cambie el audio y avise por WhatsApp.')]));
+}
+// Qué hace cada paso, en pocas palabras ("Abrir un programa: Discord").
+function resumenPaso(p) {
+  const d = PASOS[p.tipo];
+  if (!d) return p.tipo || 'Paso';
+  const v = d[1].map(([k]) => p[k]).find((x) => x !== undefined && x !== null && String(x).trim() !== '');
+  return v !== undefined ? `${d[0]}: ${Array.isArray(v) ? v.join(', ') : v}` : d[0];
+}
+function resumenDisparador(d) {
+  const dias = (x) => (!x || !x.length || x.length === 7 ? 'todos los días' : DIAS_CORTOS.filter(([n]) => x.includes(n)).map(([, l]) => l).join(' '));
+  if (d.tipo === 'hora') return `Sola a las ${d.hora || '?'}, ${dias(d.dias)}`;
+  if (d.tipo === 'juego') return `Sola al abrir ${d.juego || 'un juego'}`;
+  if (d.tipo === 'programa') return `Sola al abrir ${d.proceso || 'un programa'}`;
+  if (d.tipo === 'audio') return `Sola al conectar ${d.salida || 'audio'}`;
+  if (d.tipo === 'llegar') return 'Sola al llegar a casa';
+  if (d.tipo === 'inicio') return 'Sola al prender la PC';
+  return '';
 }
 const contactosRutina = (o) => [{ valor: 'yo', nombre: 'A mí (mi propio WhatsApp)' }, ...o.contactos];
 // Los mismos pasos que en la PC (Ajustes → Rutinas). Cada campo: [clave, tipo, texto de ayuda u opciones].
@@ -1980,8 +2001,44 @@ async function cargarCarpetaPC() {
   }
   pintarCarpetaPC();
 }
-function entrarPC(c, r = '') { pcc.c = c; pcc.r = r; pcc.lista = null; guardado.escribir('pcc.c', c); guardado.escribir('pcc.r', r); pintarCarpetaPC(); cargarCarpetaPC(); }
+function entrarPC(c, r = '') { pcc.c = c; pcc.r = r; pcc.lista = null; pcc.elegidos = null; pcc.buscar = ''; $('#pcc-buscar').value = ''; guardado.escribir('pcc.c', c); guardado.escribir('pcc.r', r); pintarCarpetaPC(); cargarCarpetaPC(); }
 const ICONO_EXT = (n) => (/\.(mp4|mkv|webm|mov|avi)$/i.test(n) ? 'clip' : /\.(mp3|m4a|wav|flac|ogg|opus|aac)$/i.test(n) ? 'musica' : /\.(jpe?g|png|gif|webp|heic|bmp)$/i.test(n) ? 'camara' : 'nota');
+// Tipo de archivo por la extensión (para los filtros y el ícono).
+const TIPO_EXT = (n) => (/\.(jpe?g|png|gif|webp|heic|heif|bmp|avif|tiff?)$/i.test(n) ? 'foto' : /\.(mp4|mkv|webm|mov|avi|m4v|wmv|flv)$/i.test(n) ? 'video'
+  : /\.(mp3|m4a|wav|flac|ogg|opus|aac|wma)$/i.test(n) ? 'audio' : /\.(pdf|docx?|xlsx?|pptx?|txt|odt|ods|odp|rtf|csv|md|epub)$/i.test(n) ? 'doc' : 'otro');
+pcc.orden = guardado.leer('pcc.orden', 'nuevos');
+pcc.tipo = 'todo';
+pcc.buscar = '';
+pcc.vista = guardado.leer('pcc.vista', 'lista');
+pcc.elegidos = null; // Set de nombres mientras se eligen varios
+// Miniaturas: se piden de a poco, solo las que se ven, y quedan en memoria mientras la app está abierta.
+const minis = new Map(); // clave → url de objeto ('' = no hay)
+let pidiendoMinis = 0; const colaMinis = [];
+const observadorMinis = typeof IntersectionObserver === 'function' ? new IntersectionObserver((es) => { for (const e of es) if (e.isIntersecting) { observadorMinis.unobserve(e.target); pedirMini(e.target); } }, { rootMargin: '200px' }) : null;
+function pedirMini(el) { colaMinis.push(el); seguirMinis(); }
+async function seguirMinis() {
+  while (pidiendoMinis < 3 && colaMinis.length) {
+    const el = colaMinis.shift();
+    const clave = el.dataset.mini;
+    if (minis.has(clave)) { ponerMini(el, minis.get(clave)); continue; }
+    pidiendoMinis++;
+    (async () => {
+      try {
+        const r = await fetch(u(`/api/pc-archivos/miniatura?c=${encodeURIComponent(el.dataset.c)}&r=${encodeURIComponent(el.dataset.r)}`), { headers: { Authorization: `Bearer ${guardado.token}` } });
+        const url = r.status === 200 ? URL.createObjectURL(await r.blob()) : '';
+        minis.set(clave, url); ponerMini(el, url);
+      } catch { /* sin miniatura */ } finally { pidiendoMinis--; seguirMinis(); }
+    })();
+  }
+}
+function ponerMini(el, url) { if (!url) return; el.replaceChildren(h('img', { src: url, alt: '', loading: 'lazy', decoding: 'async' })); el.classList.add('con-mini'); }
+function entradasVisibles() {
+  const todas = (pcc.lista && pcc.lista.entradas) || [];
+  const q = pcc.buscar.trim().toLowerCase().normalize('NFD').replace(/\p{M}/gu, '');
+  const sirve = (x) => (!q || x.nombre.toLowerCase().normalize('NFD').replace(/\p{M}/gu, '').includes(q)) && (x.dir ? pcc.tipo === 'todo' || !!q : pcc.tipo === 'todo' || TIPO_EXT(x.nombre) === pcc.tipo);
+  const orden = { nuevos: (a, b) => b.fecha - a.fecha, viejos: (a, b) => a.fecha - b.fecha, nombre: (a, b) => a.nombre.localeCompare(b.nombre, 'es', { numeric: true, sensitivity: 'base' }), pesados: (a, b) => b.bytes - a.bytes }[pcc.orden] || ((a, b) => b.fecha - a.fecha);
+  return todas.filter(sirve).sort((a, b) => (b.dir - a.dir) || orden(a, b));
+}
 function pintarCarpetaPC() {
   const ul = $('#lista-pcc');
   const camino = $('#pcc-camino');
@@ -1991,7 +2048,16 @@ function pintarCarpetaPC() {
     h('button', { type: 'button', class: 'texto', onclick: () => entrarPC('') }, 'Carpetas'),
     ...(carpeta ? [h('span', {}, '›'), h('button', { type: 'button', class: 'texto', onclick: () => entrarPC(carpeta.id) }, carpeta.nombre)] : []),
     ...partes.flatMap((p, i) => [h('span', {}, '›'), h('button', { type: 'button', class: 'texto', onclick: () => entrarPC(pcc.c, partes.slice(0, i + 1).join('/')) }, p)]));
-  $('#pcc-subir').hidden = !pcc.c;
+  const adentro = !!pcc.c && !pcc.error;
+  $('#pcc-subir').hidden = !adentro || !!pcc.elegidos;
+  $('#pcc-elegir').hidden = !adentro || !!pcc.elegidos || !((pcc.lista && pcc.lista.entradas) || []).some((x) => !x.dir);
+  $('#pcc-herramientas').hidden = !adentro;
+  $('#pcc-orden').value = pcc.orden;
+  document.querySelectorAll('#pcc-filtros [data-tipo]').forEach((b) => { const on = b.dataset.tipo === pcc.tipo; b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on)); });
+  $('#pcc-vista').innerHTML = svg(pcc.vista === 'cuadricula' ? 'lista' : 'cuadricula', 20);
+  $('#pcc-vista').setAttribute('aria-label', pcc.vista === 'cuadricula' ? 'Ver como lista' : 'Ver como cuadrícula');
+  ul.classList.toggle('cuadricula', pcc.vista === 'cuadricula' && adentro);
+  pintarBarraPC();
   if (pcc.error) { ul.replaceChildren(vacio(pcc.error)); return; }
   if (!pcc.c) {
     if (!pcc.carpetas) { ul.replaceChildren(vacio('Cargando…')); return; }
@@ -2000,12 +2066,84 @@ function pintarCarpetaPC() {
     return;
   }
   if (!pcc.lista) { ul.replaceChildren(vacio('Cargando…')); return; }
-  const entradas = pcc.lista.entradas || [];
-  ul.replaceChildren(...(entradas.length ? entradas.map((x) => h('li', {}, h('button', { type: 'button', class: 'abrir', 'aria-label': x.dir ? `Abrir la carpeta ${x.nombre}` : `Opciones de ${x.nombre}`, onclick: () => (x.dir ? entrarPC(pcc.c, unir(pcc.r, x.nombre)) : abrirDePC(x)) },
-    h('span', { class: 'ic', html: svg(x.dir ? 'carpeta' : ICONO_EXT(x.nombre), 20) }),
-    h('span', { class: 'datos' }, h('b', {}, x.nombre), h('span', {}, x.dir ? 'Carpeta' : [tam(x.bytes), cuando(x.fecha)].filter(Boolean).join(' · '))))))
-    : [vacio('Esta carpeta está vacía.')]), ...(pcc.lista.mas ? [vacio(`Y ${pcc.lista.mas} más (los más viejos).`)] : []));
+  const entradas = entradasVisibles();
+  const total = (pcc.lista.entradas || []).length;
+  ul.replaceChildren(...(entradas.length ? entradas.map((x) => {
+    const tipo = x.dir ? 'carpeta' : TIPO_EXT(x.nombre);
+    const ic = h('span', { class: 'ic mini', html: svg(x.dir ? 'carpeta' : ICONO_EXT(x.nombre), pcc.vista === 'cuadricula' ? 28 : 20) });
+    if (!x.dir && tipo !== 'otro') {
+      const rel = unir(pcc.r, x.nombre); const clave = `${pcc.c}|${rel}|${x.fecha}|${x.bytes}`;
+      Object.assign(ic.dataset, { mini: clave, c: pcc.c, r: rel });
+      if (minis.has(clave)) ponerMini(ic, minis.get(clave)); else if (observadorMinis) setTimeout(() => observadorMinis.observe(ic), 0);
+    }
+    const elegido = pcc.elegidos && pcc.elegidos.has(x.nombre);
+    return h('li', { class: `${elegido ? 'elegido' : ''} t-${tipo}` }, h('button', {
+      type: 'button', class: 'abrir', 'aria-pressed': pcc.elegidos && !x.dir ? String(!!elegido) : null,
+      'aria-label': x.dir ? `Abrir la carpeta ${x.nombre}` : pcc.elegidos ? `${elegido ? 'Quitar' : 'Elegir'} ${x.nombre}` : `Opciones de ${x.nombre}`,
+      onclick: () => (x.dir ? (!pcc.elegidos && entrarPC(pcc.c, unir(pcc.r, x.nombre))) : pcc.elegidos ? alternarElegido(x.nombre) : abrirDePC(x)),
+      oncontextmenu: (e) => { if (x.dir) return; e.preventDefault(); if (!pcc.elegidos) pcc.elegidos = new Set(); alternarElegido(x.nombre); },
+    },
+    ic, pcc.elegidos && !x.dir ? h('span', { class: 'marca', 'aria-hidden': 'true', html: elegido ? svg('tilde', 16) : '' }) : null,
+    h('span', { class: 'datos' }, h('b', {}, x.nombre), h('span', {}, x.dir ? 'Carpeta' : [tam(x.bytes), cuando(x.fecha)].filter(Boolean).join(' · ')))));
+  }) : [vacio(total ? 'Nada coincide con la búsqueda o el filtro.' : 'Esta carpeta está vacía.')]));
 }
+function alternarElegido(nombre) {
+  if (!pcc.elegidos) return;
+  if (pcc.elegidos.has(nombre)) pcc.elegidos.delete(nombre); else pcc.elegidos.add(nombre);
+  vibrar(10); pintarCarpetaPC();
+}
+function pintarBarraPC() {
+  const n = pcc.elegidos ? pcc.elegidos.size : 0;
+  $('#pcc-barra').hidden = !pcc.elegidos;
+  $('#pcc-cuantos').textContent = n ? `${n} ${n === 1 ? 'elegido' : 'elegidos'}` : 'Tocá los archivos';
+  ['#pcc-b-whatsapp', '#pcc-b-compartir', '#pcc-b-bajar'].forEach((x) => { $(x).disabled = !n; });
+}
+const elegidosPC = () => ((pcc.lista && pcc.lista.entradas) || []).filter((x) => !x.dir && pcc.elegidos && pcc.elegidos.has(x.nombre));
+// Mandar por WhatsApp desde la PC (no gasta datos del celular).
+function mandarPorWhatsAppDesdePC(archivos) {
+  const para = entrada(guardado.leer('pcc.para', ''), { placeholder: 'Contacto, grupo o Yo', list: 'contactos', 'aria-label': 'A quién' });
+  editor(archivos.length === 1 ? `Mandar "${archivos[0].nombre}"` : `Mandar ${archivos.length} archivos`, [
+    h('p', { class: 'tenue' }, 'Lo manda la PC por WhatsApp, tal cual está (los videos y audios van como video y audio).'),
+    campoEd('A quién', para),
+  ], [
+    { texto: 'Mandar', clase: 'principal', hacer: async () => {
+      const c = para.value.trim(); if (!c) throw new Error('Escribí a quién mandárselo.');
+      guardado.escribir('pcc.para', c);
+      const r = await api('/api/pc-archivos/enviar', { metodo: 'POST', cuerpo: { c: pcc.c, r: archivos.map((x) => unir(pcc.r, x.nombre)), contacto: c }, espera: 300000 });
+      aviso(r.texto || 'Listo.', { tipo: 'bien', ms: 5000 });
+      if (pcc.elegidos) { pcc.elegidos = null; pintarCarpetaPC(); }
+      return true;
+    } },
+    { texto: 'Cancelar', clase: 'texto', hacer: () => true },
+  ]);
+}
+async function bajarVarios(archivos, como) {
+  const total = archivos.reduce((t, x) => t + x.bytes, 0);
+  if (modoAfuera && total > 100e6 && !confirm(`Son ${tam(total)} y estás fuera de casa: va a gastar datos. ¿Sigo?`)) return;
+  const blobs = [];
+  for (const [i, x] of archivos.entries()) {
+    aviso(`Trayendo ${i + 1} de ${archivos.length}…`, { ms: 0 });
+    const blob = await traerDePC(`/api/pc-archivos/bajar?c=${encodeURIComponent(pcc.c)}&r=${encodeURIComponent(unir(pcc.r, x.nombre))}`, (f) => aviso(`Trayendo ${i + 1} de ${archivos.length}: ${Math.round(f * 100)} %`, { ms: 0 }), x.bytes);
+    if (como === 'bajar') { if (NATIVO) await aAndroid(blob, x.nombre, 'descargas'); else { const enlace = URL.createObjectURL(blob); const a = h('a', { href: enlace, download: x.nombre }); document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(enlace), 60000); } }
+    else blobs.push(new File([blob], x.nombre, { type: blob.type }));
+  }
+  if (como === 'bajar') { aviso(NATIVO ? `Listo: ${archivos.length === 1 ? 'está' : 'están'} en Descargas → Jarvis.` : 'Listo, en Descargas.', { tipo: 'bien', ms: 5000 }); return; }
+  aviso('');
+  if (NATIVO && blobs.length === 1) { await aAndroid(blobs[0], blobs[0].name, 'compartir'); return; }
+  if (navigator.canShare && navigator.canShare({ files: blobs })) { await navigator.share({ files: blobs }).catch((e) => { if (e.name !== 'AbortError') throw e; }); return; }
+  if (NATIVO) { for (const f of blobs) await aAndroid(f, f.name, 'compartir'); return; }
+  throw new Error('Este navegador no deja compartir varios archivos juntos: bajalos y compartilos desde ahí.');
+}
+$('#pcc-elegir').addEventListener('click', () => { pcc.elegidos = new Set(); pintarCarpetaPC(); });
+$('#pcc-b-cancelar').addEventListener('click', () => { pcc.elegidos = null; pintarCarpetaPC(); });
+$('#pcc-b-whatsapp').addEventListener('click', () => mandarPorWhatsAppDesdePC(elegidosPC()));
+const conAviso = (fn) => async () => { try { await fn(); } catch (e) { aviso(e instanceof SinPC ? 'Tu PC no responde.' : e.message, { tipo: 'mal', ms: 6000 }); } };
+$('#pcc-b-compartir').addEventListener('click', conAviso(() => bajarVarios(elegidosPC(), 'compartir')));
+$('#pcc-b-bajar').addEventListener('click', conAviso(async () => { await bajarVarios(elegidosPC(), 'bajar'); pcc.elegidos = null; pintarCarpetaPC(); }));
+$('#pcc-buscar').addEventListener('input', (e) => { pcc.buscar = e.target.value; pintarCarpetaPC(); });
+$('#pcc-orden').addEventListener('change', (e) => { pcc.orden = e.target.value; guardado.escribir('pcc.orden', pcc.orden); pintarCarpetaPC(); });
+$('#pcc-vista').addEventListener('click', () => { pcc.vista = pcc.vista === 'cuadricula' ? 'lista' : 'cuadricula'; guardado.escribir('pcc.vista', pcc.vista); pintarCarpetaPC(); });
+document.querySelectorAll('#pcc-filtros [data-tipo]').forEach((b) => b.addEventListener('click', () => { pcc.tipo = b.dataset.tipo; pintarCarpetaPC(); }));
 // Traer un archivo de la PC con progreso. En la app pasa por la propia app (sin bloqueos del WebView).
 async function traerDePC(ruta, alAvanzar = () => {}, bytes = 0) {
   let r;
@@ -2043,6 +2181,7 @@ function abrirDePC(x) {
       return true;
     } },
     ...(esMedio ? [{ texto: 'Guardar en Jarvis (para verlo acá)', hacer: async () => { if (avisarDatos()) return false; await local.guardarDesde(ruta, { nombre: x.nombre, tipo: /\.(mp3|m4a|wav|ogg|opus|flac|aac)$/i.test(x.nombre) ? 'audio' : 'video', bytes: x.bytes }, progresoDe('Bajando'), { conToken: true }); aviso('Listo: está en Archivos → En este celular.', { tipo: 'bien' }); return true; } }] : []),
+    { texto: 'Mandar por WhatsApp (desde la PC)', hacer: () => { setTimeout(() => mandarPorWhatsAppDesdePC([x]), 50); return true; } },
     { texto: 'Abrir en la PC', hacer: async () => { const r = await api('/api/pc-archivos/abrir', { metodo: 'POST', cuerpo: { c: pcc.c, r: unir(pcc.r, x.nombre) } }); aviso(r.texto || 'Listo, lo abrí en la PC.', { tipo: 'bien' }); return true; } },
     { texto: 'Cerrar', clase: 'texto', hacer: () => true },
   ]);

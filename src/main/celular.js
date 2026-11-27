@@ -54,7 +54,8 @@ const puente = {
   camara: async () => { throw conCodigo(403, 'No disponible.'); },
   presencia: async () => ({ hechas: [] }),
   carpetas: () => [], // [{ id, nombre, ruta }] carpetas de la PC que el celular puede ver (Ajustes → Celular)
-  abrirEnPC: async () => 'No disponible.', // (ruta) abre un archivo de esas carpetas en la PC
+  abrirEnPC: async () => 'No disponible.',
+  miniaturaPC: async () => null, // (ruta) → Buffer JPG chiquito o null // (ruta) abre un archivo de esas carpetas en la PC
   guardadoEnPC: () => {}, // (ruta, quien) para avisar en el notch
   remoto: async () => { throw conCodigo(403, 'No disponible.'); }, // ({ tipo, ... }) mouse, teclado, música, bloquear, suspender
   hablarEnPC: async () => { throw conCodigo(403, 'No disponible.'); }, // (buffer, tipo, quien) lo que se dijo en el celular suena en la PC
@@ -516,6 +517,28 @@ async function atender(req, res, { casa = false } = {}) {
       borrarCarpetaTemporal(temporal);
       try { puente.guardadoEnPC(destino, { id: yo.id, nombre: yo.nombre }); } catch {}
       json(res, 200, { nombre: path.basename(destino), bytes, texto: `Listo: quedó en la PC como "${path.basename(destino)}".` });
+      return;
+    }
+    // Miniatura de un archivo de esas carpetas (fotos, videos y lo que Windows sepa mostrar: PDFs, documentos).
+    if (ruta === '/api/pc-archivos/miniatura' && metodo === 'GET') {
+      const { objetivo } = enCarpetaCompartida(url.searchParams.get('c'), url.searchParams.get('r') || '');
+      const jpg = await puente.miniaturaPC(objetivo);
+      if (!jpg) { res.writeHead(204, { 'Cache-Control': 'private, max-age=600' }); res.end(); return; }
+      res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Content-Length': jpg.length, 'Cache-Control': 'private, max-age=86400' });
+      res.end(jpg);
+      return;
+    }
+    // Mandar archivos de esas carpetas por WhatsApp, desde la PC (sin pasar por el celular).
+    if (ruta === '/api/pc-archivos/enviar' && metodo === 'POST') {
+      const b = await leerCuerpo(req);
+      const contacto = String(b.contacto || '').trim();
+      if (!contacto) throw conCodigo(400, 'Elegí a quién mandárselo.');
+      const rutas = (Array.isArray(b.r) ? b.r : [b.r]).map(String).filter(Boolean).slice(0, 20);
+      if (!rutas.length) throw conCodigo(400, 'Elegí qué mandar.');
+      const objetivos = rutas.map((r) => { const { objetivo } = enCarpetaCompartida(b.c, r); if (!fs.statSync(objetivo).isFile()) throw conCodigo(400, 'Las carpetas no se pueden mandar, solo archivos.'); return objetivo; });
+      const textos = [];
+      for (const o of objetivos) textos.push(String(await puente.enviarArchivo(o, contacto) || ''));
+      json(res, 200, { texto: objetivos.length === 1 ? (textos[0] || `Listo, se lo mandé a ${contacto}.`) : `Listo, le mandé ${objetivos.length} archivos a ${contacto}.` });
       return;
     }
     if (ruta === '/api/pc-archivos/abrir' && metodo === 'POST') {

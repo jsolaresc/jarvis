@@ -132,7 +132,7 @@ function argumentos(d, carpeta, ffmpeg) {
   const destino = d.modo === 'audio' ? path.join(carpeta, 'Audio') : carpeta;
   fs.mkdirSync(destino, { recursive: true });
   const salida = path.join(destino, '%(title).150B [%(id)s].%(ext)s');
-  const a = ['--no-playlist', '--windows-filenames', '--newline', '--no-colors', '--no-mtime', '-o', salida, '--print', 'after_move:JARVIS-ARCHIVO:%(filepath)s', '--no-quiet', '--progress'];
+  const a = ['--no-playlist', '--windows-filenames', '--newline', '--no-colors', '--no-mtime', '--encoding', 'utf-8', '-o', salida, '--print', 'after_move:JARVIS-ARCHIVO:%(filepath)s', '--print', 'after_move:JARVIS-ID:%(id)s', '--no-quiet', '--progress'];
   if (ffmpeg) a.push('--ffmpeg-location', ffmpeg);
   const galletas = String(cfg().cookies || '').trim();
   if (galletas && existe(galletas)) a.push('--cookies', galletas);
@@ -180,7 +180,11 @@ async function correr(d) {
     if (!ytdlp) throw new Error('No encuentro yt-dlp. Instalalo, o indicá dónde está en Ajustes → Descargas (también podés dejar que Jarvis lo baje).');
     const ffmpeg = await ffmpegDe().catch(() => null);
     const carpeta = d.carpeta || carpetaDestino();
-    proceso = spawn(ytdlp, argumentos(d, carpeta, ffmpeg), { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    d.destino = d.modo === 'audio' ? path.join(carpeta, 'Audio') : carpeta;
+    d.empezo = Date.now();
+    // En Windows, yt-dlp escribe los nombres con la codificación de la consola: un título con acentos o emojis (los de X/Twitter)
+    // llegaba cambiado y el archivo "no aparecía". Se le pide UTF-8.
+    proceso = spawn(ytdlp, argumentos(d, carpeta, ffmpeg), { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' } });
     try { os.setPriority(proceso.pid, os.constants.priority.PRIORITY_BELOW_NORMAL); } catch {}
   } catch (e) { terminar(d, e.message); return; }
   let resto = '';
@@ -191,6 +195,7 @@ async function correr(d) {
     for (const linea of l) {
       let m;
       if ((m = /^JARVIS-ARCHIVO:(.+)$/.exec(linea))) { d.archivo = m[1].trim(); d.nombre = nombreDe(d.archivo); }
+      else if ((m = /^JARVIS-ID:(.+)$/.exec(linea))) d.idVideo = m[1].trim();
       else if ((m = /\[download\]\s+([\d.]+)%/.exec(linea))) { const p = Math.round(Number(m[1])); if (p !== d.pct) { d.pct = p; alCambiar(estado()); } }
       else if ((m = /\[(?:download|ExtractAudio|Merger|VideoConvertor)\].*?(?:Destination:|into) "?(.+?)"?$/.exec(linea))) { if (!d.archivo) { d.nombre = nombreDe(m[1]); } }
     }
@@ -202,10 +207,24 @@ async function correr(d) {
   proceso.on('error', (e) => terminar(d, `No pude ejecutar yt-dlp (${e.message}).`));
   proceso.on('close', (codigo) => {
     if (!activa || activa !== d) return;
+    if (codigo === 0 && !(d.archivo && existe(d.archivo))) { const hallado = buscarBajado(d); if (hallado) { d.archivo = hallado; d.nombre = nombreDe(hallado); } }
     if (codigo === 0 && d.archivo && existe(d.archivo)) terminar(d, '');
     else if (codigo === 0) terminar(d, 'yt-dlp terminó pero no encuentro el archivo.');
     else terminar(d, explicar(errores));
   });
+}
+// Si el nombre que dijo yt-dlp no coincide con el del disco (codificación, caracteres raros): el archivo de la carpeta
+// que tiene el [id] del video en el nombre, o si no, el más nuevo que apareció durante la descarga.
+const EXT_BAJADA = /\.(mp4|mkv|webm|mov|m4a|mp3|opus|ogg|wav|flac|aac)$/i;
+function buscarBajado(d) {
+  try {
+    const dir = d.destino || (d.archivo ? path.dirname(d.archivo) : '');
+    if (!dir) return '';
+    const nombres = fs.readdirSync(dir).filter((n) => EXT_BAJADA.test(n) && !/\.part$|\.f\d+\./i.test(n));
+    if (d.idVideo) { const n = nombres.find((x) => x.includes(`[${d.idVideo}]`)); if (n) return path.join(dir, n); }
+    const nuevos = nombres.map((n) => ({ n, t: fs.statSync(path.join(dir, n)).mtimeMs })).filter((x) => x.t >= (d.empezo || 0) - 2000).sort((a, b) => b.t - a.t);
+    return nuevos.length ? path.join(dir, nuevos[0].n) : '';
+  } catch { return ''; }
 }
 function siguiente() {
   if (activa || !cola.length) return;
