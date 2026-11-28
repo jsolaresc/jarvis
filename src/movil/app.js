@@ -1,6 +1,8 @@
 // Jarvis en el celular. Todo lo que hace pasa por /api de la PC con el token de este celular.
 const $ = (s) => document.querySelector(s);
 const ICONOS = {
+  menos: '<path d="M5 12h14"/>',
+  editar: '<path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z"/><path d="M13.5 6.5l4 4"/>',
   celu: '<rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18.5h2"/>',
   teclado: '<rect x="2.5" y="6" width="19" height="12" rx="2.5"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/>',
   toque: '<path d="M9 11V5.5a1.5 1.5 0 0 1 3 0V10m0-1.5a1.5 1.5 0 0 1 3 0V11m0-1a1.5 1.5 0 0 1 3 0v4.5A6.5 6.5 0 0 1 11.5 21h-.6a6 6 0 0 1-4.6-2.2L3.8 15.7a1.6 1.6 0 0 1 2.4-2.1L9 16"/>',
@@ -1215,10 +1217,8 @@ function pintarCamaraControles() {
   $('#cam-barra').replaceChildren(hablar,
     botonCtl({ ic: camOpciones.audio ? 'parlante' : 'mudo', t: 'Sonido', on: camOpciones.audio, fn: () => { camOpciones.audio = !camOpciones.audio; if (!camOpciones.audio && !camOpciones.video) camOpciones.video = true; guardado.escribir('camara.opciones', camOpciones); abrirCamara(); } }),
     botonCtl({ ic: 'ojo', t: 'Video', on: camOpciones.video, fn: () => { camOpciones.video = !camOpciones.video; if (!camOpciones.video) camOpciones.audio = true; guardado.escribir('camara.opciones', camOpciones); abrirCamara(); } }),
-    botonCtl({ ic: 'campana', t: 'Vigilar', on: vig, etiqueta: vig ? 'Dejar de vigilar' : 'Vigilar: avisarme si hay movimiento', fn: () => cambiarVigilancia(!vig) }),
+    botonCtl({ ic: 'campana', t: 'Alarma', on: vig, etiqueta: vig ? 'Apagar la alarma de movimiento' : 'Alarma: avisarme si hay movimiento', fn: () => cambiarVigilancia(!vig) }),
     botonCtl({ ic: 'expandir', t: 'Completa', etiqueta: 'Pantalla completa', fn: () => { const v = $('#cam-caja'); (document.fullscreenElement ? document.exitFullscreen() : v.requestFullscreen()).catch(() => {}); } }));
-  $('#cam-calidad').textContent = camOpciones.calidad === 'alta' ? 'HD' : 'SD';
-  $('#cam-calidad').setAttribute('aria-label', camOpciones.calidad === 'alta' ? 'Calidad alta' : 'Calidad normal');
 }
 function cerrarCamara() {
   if (!camara) return;
@@ -1235,6 +1235,7 @@ async function abrirCamara() {
   const est = $('#cam-estado');
   est.textContent = 'Conectando…'; est.className = 'vr-estado';
   const v = $('#cam-video-el');
+  $('#cam-caja').classList.add('cargando');
   v.classList.toggle('solo-audio', !camOpciones.video);
   const ctrl = new AbortController();
   const ms = new MediaSource();
@@ -1276,21 +1277,29 @@ async function abrirCamara() {
       if (primero) {
         primero = false;
         v.play().catch(() => { v.muted = true; v.play().catch(() => {}); });
+        v.addEventListener('playing', () => $('#cam-caja').classList.remove('cargando'), { once: true });
+        if (!camOpciones.video) $('#cam-caja').classList.remove('cargando');
         mio.desde = Date.now();
         est.className = 'vr-estado vivo';
         const pintarTiempo = () => { const s = Math.round((Date.now() - mio.desde) / 1000); est.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}${camOpciones.video ? '' : ' · solo sonido'}`; };
         pintarTiempo(); mio.reloj = setInterval(pintarTiempo, 1000);
       }
     }
-    if (camara === mio) { est.textContent = 'La PC cortó la transmisión.'; est.className = 'vr-estado mal'; }
+    if (camara === mio) { est.textContent = 'La PC cortó la transmisión.'; est.className = 'vr-estado mal'; $('#cam-caja').classList.remove('cargando'); }
   } catch (e) {
     if (camara !== mio || e.name === 'AbortError') return;
     est.textContent = e instanceof TypeError ? 'Tu PC no responde.' : e.message; est.className = 'vr-estado mal';
+    $('#cam-caja').classList.remove('cargando');
   }
 }
 $('#cam-cerrar').addEventListener('click', () => { cerrarCamara(); hojaCam.close(); });
 hojaCam.addEventListener('close', cerrarCamara);
-$('#cam-calidad').addEventListener('click', () => { camOpciones.calidad = camOpciones.calidad === 'alta' ? 'normal' : 'alta'; guardado.escribir('camara.opciones', camOpciones); abrirCamara(); });
+$('#cam-opciones').innerHTML = svg('puntos', 22);
+$('#cam-opciones').addEventListener('click', () => abrirLista('', [
+  { icono: 'camara', nombre: 'Calidad normal', marcado: camOpciones.calidad !== 'alta', fn: () => { camOpciones.calidad = 'normal'; guardado.escribir('camara.opciones', camOpciones); abrirCamara(); } },
+  { icono: 'camara', nombre: 'Calidad alta (HD)', marcado: camOpciones.calidad === 'alta', fn: () => { camOpciones.calidad = 'alta'; guardado.escribir('camara.opciones', camOpciones); abrirCamara(); } },
+  { icono: 'info', nombre: 'Qué hace la alarma', fn: () => abrirInfo('vigilar') },
+]));
 $('#cam-cerrar').innerHTML = svg('cerrar', 22);
 
 // ---------- Widgets: editar como en el inicio del celular ----------
@@ -2542,15 +2551,114 @@ function teclearEn(entradaEl, alTexto, alTecla) {
   entradaEl.addEventListener('input', () => { const t = entradaEl.value; entradaEl.value = ''; if (t) alTexto(t); });
   entradaEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); alTecla('enter'); } else if (e.key === 'Backspace' && !entradaEl.value) { e.preventDefault(); alTecla('borrar'); } });
 }
-let controlListo = false; let ctlDerecho = false;
-function pintarBarraControl() {
-  $('#ctl-barra').replaceChildren(
-    botonCtl({ ic: 'mouse', t: 'Clic', fn: () => { vibrar(); remoto({ tipo: 'clic' }); } }),
-    botonCtl({ ic: 'clicder', t: 'Clic der.', fn: () => { vibrar(); remoto({ tipo: 'clic', boton: 'derecho' }); } }),
-    botonCtl({ ic: 'teclado', t: 'Teclado', fn: () => { const x = $('#ctl-entrada'); x.value = ''; x.focus(); } }),
-    botonCtl({ ic: 'teclas', t: 'Teclas', on: !$('#ctl-panel-teclas').hidden, fn: () => { $('#ctl-panel-teclas').hidden = !$('#ctl-panel-teclas').hidden; pintarBarraControl(); } }),
-    botonCtl({ ic: 'tele', t: 'Pantalla', etiqueta: 'Ver la pantalla de la PC', fn: () => abrirEscritorio() }));
+// ---------- Botones de los controles: configuraciones que se eligen y se editan (como los widgets) ----------
+// Cada botón sabe dónde tiene sentido: 'ctl' (Mouse y teclado), 'esc' (Escritorio) o los dos.
+const BOTONES = {
+  clic: { ic: 'mouse', t: 'Clic', en: ['ctl', 'esc'] },
+  clicder: { ic: 'clicder', t: 'Clic der.', en: ['ctl', 'esc'] },
+  teclado: { ic: 'teclado', t: 'Teclado', en: ['ctl', 'esc'] },
+  teclas: { ic: 'teclas', t: 'Teclas', en: ['ctl', 'esc'] },
+  pantalla: { ic: 'tele', t: 'Pantalla', en: ['ctl'], etiqueta: 'Ver la pantalla de la PC' },
+  modo: { ic: 'toque', t: 'Modo', en: ['esc'], etiqueta: 'Touchpad o tocar' },
+  sonido: { ic: 'parlante', t: 'Sonido', en: ['esc'] },
+  girar: { ic: 'girar', t: 'Girar', en: ['esc'] },
+  play: { ic: 'play', t: 'Play', en: ['ctl', 'esc'], etiqueta: 'Pausa o play' },
+  anterior: { ic: 'anterior', t: 'Anterior', en: ['ctl', 'esc'] },
+  siguiente: { ic: 'siguiente', t: 'Siguiente', en: ['ctl', 'esc'] },
+  bajar: { ic: 'menos', t: 'Vol. −', en: ['ctl', 'esc'], etiqueta: 'Bajar el volumen' },
+  subir: { ic: 'mas', t: 'Vol. +', en: ['ctl', 'esc'], etiqueta: 'Subir el volumen' },
+  mudo: { ic: 'mudo', t: 'Silencio', en: ['ctl', 'esc'] },
+  bloquear: { ic: 'candado', t: 'Bloquear', en: ['ctl', 'esc'] },
+  ...Object.fromEntries(TECLAS_ESC.map(([k, n]) => [`k:${k}`, { tx: n, t: n, en: ['ctl', 'esc'], etiqueta: `Tecla ${n}` }])),
+};
+const PERFILES_DE_SIEMPRE = [
+  { id: 'normal', nombre: 'Normal', ctl: ['clic', 'clicder', 'teclado', 'teclas', 'pantalla'], esc: ['teclado', 'teclas', 'clicder', 'modo', 'sonido', 'girar'] },
+  { id: 'musica', nombre: 'Música', ctl: ['anterior', 'play', 'siguiente', 'bajar', 'subir', 'mudo'], esc: ['play', 'bajar', 'subir', 'teclado', 'modo', 'girar'] },
+  { id: 'trabajo', nombre: 'Trabajo', ctl: ['clic', 'teclado', 'k:alt-tab', 'k:copiar', 'k:pegar', 'k:deshacer'], esc: ['teclado', 'k:alt-tab', 'k:copiar', 'k:pegar', 'clicder', 'modo'] },
+];
+let perfiles = guardado.leer('botones.perfiles', null) || PERFILES_DE_SIEMPRE;
+let perfilId = guardado.leer('botones.perfil', 'normal');
+const perfilActual = () => perfiles.find((x) => x.id === perfilId) || perfiles[0];
+const guardarPerfiles = () => { guardado.escribir('botones.perfiles', perfiles); guardado.escribir('botones.perfil', perfilId); };
+// Qué hace cada botón según dónde está.
+function hacerBoton(id, donde) {
+  if (id.startsWith('k:')) { const t = id.slice(2); vibrar(8); if (donde === 'esc') mandarEsc({ t: 'tecla', tecla: t }); else remoto({ tipo: 'tecla', tecla: t }); return; }
+  if (['play', 'anterior', 'siguiente', 'subir', 'bajar', 'mudo'].includes(id)) { vibrar(8); remoto({ tipo: 'multimedia', tecla: id }); return; }
+  switch (id) {
+    case 'clic': vibrar(); if (donde === 'esc') mandarEsc({ t: 'clic' }); else remoto({ tipo: 'clic' }); return;
+    case 'clicder': if (donde === 'esc') { ESC.derecho = !ESC.derecho; pintarEscBotones(); } else { vibrar(); remoto({ tipo: 'clic', boton: 'derecho' }); } return;
+    case 'teclado': { const x = donde === 'esc' ? escEntrada : $('#ctl-entrada'); x.value = ''; x.focus(); return; }
+    case 'teclas': { const pnl = $(donde === 'esc' ? '#esc-panel-teclas' : '#ctl-panel-teclas'); pnl.hidden = !pnl.hidden; pintarBarra(donde); return; }
+    case 'pantalla': abrirEscritorio(); return;
+    case 'modo': ESC.modo = ESC.modo === 'touchpad' ? 'tocar' : 'touchpad'; guardado.escribir('escritorio.modo', ESC.modo); aviso(ESC.modo === 'touchpad' ? 'Touchpad: deslizá para mover el cursor.' : 'Tocar: el clic va donde tocás.', { ms: 2500 }); pintarEscBotones(); return;
+    case 'sonido': ESC.mudo = !ESC.mudo; escVideo.muted = ESC.mudo; pintarEscBotones(); return;
+    case 'girar': girarEsc(); return;
+    case 'bloquear': remoto({ tipo: 'bloquear' }, { avisar: true }); return;
+  }
 }
+function botonDe(id, donde) {
+  const b = BOTONES[id]; if (!b) return null;
+  let { ic, t } = b; let on = null;
+  if (id === 'teclas') on = !$(donde === 'esc' ? '#esc-panel-teclas' : '#ctl-panel-teclas').hidden;
+  if (donde === 'esc' && id === 'clicder') on = ESC.derecho;
+  if (id === 'modo') { ic = ESC.modo === 'touchpad' ? 'mouse' : 'toque'; t = ESC.modo === 'touchpad' ? 'Touchpad' : 'Tocar'; }
+  if (id === 'sonido') { ic = ESC.mudo ? 'mudo' : 'parlante'; on = !ESC.mudo; }
+  const el = botonCtl({ ic: ic || 'teclas', t, on, etiqueta: b.etiqueta, fn: () => hacerBoton(id, donde) });
+  if (b.tx && b.tx.length <= 6) el.querySelector('.ctl-ic').replaceChildren(h('span', { class: 'ctl-tx' }, b.tx));
+  if (b.tx) el.querySelector('.ctl-t').textContent = b.tx.length <= 6 ? 'Tecla' : b.tx;
+  return el;
+}
+function pintarBarra(donde) {
+  const ids = (perfilActual()[donde] || []).filter((id) => BOTONES[id] && BOTONES[id].en.includes(donde));
+  const barra = $(donde === 'esc' ? '#esc-barra' : '#ctl-barra');
+  barra.replaceChildren(...ids.map((id) => botonDe(id, donde)).filter(Boolean));
+  barra.classList.toggle('desliza', ids.length > 6);
+}
+// El ⋮: elegir la configuración de botones, editarla o crear otra.
+function menuBotones(donde, extra = []) {
+  abrirLista('', [
+    ...perfiles.map((x) => ({ icono: 'cuadricula', nombre: x.nombre, marcado: x.id === perfilActual().id, fn: () => { perfilId = x.id; guardarPerfiles(); pintarBarra(donde); } })),
+    { icono: 'editar', nombre: 'Editar botones', fn: () => editarBotones(donde, perfilActual()) },
+    { icono: 'mas', nombre: 'Nueva configuración', fn: () => editarBotones(donde, null) },
+    ...extra,
+  ]);
+}
+function editarBotones(donde, perfil) {
+  const nuevo = !perfil;
+  const p = perfil ? { ...perfil, ctl: [...perfil.ctl], esc: [...perfil.esc] } : { id: `p${Date.now().toString(36)}`, nombre: '', ctl: [...perfilActual().ctl], esc: [...perfilActual().esc] };
+  let lado = donde;
+  const nombre = entrada(p.nombre, { placeholder: 'Ej.: Juego', maxlength: '24' });
+  const caja = h('div', { class: 'ed-botones-lista' });
+  const pintarEd = () => {
+    const ids = p[lado];
+    const disponibles = Object.keys(BOTONES).filter((id) => BOTONES[id].en.includes(lado) && !ids.includes(id));
+    const mini = (id) => h('span', { class: 'eb-ic', html: svg(BOTONES[id].ic || 'teclas', 18) });
+    caja.replaceChildren(
+      h('div', { class: 'segmentado', role: 'tablist' }, ...[['ctl', 'Mouse y teclado'], ['esc', 'Escritorio']].map(([v, t]) => h('button', { type: 'button', role: 'tab', 'aria-selected': String(lado === v), onclick: () => { lado = v; pintarEd(); } }, t))),
+      h('p', { class: 'tenue chico-t' }, `En la barra (${ids.length})`),
+      h('ul', { class: 'eb-lista' }, ids.map((id, i) => h('li', {}, mini(id), h('span', { class: 'eb-n' }, BOTONES[id].t),
+        h('button', { type: 'button', class: 'icono', 'aria-label': `Subir ${BOTONES[id].t}`, disabled: i === 0, html: svg('atras', 18), style: 'rotate:90deg', onclick: () => { [ids[i - 1], ids[i]] = [ids[i], ids[i - 1]]; pintarEd(); } }),
+        h('button', { type: 'button', class: 'icono', 'aria-label': `Bajar ${BOTONES[id].t}`, disabled: i === ids.length - 1, html: svg('atras', 18), style: 'rotate:-90deg', onclick: () => { [ids[i + 1], ids[i]] = [ids[i], ids[i + 1]]; pintarEd(); } }),
+        h('button', { type: 'button', class: 'icono', 'aria-label': `Sacar ${BOTONES[id].t}`, html: svg('cerrar', 18), onclick: () => { ids.splice(i, 1); pintarEd(); } })))),
+      h('p', { class: 'tenue chico-t' }, 'Agregar'),
+      h('div', { class: 'eb-agregar' }, disponibles.map((id) => h('button', { type: 'button', 'aria-label': `Agregar ${BOTONES[id].t}`, onclick: () => { ids.push(id); pintarEd(); } }, mini(id), h('span', {}, BOTONES[id].t)))));
+  };
+  pintarEd();
+  editor(nuevo ? 'Nueva configuración' : 'Editar botones', [campoEd('Nombre', nombre), caja], [
+    { texto: 'Guardar', clase: 'principal', hacer: () => {
+      p.nombre = nombre.value.trim() || (nuevo ? 'Mía' : p.nombre);
+      if (!p.ctl.length && !p.esc.length) throw new Error('Dejá al menos un botón.');
+      perfiles = nuevo ? [...perfiles, p] : perfiles.map((x) => (x.id === p.id ? p : x));
+      perfilId = p.id; guardarPerfiles(); pintarBarra(donde);
+    } },
+    ...(!nuevo && perfiles.length > 1 ? [{ texto: 'Borrar', clase: 'texto peligro', hacer: () => { if (!confirm(`¿Borrar "${p.nombre}"?`)) return false; perfiles = perfiles.filter((x) => x.id !== p.id); perfilId = perfiles[0].id; guardarPerfiles(); pintarBarra(donde); } }] : []),
+    { texto: 'Cancelar', clase: 'texto', hacer: () => true },
+  ]);
+}
+let controlListo = false;
+function pintarBarraControl() { pintarBarra('ctl'); }
+$('#ctl-opciones').innerHTML = svg('puntos', 22);
+$('#ctl-opciones').addEventListener('click', () => menuBotones('ctl', [{ icono: 'info', nombre: 'Gestos', fn: () => abrirInfo('touchpad') }]));
 function prepararControl() {
   pintarBarraControl();
   if (controlListo) return;
@@ -2644,7 +2752,7 @@ async function cambiarVigilancia(activo, sensibilidad) {
     const actual = (estado && estado.camara && estado.camara.vigilando) || {};
     const r = await pedirPC('camara:vigilar', { activo, sensibilidad: sensibilidad || actual.sensibilidad || 'media', grabar: true });
     if (estado && estado.camara) estado.camara.vigilando = r.vigilando;
-    aviso(activo ? 'Vigilando: si hay movimiento, te aviso y lo grabo.' : 'Dejó de vigilar.', { tipo: 'bien', ms: 4000 });
+    aviso(activo ? 'Alarma prendida: si hay movimiento, te aviso y lo grabo.' : 'Alarma apagada.', { tipo: 'bien', ms: 4000 });
     if (activo && NATIVO && !guardado.leer('alInstante', false)) aviso('Para enterarte enseguida, prendé "Avisos al instante".', { ms: 7000, accion: { texto: 'Ajustes', hacer: () => { hojaCam.close(); irA('ajustes'); } } });
   } catch (e) { aviso(errorDe(e), { tipo: 'mal', ms: 7000 }); }
   pintarVigilar(); pintarAjustesSiHace();
@@ -2727,7 +2835,7 @@ function pintarAjustes() {
     seccion('Cámara',
       e.camara && !e.camara.permitida ? h('p', { class: 'tenue' }, 'Apagada en la PC (Ajustes → Celular).') : null,
       fila('Calidad', camOpciones.calidad === 'alta' ? 'Alta (HD)' : 'Normal', h('button', { type: 'button', class: 'chico', onclick: () => { camOpciones.calidad = camOpciones.calidad === 'alta' ? 'normal' : 'alta'; guardado.escribir('camara.opciones', camOpciones); pintarAjustes(); } }, 'Cambiar')),
-      e.camara && e.camara.permitida ? interruptor(!!vig, 'Vigilar', 'vigilar', (v) => cambiarVigilancia(v)) : null,
+      e.camara && e.camara.permitida ? interruptor(!!vig, 'Alarma de movimiento', 'vigilar', (v) => cambiarVigilancia(v)) : null,
       vig ? h('div', { class: 'segmentado', role: 'radiogroup', 'aria-label': 'Sensibilidad' }, ...[['baja', 'Poca'], ['media', 'Media'], ['alta', 'Mucha']].map(([x, t]) => h('button', { type: 'button', role: 'radio', 'aria-checked': String((vig.sensibilidad || 'media') === x), onclick: () => cambiarVigilancia(true, x) }, t))) : null),
     seccion('La app',
       NATIVO ? fila(`Versión ${versionApp || '…'}`, ultimaConocida && versionApp && compararVersiones(ultimaConocida, versionApp) > 0 ? `Hay una nueva: ${ultimaConocida}` : '', h('button', { type: 'button', class: 'chico', onclick: () => buscarActualizacion({ avisarSiNoHay: true }) }, 'Buscar')) : null,
@@ -2795,7 +2903,7 @@ function pintarPC() {
     h('div', { class: 'mosaicos' },
       mosaico('tele', 'Escritorio', () => abrirEscritorio(), escOk ? '' : 'Apagado en la PC', { class: `mosaico${escOk ? '' : ' apagado'}` }),
       mosaico('mouse', 'Mouse y teclado', () => irA('control')),
-      mosaico('camara', 'Cámara', () => abrirCamara(), camOk ? (e.camara && e.camara.vigilando ? 'Vigilando' : '') : 'Apagada en la PC', { class: `mosaico${camOk ? '' : ' apagado'}` }),
+      mosaico('camara', 'Cámara', () => abrirCamara(), camOk ? (e.camara && e.camara.vigilando ? 'Alarma prendida' : '') : 'Apagada en la PC', { class: `mosaico${camOk ? '' : ' apagado'}` }),
       mosaico('carpeta', 'Archivos', () => irACarpetas())),
     tarjeta(tituloTarj('Música', h('button', { type: 'button', class: 'icono chico-ic', 'aria-label': 'Escuchar en otro aparato', html: svg('cast', 20), onclick: () => elegirAparato() })),
       h('div', { class: 'pc-musica' },
@@ -2836,7 +2944,7 @@ const INFOS = {
   afuera: ['Desde afuera', ['Fuera de casa, el celular llega a la PC por su dirección pública.', 'La aprende solo: abrí la app una vez en casa, con "Desde afuera" prendido en la PC (Ajustes → Celular).']],
   instante: ['Avisos al instante', ['Movimiento en la cámara, rutinas que se hicieron solas y otros avisos de la PC, en el momento, aunque la app esté cerrada.', 'Android pide una notificación fija chiquita para seguir conectado. Gasta un poco más de batería.']],
   huella: ['Huella', ['Usa la huella, la cara o el bloqueo de pantalla del celular.', 'Se pide al abrir y si la app estuvo más de 2 minutos cerrada.']],
-  vigilar: ['Vigilar', ['La PC mira la webcam sola. Si algo se mueve, te avisa y graba hasta que se calme.', 'La grabación queda en Archivos → Jarvis.']],
+  vigilar: ['Alarma de movimiento', ['Con la alarma prendida, la PC mira la webcam aunque no estés mirando vos.', 'Si algo se mueve, te avisa al celular y graba hasta que se calme.', 'La grabación queda en Archivos → Jarvis.']],
   privacidad: ['Privacidad', ['Jarvis habla solo con tu PC: nada pasa por servidores de terceros.', 'Desde afuera usa tu propia dirección de Tailscale.']],
 };
 const hojaInfo = $('#hoja-info');
@@ -2912,20 +3020,15 @@ const escVideo = $('#esc-video'); const escMarco = $('#esc-marco'); const escLie
 const ESC = { pc: null, canal: null, modo: guardado.leer('escritorio.modo', 'touchpad'), zoom: 1, tx: 0, ty: 0, cursor: { x: 0.5, y: 0.5 }, derecho: false, pantallas: [], pantalla: 0, conectado: false, mudo: false, base: null };
 const ICE_ESC = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun.cloudflare.com:3478'] }];
 const mandarEsc = (o) => { const c = ESC.canal; if (c && c.readyState === 'open') { try { c.send(JSON.stringify(o)); } catch {} } };
-function estadoEsc(texto) { const e = $('#esc-estado'); e.textContent = texto || ''; e.hidden = !texto; }
+function estadoEsc(texto) { const e = $('#esc-estado'); $('#esc-estado-t').textContent = texto || ''; e.hidden = !texto; e.classList.toggle('esperando', /…$/.test(texto || '')); }
 function pintarEscBotones() {
-  const panel = !$('#esc-panel-teclas').hidden;
-  $('#esc-barra').replaceChildren(
-    botonCtl({ ic: 'teclado', t: 'Teclado', fn: () => { escEntrada.value = ''; escEntrada.focus(); } }),
-    botonCtl({ ic: 'teclas', t: 'Teclas', on: panel, fn: () => { $('#esc-panel-teclas').hidden = panel; pintarEscBotones(); } }),
-    botonCtl({ ic: 'clicder', t: 'Clic der.', on: ESC.derecho, etiqueta: 'El próximo toque es clic derecho', fn: () => { ESC.derecho = !ESC.derecho; pintarEscBotones(); } }),
-    botonCtl({ ic: ESC.modo === 'touchpad' ? 'mouse' : 'toque', t: ESC.modo === 'touchpad' ? 'Touchpad' : 'Tocar', etiqueta: 'Cambiar cómo se maneja el mouse', fn: () => { ESC.modo = ESC.modo === 'touchpad' ? 'tocar' : 'touchpad'; guardado.escribir('escritorio.modo', ESC.modo); pintarEscBotones(); } }),
-    botonCtl({ ic: ESC.mudo ? 'mudo' : 'parlante', t: 'Sonido', on: !ESC.mudo, fn: () => { ESC.mudo = !ESC.mudo; escVideo.muted = ESC.mudo; pintarEscBotones(); } }),
-    botonCtl({ ic: 'girar', t: 'Girar', fn: () => girarEsc() }));
+  pintarBarra('esc');
   const p = ESC.pantallas;
   $('#esc-pantalla').hidden = p.length < 2;
   if (p.length > 1) $('#esc-pantalla').textContent = `${ESC.pantalla + 1} / ${p.length}`;
 }
+$('#esc-opciones').innerHTML = svg('puntos', 22);
+$('#esc-opciones').addEventListener('click', () => menuBotones('esc', [{ icono: 'info', nombre: 'Gestos', fn: () => abrirInfo('escritorio') }]));
 // El video ocupa lo que puede sin deformarse; el zoom y el corrimiento se aplican al marco.
 function medirEsc() {
   const W = escLienzo.clientWidth; const H = escLienzo.clientHeight;

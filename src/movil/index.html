@@ -190,7 +190,7 @@
     </section>
 
     <section id="s-control" class="hoja" aria-label="Mouse y teclado" hidden>
-      <div class="barra-hoja"><button type="button" class="icono volver-pc" aria-label="Volver"></button><h2>Mouse y teclado</h2><button type="button" class="icono info" data-info="touchpad" aria-label="Gestos"></button></div>
+      <div class="barra-hoja"><button type="button" class="icono volver-pc" aria-label="Volver"></button><h2>Mouse y teclado</h2><button type="button" id="ctl-opciones" class="icono" aria-label="Botones y opciones"></button></div>
       <div id="tp" class="touchpad" role="application" aria-label="Touchpad de la PC"></div>
       <div class="barra-ctl" id="ctl-barra"></div>
       <div id="ctl-panel-teclas" class="panel-teclas" hidden></div>
@@ -235,11 +235,12 @@
   <!-- Cámara de seguridad: la webcam y el micrófono de la PC en vivo -->
   <dialog id="hoja-camara" aria-label="Cámara">
     <div id="cam-caja" class="vista-remota cam-caja">
-      <video id="cam-video-el" playsinline></video>
+      <video id="cam-video-el" playsinline poster="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=="></video>
+      <div id="cam-carga" class="vr-carga" aria-hidden="true"><span class="girando"></span></div>
       <div class="vr-arriba">
         <button type="button" id="cam-cerrar" class="icono" aria-label="Cerrar"></button>
         <span id="cam-estado" class="vr-estado" role="status"></span>
-        <button type="button" id="cam-calidad" class="vr-chip"></button>
+        <button type="button" id="cam-opciones" class="icono" aria-label="Opciones de la cámara"></button>
       </div>
       <div class="vr-abajo barra-ctl oscura" id="cam-barra"></div>
     </div>
@@ -247,13 +248,13 @@
 
   <dialog id="hoja-escritorio" aria-label="Escritorio de la PC">
     <div id="esc-lienzo" class="vista-remota esc-lienzo">
-      <div id="esc-marco" class="esc-marco"><video id="esc-video" playsinline autoplay></video></div>
-      <p id="esc-estado" class="esc-estado" role="status">Conectando…</p>
+      <div id="esc-marco" class="esc-marco"><video id="esc-video" playsinline autoplay poster="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=="></video></div>
+      <p id="esc-estado" class="esc-estado" role="status"><span class="girando"></span><span id="esc-estado-t">Conectando…</span></p>
       <div class="vr-arriba">
         <button type="button" id="esc-cerrar" class="icono" aria-label="Cerrar"></button>
         <span id="esc-info" class="vr-estado"></span>
         <button type="button" id="esc-pantalla" class="vr-chip" hidden aria-label="Cambiar de pantalla"></button>
-        <button type="button" class="icono info" data-info="escritorio" aria-label="Gestos"></button>
+        <button type="button" id="esc-opciones" class="icono" aria-label="Botones y opciones"></button>
       </div>
       <div class="vr-abajo barra-ctl oscura" id="esc-barra"></div>
       <div id="esc-panel-teclas" class="panel-teclas flota" hidden></div>

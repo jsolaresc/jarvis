@@ -597,10 +597,24 @@ async function hasta(fn, ms = 20000, que = '') {
     await pA.click('#ctl-barra .ctl:has-text("Teclas")');
     await pA.screenshot({ path: path.join(SALIDA, '25-android-control.png'), fullPage: true });
     await pA.fill('#ctl-entrada', 'hola');
+    // El ⋮ cambia la configuración de botones y deja editarla (como los widgets).
+    await pA.click('#ctl-opciones');
+    await pA.click('#catalogo button:has-text("Música")');
+    await pA.click('#ctl-barra .ctl:has-text("Vol. +")');
+    await pA.click('#ctl-opciones');
+    await pA.click('#catalogo button:has-text("Editar botones")');
+    await pA.click('.eb-agregar button[aria-label="Agregar Bloquear"]');
+    await pA.screenshot({ path: path.join(SALIDA, '25c-android-editar-botones.png') });
+    await pA.click('#ed-botones button:has-text("Guardar")');
+    await hasta(() => pA.locator('#ctl-barra .ctl:has-text("Bloquear")').count(), 3000, 'android: botón agregado a la configuración');
+    assert.strictEqual(JSON.parse(await pA.evaluate(() => localStorage.getItem('jarvis.botones.perfil'))), 'musica');
+    await pA.screenshot({ path: path.join(SALIDA, '25d-android-botones-musica.png'), fullPage: true });
+    await pA.click('#ctl-opciones');
+    await pA.click('#catalogo button:has-text("Normal")');
     await pA.evaluate(() => window.atrasFalso()); // atrás vuelve a la pestaña PC
     await hasta(() => pA.locator('#s-pc:not([hidden])').count(), 3000, 'android: atrás vuelve a PC');
     await pA.click('.tarj button:has-text("Bloquear")');
-    await hasta(() => { const l = fs.existsSync(REMOTO_LOG) ? fs.readFileSync(REMOTO_LOG, 'utf8') : ''; return /mouse_event\(1, \d+, \d+/.test(l) && /mouse_event\(2, 0/.test(l) && /LockWorkStation/.test(l) && /SendWait\('hola'\)/.test(l); }, 8000, 'la PC recibió mover, clic, bloquear y escribir');
+    await hasta(() => { const l = fs.existsSync(REMOTO_LOG) ? fs.readFileSync(REMOTO_LOG, 'utf8') : ''; return /mouse_event\(1, \d+, \d+/.test(l) && /mouse_event\(2, 0/.test(l) && /LockWorkStation/.test(l) && /SendWait\('hola'\)/.test(l) && /Tecla\(175\)/.test(l); }, 8000, 'la PC recibió mover, clic, bloquear y escribir');
     // Con la PC sin contestar, la pestaña PC ofrece prenderla (Wake-on-LAN).
     // (La PC de prueba no está en una red privada: se le da al celular lo que habría aprendido en casa.)
     await pA.evaluate(() => localStorage.setItem('jarvis.despertar', JSON.stringify({ mac: '02:fc:00:00:00:01', broadcast: '192.168.77.255' })));

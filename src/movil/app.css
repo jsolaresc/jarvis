@@ -653,3 +653,37 @@ button.ancho-lleno { width: 100%; min-height: 48px; border-radius: 12px; border:
 .widgets { grid-auto-rows: minmax(56px, auto); }
 button.pildora { min-height: 38px; padding: 0 16px; border-radius: 999px; border: 1px solid var(--linea); background: var(--superficie); color: var(--texto); font-weight: 600; font-size: 14px; }
 .tarj .ajuste-fila { border-bottom: 0; padding: 4px 0; }
+
+/* Barra de controles: más legible y deslizable si hay muchos botones */
+.ctl-t { font-size: 12px; color: color-mix(in srgb, var(--texto) 80%, transparent); }
+.barra-ctl.oscura .ctl-t { color: #fff; text-shadow: 0 1px 2px rgba(0, 0, 0, .8); }
+.ctl-tx { font-size: 12px; font-weight: 700; letter-spacing: -.01em; line-height: 1; max-width: 44px; text-align: center; overflow-wrap: anywhere; }
+.barra-ctl.desliza { justify-content: flex-start; overflow-x: auto; scrollbar-width: none; scroll-snap-type: x proximity; -webkit-mask-image: linear-gradient(90deg, #000 85%, transparent); mask-image: linear-gradient(90deg, #000 85%, transparent); }
+.barra-ctl.desliza::-webkit-scrollbar { display: none; }
+.barra-ctl.desliza .ctl { flex: 0 0 64px; scroll-snap-align: start; }
+.vr-arriba .icono { background: rgba(0, 0, 0, .35); border-radius: 50%; }
+
+/* Cargando: nada del reproductor del sistema, solo un círculo que gira */
+.girando { display: inline-block; width: 28px; height: 28px; border-radius: 50%; border: 3px solid rgba(255, 255, 255, .22); border-top-color: var(--ojo); animation: girar .8s linear infinite; }
+@keyframes girar { to { transform: rotate(360deg); } }
+.vr-carga { position: absolute; inset: 0; display: none; place-items: center; pointer-events: none; }
+.cam-caja.cargando .vr-carga { display: grid; }
+.cam-caja.cargando video { opacity: 0; }
+.esc-estado { display: grid; justify-items: center; gap: 12px; }
+.esc-estado .girando { display: none; }
+.esc-estado.esperando .girando { display: inline-block; }
+video { background: #000; }
+
+/* Editar botones */
+.ed-botones-lista { display: grid; gap: 8px; }
+.chico-t { font-size: 13px; margin: 6px 0 0; }
+.eb-lista { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.eb-lista li { display: flex; align-items: center; gap: 10px; padding: 4px 0; border-bottom: 1px solid var(--linea); }
+.eb-lista li .icono { width: 40px; height: 40px; }
+.eb-lista li .icono:disabled { opacity: .3; }
+.eb-n { flex: 1; min-width: 0; }
+.eb-ic { flex: none; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: color-mix(in srgb, var(--texto) 9%, transparent); }
+.eb-ic small { font-size: 10px; font-weight: 700; }
+.eb-agregar { display: flex; flex-wrap: wrap; gap: 6px; }
+.eb-agregar button { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 3px 12px 3px 3px; border-radius: 999px; border: 1px solid var(--linea); background: none; color: var(--texto); font-size: 13px; }
+.eb-agregar .eb-ic { width: 32px; height: 32px; }
