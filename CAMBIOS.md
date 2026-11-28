@@ -2,6 +2,32 @@
 
 Cada Release de GitHub toma de acá la sección de su versión. Al subir de versión, sumar la sección nueva arriba de todo.
 
+## 1.1.14
+
+**Celular**
+- **Navegación nueva**, más simple: Inicio, Charla, PC, Archivos y Más.
+  - **Charla** hace de todo: con el clip mandás un WhatsApp (con foto de la webcam si querés), bajás un video o subís un archivo a la PC. Si pegás un link, ofrece bajarlo al celular, solo el audio o a la PC.
+  - **PC** junta lo que se hace con la computadora: prender, apagar, bloquear, escritorio, mouse y teclado, cámara y portapapeles.
+  - **Archivos** por ubicaciones: la PC, el celular y tus carpetas.
+  - **Agenda** junta hoy, lo próximo y las notas, con un solo botón para crear nota, recordatorio o evento.
+- **Controles iguales en todos lados**: Mouse y teclado, Escritorio y Cámara comparten la misma barra, con íconos en lugar de textos largos y el teclado como ícono.
+- **Botones a tu gusto**: en ⋮ elegís qué botones ver y guardás configuraciones (Normal, Música, Trabajo o las tuyas).
+- **Menos texto**: las explicaciones largas pasan a una "i" que abre el detalle.
+- Cámara: mientras carga se ve un indicador en vez del reproductor vacío. "Vigilar" ahora se llama **Alarma**.
+- Inicio nuevo de fábrica: Hablar, atajos, tu día, reloj, clima y música.
+
+**PC**
+- **Ajustes separado del uso**: Inicio, Agenda, Rutinas, Clips, Descargas e Historial a la izquierda, y la configuración detrás del engranaje.
+- Inicio muestra tu día y el estado de los servicios. Historial agrupado por día y con filtros.
+- Celular: permisos por aparato y un recuadro "Ahora" con lo que está haciendo, con botón Cortar.
+- El editor de clips usa toda la pantalla.
+
+**Jarvis**
+- **Aviso de acceso remoto**: si alguien ve la cámara o la pantalla, maneja la PC o está con tus archivos, el notch lo muestra en ámbar ("Cámara activa" / "Remoto activo"), con el detalle y un botón Cortar.
+- **Caras**: mientras habla, los ojos cambian según cada frase (feliz, triste, escéptico, preocupado, concentrado, sueño, asombro…). Se pone sorprendido cuando aprende algo. Se apagan en Ajustes → Interfaz → Caras.
+- **Escucha con atención**: al escucharte, se inclina hacia un costado y abre más un ojo.
+- **Baila según la canción**: tranquila, alegre, con fuerza, electrónica, urbana o triste, cada una con su forma de moverse y sus ojos.
+
 ## 1.1.13
 
 **Celular**
