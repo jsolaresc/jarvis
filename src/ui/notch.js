@@ -446,20 +446,25 @@ class Muelle {
 const baile = {
   activo: false, cuadro: 0, ultimo: 0,
   fase: 0, compas: 0, bpm: 104, conf: 0, medido: false, ultimaMedida: 0, ultimoN: -1, ultimoAjuste: 0,
-  energia: 0.25, objetivo: 0.25, subida: 1, pulso: 0,
+  energia: 0.25, objetivo: 0.25, subida: 1, pulso: 0, estilo: '',
   mov: 'respira', proxParpadeo: 0, parpadeoT: -1, abrirT: -1, ultimaApertura: 0,
   m: null,
 };
 const nuevosMuelles = () => ({
   y: new Muelle(0, 34, 0.7), x: new Muelle(0, 22, 0.9), lean: new Muelle(0, 26, 0.75), sq: new Muelle(1, 40, 0.7), sx: new Muelle(1, 40, 0.7),
   ai: new Muelle(1, 70, 0.9), ad: new Muelle(1, 70, 0.9), forma: new Muelle(0.4, 14, 1), brillo: new Muelle(0, 18, 1),
+  tapa: new Muelle(0, 10, 1), tilt: new Muelle(0, 10, 1),
 });
 const azar = (a, b) => a + Math.random() * (b - a);
 const sube = (x) => Math.sin(Math.PI * Math.min(1, Math.max(0, x))); // 0 → 1 → 0
 
+// Cada estilo de canción prefiere sus movimientos (si no se sabe el estilo, se elige solo por la energía).
+const PREFERIDOS = { tranquila: ['respira', 'vaiven', 'vaiven', 'mira'], triste: ['respira', 'vaiven', 'respira'], alegre: ['rebote', 'guiño', 'doble', 'rebote'], fuerza: ['cabeceo', 'salto', 'cabeceo', 'rebote'], dembow: ['vaiven', 'guiño', 'vaiven', 'rebote'], drop: null };
 function elegirMovimiento() {
   const e = baile.energia;
-  const opciones = e < 0.3 ? ['respira', 'vaiven', 'mira', 'vaiven'] : e < 0.62 ? ['rebote', 'vaiven', 'guiño', 'mira', 'rebote'] : ['salto', 'doble', 'cabeceo', 'rebote', 'guiño', 'salto'];
+  const porEnergia = e < 0.3 ? ['respira', 'vaiven', 'mira', 'vaiven'] : e < 0.62 ? ['rebote', 'vaiven', 'guiño', 'mira', 'rebote'] : ['salto', 'doble', 'cabeceo', 'rebote', 'guiño', 'salto'];
+  const pref = PREFERIDOS[baile.estilo];
+  const opciones = pref && e > 0.12 ? (e < 0.3 && ['alegre', 'fuerza'].includes(baile.estilo) ? porEnergia : pref) : porEnergia;
   let nuevo = baile.mov;
   for (let i = 0; i < 6 && nuevo === baile.mov; i++) nuevo = opciones[Math.floor(Math.random() * opciones.length)];
   baile.mov = nuevo;
@@ -529,6 +534,18 @@ function blancos(ahora) {
     if (p < 1) { const env = sube(p); t.sq += 0.3 * env; t.sx += 0.08 * env; t.forma -= 0.35 * env; t.brillo += 0.7 * env; } else baile.abrirT = -1;
   }
   t.brillo += baile.pulso * 0.45; // un destello con cada golpe que se oye
+  // La cara según el estilo de la canción (sin perder el ritmo de arriba).
+  t.tapa = 0; t.tilt = 0;
+  const contactoE = Math.exp(-f * 6);
+  switch (baile.estilo) {
+    case 'tranquila': t.tapa = 0.34; t.forma = Math.min(t.forma, 0.2); break;
+    case 'triste': t.tapa = 0.4; t.tilt = 2.4; t.y += 1.6; t.forma = 0; t.brillo *= 0.6; break;
+    case 'alegre': t.forma = Math.max(t.forma, 0.78); break;
+    case 'fuerza': t.sq *= 0.74; t.forma = Math.min(t.forma, 0.15); if (c % 4 === 0) t.ad += 0.32 * contactoE; break;
+    case 'dembow': { const picaro = c % 4 < 2; t.ai *= picaro ? 0.62 : 1.1; t.ad *= picaro ? 1.1 : 0.62; break; }
+    case 'drop': if (baile.abrirT >= 0) t.brillo += 0.3; break;
+    default: if (e < 0.18) t.tapa = 0.22; // sin estilo conocido: con música muy tranquila, ojos con algo de sueño
+  }
   t.forma = limitar(t.forma, 0, 1);
   t.y = limitar(t.y, -8, 5); // sin salirse del notch
   return t;
@@ -557,6 +574,8 @@ function cuadroBaile(marca) {
   ojos.style.setProperty('--ad', limitar(v('ad', t.ad), 0.05, 1.2).toFixed(3));
   ojos.style.setProperty('--forma', limitar(v('forma', t.forma), 0, 1).toFixed(3));
   ojos.style.setProperty('--brillo', limitar(v('brillo', t.brillo), 0, 1.3).toFixed(3));
+  ojos.style.setProperty('--tapa', limitar(v('tapa', t.tapa), 0, 0.6).toFixed(3));
+  ojos.style.setProperty('--tilt', limitar(v('tilt', t.tilt), -4, 4).toFixed(2));
   baile.cuadro = requestAnimationFrame(cuadroBaile);
 }
 
@@ -570,7 +589,7 @@ function pararBaile() {
   if (!baile.activo) return;
   baile.activo = false; cancelAnimationFrame(baile.cuadro);
   notch.classList.remove('baila');
-  for (const p of ['--by', '--bx', '--lean', '--sq', '--sx', '--ai', '--ad', '--forma', '--brillo']) ojos.style.removeProperty(p);
+  for (const p of ['--by', '--bx', '--lean', '--sq', '--sx', '--ai', '--ad', '--forma', '--brillo', '--tapa', '--tilt']) ojos.style.removeProperty(p);
 }
 
 const menosMovimiento = matchMedia('(prefers-reduced-motion: reduce)');
@@ -1035,6 +1054,22 @@ $('widgets').addEventListener('submit', async (e) => {
 $('clip-enviar').addEventListener('click', (e) => enviarUltimoClip(e.currentTarget));
 
 // ---------- Estado ----------
+// ---------- Caras al hablar: el proceso principal manda la de cada frase justo cuando empieza a sonar ----------
+const relojesCara = new Set();
+let finCara = null;
+function ponerCara(c) {
+  clearTimeout(finCara);
+  if (c) { notch.dataset.cara = c; finCara = setTimeout(() => { delete notch.dataset.cara; }, 9000); } else delete notch.dataset.cara;
+}
+jarvis.escuchar('cara', ({ cara, en, dura }) => {
+  if (!cara && !en) { for (const r of relojesCara) clearTimeout(r); relojesCara.clear(); ponerCara(''); return; }
+  const r = setTimeout(() => {
+    relojesCara.delete(r); ponerCara(cara);
+    if (cara && dura) { clearTimeout(finCara); finCara = setTimeout(() => { delete notch.dataset.cara; }, dura); }
+  }, en || 0);
+  relojesCara.add(r);
+});
+
 // ---------- Acceso desde el celular: si alguien ve la pantalla o la cámara, maneja la PC o está con los archivos ----------
 // No importa estar conectado: solo lo que te ve o toca tus cosas. Los ojos cambian de color y queda un cartel fijo.
 const ACCESO = [
@@ -1068,6 +1103,7 @@ jarvis.escuchar('estado', (nuevo) => {
   const anterior = estado;
   estado = nuevo;
   pintarAcceso(nuevo);
+  baile.estilo = (nuevo.musica && nuevo.musica.estilo) || '';
   pintarConexion(nuevo.conexion);
   if (typeof nuevo.pastillaX === 'number') pastillaX = nuevo.pastillaX;
   document.body.className = `${nuevo.orientacion}${nuevo.pegado ? ' pegado' : ''}`;

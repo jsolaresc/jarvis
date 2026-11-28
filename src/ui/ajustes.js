@@ -2138,6 +2138,7 @@ const secciones = {
       campo('Ojos', opacidad('opacidadOjos'), 'Transparencia de los ojos solos.'),
       campo('Todo el notch', opacidad('opacidadNotch'), 'Transparencia general: afecta fondo, ojos y el panel cuando está abierto.'),
       campo('Bailar', [casilla(cfg.apariencia, 'ojosBailan', guardar, true), h('span', {}, 'Bailar al ritmo de la música')], 'Con música sonando y Jarvis sin hacer otra cosa, los ojos se mueven con los graves.'),
+      campo('Caras', [casilla(cfg.apariencia, 'caras', guardar, true), h('span', {}, 'Cambiar de cara según lo que dice')], 'Mientras habla, los ojos acompañan cada frase: contento si es una buena noticia, triste si es mala, sorprendido cuando aprende algo.'),
       campo('Posición', boton('Volver arriba al centro', () => jarvis.enviar('notch:centrar'))),
     ];
   },

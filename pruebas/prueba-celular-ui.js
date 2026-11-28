@@ -87,6 +87,22 @@ async function hasta(fn, ms = 20000, que = '') {
     const ctxPC = pc.contexts()[0];
     const notch = await hasta(() => ctxPC.pages().find((p) => p.url().includes('notch.html')), 20000, 'notch');
     await hasta(() => fetch(`http://127.0.0.1:${PUERTO}/api/hola`).then((r) => r.ok), 20000, 'servidor del celular');
+    // Caras: los mismos ojos cambian de tamaño según lo que dice (cada una distinta de la neutra), y al escuchar se inclinan.
+    const medir = () => notch.evaluate(() => [...document.querySelectorAll('#notch .ojo')].map((o) => { const r = o.getBoundingClientRect(); return `${Math.round(r.width)}x${Math.round(r.height)}`; }).join(' '));
+    const neutra = await medir();
+    for (const cara of ['feliz', 'triste', 'sorprendido', 'esceptico', 'concentrado', 'guino', 'asombro']) {
+      await notch.evaluate((c) => { document.getElementById('notch').dataset.cara = c; }, cara);
+      await new Promise((r) => setTimeout(r, 400));
+      if (cara !== 'feliz' && cara !== 'triste') assert.notStrictEqual(await medir(), neutra, `cara ${cara}`);
+      await notch.screenshot({ path: path.join(SALIDA, `0-cara-${cara}.png`) });
+    }
+    await notch.evaluate(() => { delete document.getElementById('notch').dataset.cara; });
+    await notch.evaluate(() => { document.getElementById('notch').dataset.fase = 'escuchando'; });
+    await new Promise((r) => setTimeout(r, 450));
+    const [izq, der] = (await medir()).split(' ').map((x) => Number(x.split('x')[1]));
+    assert.ok(der > izq + 3, `escuchando: un ojo más abierto (${izq} / ${der})`);
+    await notch.screenshot({ path: path.join(SALIDA, '0-escuchando.png') });
+    await notch.evaluate(() => { document.getElementById('notch').dataset.fase = 'reposo'; });
     await notch.evaluate(() => window.jarvis.pedir('ajustes:abrir', 'celular'));
     const ajustes = await hasta(() => ctxPC.pages().find((p) => p.url().includes('ajustes.html')), 15000, 'Ajustes');
     ajustes.on('console', (m) => { if (m.type() === 'error') errores.push(`ajustes: ${m.text()}`); });

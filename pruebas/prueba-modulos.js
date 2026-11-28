@@ -3226,6 +3226,22 @@ prueba('acceso: marca quién ve la pantalla, la cámara, maneja la PC o está co
   assert.deepStrictEqual(ultimo, {});
 });
 
+prueba('caras: cada frase con la suya, y el estilo de la canción se pregunta una sola vez', async () => {
+  const ex = require('../src/main/expresion');
+  assert.strictEqual(ex.caraDe('Hoy está soleado, 24 grados.'), 'feliz');
+  assert.strictEqual(ex.caraDe('Para mañana está pronosticada lluvia.'), 'triste');
+  assert.strictEqual(ex.caraDe('Aprendí que Mamá es el contacto de tu mamá.'), 'sorprendido');
+  assert.strictEqual(ex.caraDe('Son las cinco y diez.'), '');
+  const partes = ex.frases('Hoy está soleado. Mañana llueve.');
+  assert.strictEqual(partes.length, 2);
+  let preguntas = 0;
+  const preguntar = async () => { preguntas++; return { texto: 'Electrónica.' }; };
+  assert.strictEqual(await ex.estiloDeCancion('Tema de prueba', 'Artista X', preguntar), 'drop');
+  assert.strictEqual(await ex.estiloDeCancion('Tema de prueba', 'Artista X', preguntar), 'drop');
+  assert.strictEqual(preguntas, 1, 'queda guardado');
+  assert.strictEqual(ex.estiloGuardado('Tema de prueba', 'Artista X'), 'drop');
+});
+
 prueba('Información: versión, fecha del release y tamaño en disco', async () => {
   const informacion = require('../src/main/informacion');
   const i = informacion.leer();

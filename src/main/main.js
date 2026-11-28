@@ -45,6 +45,7 @@ const disparadores = require('./disparadores');
 const remoto = require('./remoto');
 const escritorio = require('./escritorio');
 const acceso = require('./acceso');
+const expresion = require('./expresion');
 acceso.configurar({ alCambiar: () => { try { publicarEstado(); } catch {} if (ajustes && !ajustes.isDestroyed()) ajustes.webContents.send('acceso', acceso.resumen()); } });
 const descargas = require('./descargas');
 
@@ -90,6 +91,17 @@ function mantenerDespierta(sonando) {
   if (quiere && bloqueoDePantalla === null) { try { bloqueoDePantalla = powerSaveBlocker.start('prevent-display-sleep'); } catch {} }
   else if (!quiere && bloqueoDePantalla !== null) { try { powerSaveBlocker.stop(bloqueoDePantalla); } catch {} bloqueoDePantalla = null; }
 }
+// Cómo bailan los ojos con esta canción (alegre, triste, tranquila…): se le pregunta una vez a la inteligencia y queda guardado.
+const estilosPedidos = new Set();
+function estiloDeLoQueSuena(mu, c) {
+  if (!mu || !mu.cancion) return;
+  mu.estilo = expresion.estiloGuardado(mu.cancion, mu.artista);
+  if (mu.estilo || !mu.sonando || (c.apariencia || {}).ojosBailan === false) return;
+  const k = `${mu.artista}|${mu.cancion}`;
+  if (estilosPedidos.has(k)) return;
+  estilosPedidos.add(k);
+  expresion.estiloDeCancion(mu.cancion, mu.artista, (m) => pensar.preguntar(m)).then((e) => { if (e) publicarEstado(); }).catch(() => {});
+}
 function publicarEstado() {
   const c = leerConfig();
   estado.modo = c.modo;
@@ -98,6 +110,7 @@ function publicarEstado() {
   estado.avisos = notificaciones.resumen().slice(0, 12);
   estado.puntoDeAvisos = c.notificaciones.estilo !== 'burbuja';
   estado.musica = musica.estado();
+  estiloDeLoQueSuena(estado.musica, c);
   mantenerDespierta(estado.musica.sonando);
   oido.modoMusica(estado.musica.sonando); // con música sonando, "Hey Jarvis" se busca de otra manera
   estado.clips = clips.estado();
@@ -1628,6 +1641,8 @@ app.whenReady().then(async () => {
     salida: (pcm, hz) => { if (notch && !enSilencio()) notch.webContents.send('voz:salida', pcm, hz); },
     cortar: () => { if (notch) notch.webContents.send('voz:cortar'); },
     texto: (quien, texto) => { if (notch) notch.webContents.send('texto', { quien, texto }); },
+    // La cara de lo que dice: arranca en "en" ms (cuando esa frase empieza a sonar); "dura" 0 = hasta la próxima.
+    cara: (cara, en = 0, dura = 0) => { if (notch && !notch.isDestroyed()) notch.webContents.send('cara', { cara: cara || '', en: Math.max(0, en), dura }); },
     modo: () => leerConfig().modo,
     vozDeWindows,
     programas,

@@ -30,7 +30,7 @@ const CONFIG_DEFECTO = {
   modo: 'normal', // normal | silencio | oculto | dormido
   inicioConWindows: true,
   atajoHablar: 'Control+Alt+J',
-  apariencia: { colorOjos: '#8BE9FF', colorFondo: '#000000', escala: 1, opacidadFondo: 1, opacidadOjos: 1, opacidadNotch: 1, ojosBailan: true },
+  apariencia: { colorOjos: '#8BE9FF', colorFondo: '#000000', escala: 1, opacidadFondo: 1, opacidadOjos: 1, opacidadNotch: 1, ojosBailan: true, caras: true },
   ancla: null, // posición de la pastilla en pantalla; null = arriba al centro
   // Escuchar: en esta PC (gratis, sin límites) o con el Whisper gratuito de Groq (si hay clave).
   // seguir: después de contestar, ¿se queda escuchando? 'pregunta' (solo si Jarvis preguntó algo) | 'siempre' | 'nunca'.

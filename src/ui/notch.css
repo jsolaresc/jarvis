@@ -118,7 +118,10 @@ body.pegado.abajo #notch.abierto { border-radius: 0 0 26px 26px; }
   transition: background 0.2s, opacity 0.2s;
 }
 .ojos.parpadeo .ojo { transform: scaleY(0.08); }
-#notch[data-fase="escuchando"] .ojo { height: 22px; width: 13px; }
+/* Escuchando: "abre el oído". Se inclina hacia un costado y un ojo se abre más que el otro, prestando atención. */
+#notch[data-fase="escuchando"] .ojos { rotate: -9deg; translate: 4px -1px; transition: transform 0.14s ease-out, rotate 0.35s var(--curva), translate 0.35s var(--curva); }
+#notch[data-fase="escuchando"] .ojo:first-child { height: 17px; width: 13px; }
+#notch[data-fase="escuchando"] .ojo:last-child { height: 24px; width: 15px; border-radius: 7px; }
 #notch[data-fase="pensando"] .ojo { height: 13px; }
 #notch[data-fase="pensando"] .ojos { animation: pensar 1.6s ease-in-out infinite; }
 @keyframes pensar { 0%, 100% { transform: translate(-5px, -3px); } 50% { transform: translate(5px, -3px); } }
@@ -480,3 +483,38 @@ button.tile-info:hover { background: var(--tarjeta-encima); }
 .acc-fila small { font-size: 12px; color: var(--tenue); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 @media (prefers-reduced-motion: reduce) { .acc-punto { animation: none; } }
 @media (forced-colors: active) { #notch[data-vigilado] { border: 2px solid Highlight; } #acceso { color: Highlight; } }
+
+/* ---------- Caras: lo que siente Jarvis según lo que dice (frase por frase) ----------
+   Los mismos ojos: cambian de tamaño, se inclinan y se "recortan" con un párpado (clip-path) o se vuelven arcos (máscara).
+   Con recortes, el brillo pasa al grupo (si quedara en cada ojo, el recorte también le cortaría el brillo). */
+.ojo { clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%); }
+.ojos { transition: transform 0.14s ease-out, rotate 0.35s var(--curva), translate 0.35s var(--curva); }
+#notch[data-cara] .ojo { transition: height 0.22s var(--curva), width 0.22s var(--curva), border-radius 0.22s, clip-path 0.22s var(--curva), translate 0.22s var(--curva), rotate 0.22s var(--curva), transform 0.09s, background 0.2s; }
+#notch[data-cara]:not([data-fase="escuchando"]):not([data-fase="pensando"]):not([data-fase="error"]) .ojos { filter: drop-shadow(0 0 7px color-mix(in srgb, var(--ojo) 60%, transparent)); }
+#notch[data-cara]:not([data-fase="escuchando"]):not([data-fase="pensando"]):not([data-fase="error"]) .ojo { box-shadow: none; }
+#notch[data-cara="feliz"]:not([data-fase="escuchando"]):not([data-fase="pensando"]) .ojo { width: 14px; height: 17px; border-radius: 7px; translate: 0 -1px;
+  -webkit-mask-image: radial-gradient(ellipse 100% 62% at 50% 112%, transparent 97%, #000 100%); mask-image: radial-gradient(ellipse 100% 62% at 50% 112%, transparent 97%, #000 100%); }
+#notch[data-cara="contento"]:not([data-fase="escuchando"]):not([data-fase="pensando"]) .ojos { rotate: -3deg; }
+#notch[data-cara="contento"]:not([data-fase="escuchando"]):not([data-fase="pensando"]) .ojo:first-child { width: 14px; height: 17px; border-radius: 7px; rotate: -8deg;
+  -webkit-mask-image: radial-gradient(ellipse 100% 62% at 50% 112%, transparent 97%, #000 100%); mask-image: radial-gradient(ellipse 100% 62% at 50% 112%, transparent 97%, #000 100%); }
+#notch[data-cara="triste"]:not([data-fase="escuchando"]):not([data-fase="pensando"]) .ojo { height: 15px; translate: 0 2px; }
+#notch[data-cara="triste"]:not([data-fase="escuchando"]):not([data-fase="pensando"]) .ojo:first-child { clip-path: polygon(0 57%, 100% 33%, 100% 100%, 0 100%); }
+#notch[data-cara="triste"]:not([data-fase="escuchando"]):not([data-fase="pensando"]) .ojo:last-child { clip-path: polygon(0 33%, 100% 57%, 100% 100%, 0 100%); }
+#notch[data-cara="sorprendido"]:not([data-fase="escuchando"]):not([data-fase="pensando"]) .ojo { width: 16px; height: 23px; border-radius: 8px; }
+#notch[data-cara="sorprendido"]:not([data-fase="escuchando"]):not([data-fase="pensando"]) .ojos { animation: salto 0.45s var(--curva); }
+#notch[data-cara="esceptico"]:not([data-fase="escuchando"]):not([data-fase="pensando"]) .ojos { rotate: 3deg; }
+#notch[data-cara="esceptico"]:not([data-fase="escuchando"]):not([data-fase="pensando"]) .ojo:first-child { height: 10px; border-radius: 5px; translate: 0 4px; clip-path: polygon(0 18%, 100% 32%, 100% 100%, 0 100%); }
+#notch[data-cara="esceptico"]:not([data-fase="escuchando"]):not([data-fase="pensando"]) .ojo:last-child { width: 14px; height: 22px; border-radius: 7px; translate: 0 -1px; }
+#notch[data-cara="preocupado"]:not([data-fase="escuchando"]):not([data-fase="pensando"]) .ojo { width: 13px; }
+#notch[data-cara="preocupado"]:not([data-fase="escuchando"]):not([data-fase="pensando"]) .ojo:first-child { translate: 1px 0; clip-path: polygon(0 42%, 100% 14%, 100% 100%, 0 100%); }
+#notch[data-cara="preocupado"]:not([data-fase="escuchando"]):not([data-fase="pensando"]) .ojo:last-child { translate: -1px 0; clip-path: polygon(0 14%, 100% 42%, 100% 100%, 0 100%); }
+#notch[data-cara="concentrado"]:not([data-fase="escuchando"]):not([data-fase="pensando"]) .ojo { width: 13px; height: 9px; border-radius: 4.5px; }
+#notch[data-cara="guino"]:not([data-fase="escuchando"]):not([data-fase="pensando"]) .ojo:first-child { width: 13px; height: 5px; border-radius: 2.5px; translate: 0 2px; }
+#notch[data-cara="sueno"]:not([data-fase="escuchando"]):not([data-fase="pensando"]) .ojo { translate: 0 2px; clip-path: polygon(0 60%, 100% 60%, 100% 100%, 0 100%); }
+#notch[data-cara="asombro"]:not([data-fase="escuchando"]):not([data-fase="pensando"]) .ojo { width: 16px; height: 24px; border-radius: 8px; }
+#notch[data-cara="asombro"]:not([data-fase="escuchando"]):not([data-fase="pensando"]) .ojos { filter: drop-shadow(0 0 12px color-mix(in srgb, var(--ojo) 90%, transparent)); }
+
+/* Bailando: según el estilo de la canción, un párpado (--tapa, 0 a 1) que puede caer hacia afuera (--tilt, en px). */
+#notch.baila[data-fase="reposo"] .ojo:first-child { clip-path: polygon(0 calc(var(--tapa, 0) * 100% + var(--tilt, 0) * 1px), 100% calc(var(--tapa, 0) * 100% - var(--tilt, 0) * 1px), 100% 100%, 0 100%); }
+#notch.baila[data-fase="reposo"] .ojo:last-child { clip-path: polygon(0 calc(var(--tapa, 0) * 100% - var(--tilt, 0) * 1px), 100% calc(var(--tapa, 0) * 100% + var(--tilt, 0) * 1px), 100% 100%, 0 100%); }
+@media (prefers-reduced-motion: reduce) { #notch[data-cara="sorprendido"] .ojos { animation: none; } }

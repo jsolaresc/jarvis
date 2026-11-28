@@ -23,7 +23,9 @@ const calendario = require('./calendario');
 
 // main.js completa esto: { estado(fase, texto), salida(pcm, hz), cortar(), texto(quien, texto),
 //   modo(), vozDeWindows(texto) -> Promise, programas() -> [nombres] }
-const puente = { programas: () => [], vozDeWindows: async () => {} };
+const puente = { programas: () => [], vozDeWindows: async () => {}, cara: () => {} };
+const expresion = require('./expresion');
+let caraForzada = ''; // la próxima frase que diga sale con esta cara (por ejemplo, "sorprendido" cuando aprende algo)
 function configurar(funciones) { Object.assign(puente, funciones); }
 
 const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -189,32 +191,47 @@ let finAudio = 0; // momento en que termina de sonar lo que ya se mandó al parl
 // instalada (o falla), usa la de Windows. Sirve para las respuestas y para rutinas y recordatorios.
 async function hablar(texto) {
   const limpio = paraDecir(texto);
-  if (!limpio || !habla()) return;
+  const forzada = caraForzada; caraForzada = '';
+  if (!limpio || !habla()) { if (limpio) puente.cara(forzada || expresion.caraDe(limpio), 0, 4000); return; }
   const c = leerConfig();
   const turno = ++turnoDeVoz;
   const idVoz = modelos.idDeVoz(c.habla.voz);
+  const conCaras = (c.apariencia || {}).caras !== false;
   if (idVoz && modelos.instalado(idVoz)) {
     try {
       finAudio = 0;
-      await oido.decir(limpio, c.habla.voz, c.habla.velocidad, (pcm, hz) => {
+      // Frase por frase: cada una con su cara, que cambia justo cuando esa frase empieza a sonar.
+      const partes = conCaras ? expresion.frases(limpio) : [limpio];
+      for (const [i, frase] of partes.entries()) {
         if (turno !== turnoDeVoz) return;
-        const enteros = muestras(pcm);
-        finAudio = Math.max(Date.now(), finAudio) + (enteros.length / hz) * 1000;
-        puente.salida(Buffer.from(enteros.buffer, enteros.byteOffset, enteros.byteLength), hz);
-      });
+        const cara = conCaras ? (i === 0 && forzada) || expresion.caraDe(frase) : '';
+        let primera = true;
+        await oido.decir(frase, c.habla.voz, c.habla.velocidad, (pcm, hz) => {
+          if (turno !== turnoDeVoz) return;
+          const enteros = muestras(pcm);
+          const empieza = Math.max(Date.now(), finAudio);
+          if (primera) { primera = false; puente.cara(cara, empieza - Date.now()); }
+          finAudio = empieza + (enteros.length / hz) * 1000;
+          puente.salida(Buffer.from(enteros.buffer, enteros.byteOffset, enteros.byteLength), hz);
+        });
+      }
       // Un cachito más después de la última palabra, para no escucharse a sí mismo al volver a prestar atención.
       while (turno === turnoDeVoz && Date.now() < finAudio + 250) await esperar(60);
+      if (turno === turnoDeVoz && conCaras) puente.cara('', 0);
       return;
     } catch (e) {
       console.error('[voz]', e.message);
       if (turno !== turnoDeVoz) return;
     }
   }
+  if (conCaras) puente.cara(forzada || expresion.caraDe(limpio), 0, 0);
   await puente.vozDeWindows(limpio);
+  if (conCaras && turno === turnoDeVoz) puente.cara('', 0);
 }
 
 function callar() {
   turnoDeVoz++;
+  puente.cara('', 0);
   finAudio = 0;
   oido.callar();
   puente.cortar();
@@ -408,7 +425,7 @@ async function resolverPendiente(dicho, s) {
     const { nombre, args } = p.herramienta;
     let texto;
     try { texto = String(await usar(nombre, args, s, true)); } catch (e) { return { texto: `No pude: ${e.message}` }; }
-    if (p.dicho && aprendido.aprender(p.dicho, nombre, args)) historial.anotar('Aprendí la frase: la próxima vez lo hago sin preguntar.');
+    if (p.dicho && aprendido.aprender(p.dicho, nombre, args)) { historial.anotar('Aprendí la frase: la próxima vez lo hago sin preguntar.'); caraForzada = 'sorprendido'; }
     return { texto, terminar: !!s.terminar };
   }
   const { confirmar, ...directo } = p.directo;
