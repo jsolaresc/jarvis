@@ -1038,10 +1038,10 @@ $('clip-enviar').addEventListener('click', (e) => enviarUltimoClip(e.currentTarg
 // ---------- Acceso desde el celular: si alguien ve la pantalla o la cámara, maneja la PC o está con los archivos ----------
 // No importa estar conectado: solo lo que te ve o toca tus cosas. Los ojos cambian de color y queda un cartel fijo.
 const ACCESO = [
-  ['camara', 'Te ven por la cámara', 'Viendo la cámara', 'camara', 'rojo'],
-  ['pantalla', 'Ven tu pantalla', 'Viendo la pantalla', 'tele', 'rojo'],
-  ['control', 'Manejan tu PC', 'Manejando el mouse y el teclado', 'pc', 'ambar'],
-  ['archivos', 'Con tus archivos', 'Viendo, bajando o subiendo archivos', 'carpeta', 'ambar'],
+  ['camara', 'Cámara activa', 'Viendo la cámara', 'camara', 'ambar'],
+  ['pantalla', 'Remoto activo', 'Viendo la pantalla', 'tele', 'ambar'],
+  ['control', 'Remoto activo', 'Manejando el mouse y el teclado', 'pc', 'ambar'],
+  ['archivos', 'Remoto activo', 'Con los archivos', 'carpeta', 'ambar'],
 ];
 function pintarAcceso(e) {
   const a = e.acceso || {};
@@ -1053,7 +1053,8 @@ function pintarAcceso(e) {
   $('w-acceso').hidden = !principal;
   if (!principal) { pintarAcceso.ultimo = ''; return; }
   const quienes = (k) => (a[k] || []).join(', ');
-  $('acceso-texto').textContent = hay.length > 1 ? `${principal[1]} +${hay.length - 1}` : principal[1];
+  const cortos = [...new Set(hay.map((x) => x[1]))];
+  $('acceso-texto').textContent = cortos.length > 1 ? `${cortos[0]} +${cortos.length - 1}` : cortos[0];
   $('acceso').title = hay.map(([k, , largo]) => `${largo}: ${quienes(k)}`).join('\n');
   $('acceso-lista').innerHTML = hay.map(([k, , largo, ic, tono]) => `<div class="acc-fila ${tono}">${icono(ic, 16)}<span><b>${escapar(largo)}</b><small>${escapar(quienes(k))}</small></span></div>`).join('');
   $('acceso-cortar').hidden = !hay.some(([k]) => k === 'pantalla' || k === 'camara');

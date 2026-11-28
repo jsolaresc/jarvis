@@ -315,7 +315,7 @@ async function hasta(fn, ms = 20000, que = '') {
     await hasta(() => p.evaluate(() => { const v = document.querySelector('#cam-video-el'); return v.buffered.length && v.buffered.end(0) > 1 && v.videoWidth > 0; }), 15000, 'llegan cuadros de video');
     await p.screenshot({ path: path.join(SALIDA, '8c-celular-camara.png') });
     // En la PC, los ojos del notch se ponen rojos y queda el cartel mientras alguien mira la cámara.
-    await hasta(() => notch.evaluate(() => { const n = document.getElementById('notch'); return n.hasAttribute('data-vigilado') && n.dataset.vigia === 'rojo' && /cámara/.test(document.getElementById('acceso-texto').textContent); }), 5000, 'notch: te ven por la cámara');
+    await hasta(() => notch.evaluate(() => { const n = document.getElementById('notch'); return n.hasAttribute('data-vigilado') && /Cámara activa/.test(document.getElementById('acceso-texto').textContent); }), 5000, 'notch: cámara activa');
     await notch.screenshot({ path: path.join(SALIDA, '8d-pc-notch-camara.png') });
     const histCam = (await notch.evaluate(() => window.jarvis.pedir('historial:leer'))).dato;
     assert.ok(histCam.some((x) => /mirando la cámara de seguridad/.test(`${x.dicho} ${x.respuesta}`)), 'queda en el Historial de la PC');

@@ -460,29 +460,23 @@ button.tile-info:hover { background: var(--tarjeta-encima); }
 .pc-fila i.medio::after { background: #ffc857; } .pc-fila i.alto::after { background: #ff6b6b; }
 .pc-fila.jarvis { grid-template-columns: 34px 1fr; }
 
-/* ---------- Acceso desde el celular: alguien te ve o toca tus cosas ----------
-   Rojo: pueden verte (pantalla o cámara). Ámbar: manejan la PC o están con los archivos.
-   Los ojos toman el color y hay un borde que late, más un cartel fijo al lado de los ojos. */
-#notch[data-vigia="rojo"] { --vigia: #FF4D5E; }
-#notch[data-vigia="ambar"] { --vigia: #FFB547; }
-#notch[data-vigilado] { width: 280px; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35), inset 0 0 0 1.5px var(--vigia); animation: latidoVigia 2s ease-in-out infinite; }
+/* ---------- Acceso desde el celular: alguien ve la cámara o la pantalla, maneja la PC o está con los archivos ----------
+   Es un aviso, no un error: un borde ámbar cálido y un cartel corto al lado; los ojos quedan como siempre. */
+#notch[data-vigilado] { --vigia: #FFC46B; width: 280px; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35), inset 0 0 0 1px color-mix(in srgb, var(--vigia) 55%, transparent); }
 #notch[data-vigilado].abierto { width: 360px; }
-@keyframes latidoVigia { 0%, 100% { box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35), inset 0 0 0 1.5px var(--vigia); } 50% { box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35), 0 0 14px 1px color-mix(in srgb, var(--vigia) 55%, transparent), inset 0 0 0 1.5px var(--vigia); } }
-#notch[data-vigilado]:not([data-fase="error"]) .ojo { background: var(--vigia); box-shadow: 0 0 12px color-mix(in srgb, var(--vigia) 70%, transparent); }
-#notch[data-vigilado][data-fase="reposo"] .ojo { height: 15px; width: 15px; border-radius: 50%; }
 #acceso { display: inline-flex; align-items: center; gap: 7px; flex: none; min-width: 0; max-width: 170px; font-size: 12.5px; font-weight: 600; color: var(--vigia); white-space: nowrap; }
 #acceso-texto { overflow: hidden; text-overflow: ellipsis; }
-.acc-punto { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--vigia); animation: puntoVigia 1.2s ease-in-out infinite; }
-@keyframes puntoVigia { 50% { opacity: .35; } }
+.acc-punto { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--vigia); animation: puntoVigia 2.4s ease-in-out infinite; }
+@keyframes puntoVigia { 50% { opacity: .45; } }
 #notch.activo #acceso-texto { display: none; }
-#w-acceso { grid-column: 1 / -1; order: -1; margin-bottom: 10px; padding: 10px 12px; border-radius: 14px; background: color-mix(in srgb, var(--vigia, #FF4D5E) 14%, transparent); border: 1px solid color-mix(in srgb, var(--vigia, #FF4D5E) 45%, transparent); }
+#w-acceso { --vigia: #FFC46B; grid-column: 1 / -1; order: -1; margin-bottom: 10px; padding: 10px 12px; border-radius: 14px; background: color-mix(in srgb, var(--vigia) 12%, transparent); border: 1px solid color-mix(in srgb, var(--vigia) 35%, transparent); }
 #w-acceso .titulo { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; font-weight: 600; font-size: 13px; }
-#acceso-cortar { padding: 4px 12px; border-radius: 999px; background: #FF4D5E; color: #fff; font-size: 12.5px; font-weight: 700; }
+#acceso-cortar { padding: 4px 12px; border-radius: 999px; background: var(--vigia); color: #241703; font-size: 12.5px; font-weight: 700; }
 .acc-fila { display: flex; align-items: center; gap: 10px; padding: 4px 0; }
 .acc-fila svg { flex: none; }
-.acc-fila.rojo svg { color: #FF4D5E; } .acc-fila.ambar svg { color: #FFB547; }
+.acc-fila svg { color: var(--vigia); }
 .acc-fila span { display: grid; min-width: 0; }
 .acc-fila b { font-size: 13px; font-weight: 600; }
 .acc-fila small { font-size: 12px; color: var(--tenue); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-@media (prefers-reduced-motion: reduce) { #notch[data-vigilado], .acc-punto { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .acc-punto { animation: none; } }
 @media (forced-colors: active) { #notch[data-vigilado] { border: 2px solid Highlight; } #acceso { color: Highlight; } }
