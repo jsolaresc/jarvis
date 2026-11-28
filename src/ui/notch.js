@@ -1035,9 +1035,38 @@ $('widgets').addEventListener('submit', async (e) => {
 $('clip-enviar').addEventListener('click', (e) => enviarUltimoClip(e.currentTarget));
 
 // ---------- Estado ----------
+// ---------- Acceso desde el celular: si alguien ve la pantalla o la cámara, maneja la PC o está con los archivos ----------
+// No importa estar conectado: solo lo que te ve o toca tus cosas. Los ojos cambian de color y queda un cartel fijo.
+const ACCESO = [
+  ['camara', 'Te ven por la cámara', 'Viendo la cámara', 'camara', 'rojo'],
+  ['pantalla', 'Ven tu pantalla', 'Viendo la pantalla', 'tele', 'rojo'],
+  ['control', 'Manejan tu PC', 'Manejando el mouse y el teclado', 'pc', 'ambar'],
+  ['archivos', 'Con tus archivos', 'Viendo, bajando o subiendo archivos', 'carpeta', 'ambar'],
+];
+function pintarAcceso(e) {
+  const a = e.acceso || {};
+  const hay = ACCESO.filter(([k]) => (a[k] || []).length);
+  const principal = hay[0];
+  notch.toggleAttribute('data-vigilado', !!principal);
+  notch.dataset.vigia = principal ? principal[4] : '';
+  $('acceso').hidden = !principal;
+  $('w-acceso').hidden = !principal;
+  if (!principal) { pintarAcceso.ultimo = ''; return; }
+  const quienes = (k) => (a[k] || []).join(', ');
+  $('acceso-texto').textContent = hay.length > 1 ? `${principal[1]} +${hay.length - 1}` : principal[1];
+  $('acceso').title = hay.map(([k, , largo]) => `${largo}: ${quienes(k)}`).join('\n');
+  $('acceso-lista').innerHTML = hay.map(([k, , largo, ic, tono]) => `<div class="acc-fila ${tono}">${icono(ic, 16)}<span><b>${escapar(largo)}</b><small>${escapar(quienes(k))}</small></span></div>`).join('');
+  $('acceso-cortar').hidden = !hay.some(([k]) => k === 'pantalla' || k === 'camara');
+  const anuncio = hay.map(([k, , largo]) => `${largo} (${quienes(k)})`).join('. ');
+  if (anuncio !== pintarAcceso.ultimo) $('anuncio').textContent = anuncio;
+  pintarAcceso.ultimo = anuncio;
+}
+$('acceso-cortar').addEventListener('click', async (ev) => { ev.stopPropagation(); try { await jarvis.pedir('acceso:cortar'); } catch {} });
+
 jarvis.escuchar('estado', (nuevo) => {
   const anterior = estado;
   estado = nuevo;
+  pintarAcceso(nuevo);
   pintarConexion(nuevo.conexion);
   if (typeof nuevo.pastillaX === 'number') pastillaX = nuevo.pastillaX;
   document.body.className = `${nuevo.orientacion}${nuevo.pegado ? ' pegado' : ''}`;

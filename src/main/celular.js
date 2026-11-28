@@ -67,6 +67,7 @@ const puente = {
   avisos: () => [], // lo que el celular tiene que avisar: [{ id, cuando, titulo, texto, tipo }] (si el usuario lo quiere ahí)
   anotar: () => {}, // (texto, { error }) al Historial
   cambio: () => {}, // avisa a Ajustes que cambió la lista de aparatos o el código
+  acceso: () => () => {}, // (tipo, quien) marca que el celular está con los archivos (para los ojos del notch); devuelve con qué terminar
 };
 function configurar(funciones) { Object.assign(puente, funciones); }
 
@@ -363,7 +364,11 @@ async function atender(req, res, { casa = false } = {}) {
     if (m && (metodo === 'GET' || metodo === 'HEAD')) {
       const e = enlace(m[2]);
       if (!e || !leer().dispositivos.some((d) => d.id === e.id)) { if (frenar()) { res.writeHead(429, SEGURIDAD); res.end(); return; } res.writeHead(404, SEGURIDAD); res.end(); return; }
-      if (m[1] === 'archivo') { servirArchivo(req, res, e.archivo, { 'Cache-Control': 'private, max-age=3600' }); return; }
+      if (m[1] === 'archivo') {
+        const disp = leer().dispositivos.find((d) => d.id === e.id);
+        res.once('close', puente.acceso('archivos', disp && disp.nombre));
+        servirArchivo(req, res, e.archivo, { 'Cache-Control': 'private, max-age=3600' }); return;
+      }
       const dato = String(await puente.miniatura(e.archivo) || '');
       const b64 = /^data:image\/jpeg;base64,(.+)$/.exec(dato);
       if (!b64) { res.writeHead(404, SEGURIDAD); res.end(); return; }
@@ -376,6 +381,8 @@ async function atender(req, res, { casa = false } = {}) {
     const yo = quien(tokenDe(req));
     if (!yo) { if (frenar()) throw conCodigo(429, 'Demasiados intentos. Esperá un minuto.'); throw conCodigo(401, 'Este celular no está vinculado (o lo desvinculaste desde la PC).'); }
     marcarUso(yo.id);
+    // Lo que toca archivos (ver la lista, bajar, subir, mandar) se marca mientras dura, para que la PC lo muestre.
+    if (ruta.startsWith('/api/pc-archivos') || (ruta === '/api/archivos' && metodo === 'GET') || ruta === '/api/subir' || ruta === '/api/archivos/enviar' || ruta === '/api/clips/enviar') res.once('close', puente.acceso('archivos', yo.nombre));
 
     if (ruta === '/api/estado' && metodo === 'GET') { json(res, 200, { ...puente.estado(), yo: { id: yo.id, nombre: yo.nombre }, novedad: numero }); return; }
     if (ruta === '/api/novedades' && metodo === 'GET') {

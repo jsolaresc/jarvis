@@ -72,6 +72,7 @@ function terminar(motivo = '') {
   const a = actual;
   actual = null;
   if (!a) return;
+  if (a.cerrarAcceso) a.cerrarAcceso();
   clearInterval(a.cursor);
   if (ventana && !ventana.isDestroyed()) ventana.webContents.send('escritorio:cortar', a.id);
   if (a.empezo) avisar(`${a.quien} dejó de ver tu pantalla${motivo ? ` (${motivo})` : ''}.`, 0);
@@ -111,7 +112,7 @@ function control(o = {}) {
   };
   if (o.t === 'pantalla') { cambiarPantalla(o.n); return; }
   const f = ordenes[o.t];
-  if (f) hacerRemoto(f()).catch(() => {});
+  if (f) { require('./acceso').pulso('control', actual.quien, 6000); hacerRemoto(f()).catch(() => {}); }
 }
 
 // Cambiar de pantalla sin cortar: se vuelve a pedir la captura y se reemplaza la pista de video.
@@ -127,6 +128,7 @@ ipcMain.on('escritorio:respuesta', (_e, id, r) => { const w = esperando.get(id);
 ipcMain.on('escritorio:conectado', (_e, id) => {
   if (!actual || actual.id !== id) return;
   actual.empezo = true;
+  actual.cerrarAcceso = require('./acceso').abrir('pantalla', actual.quien);
   seguirCursor(actual);
   avisar(`${actual.quien} está viendo tu pantalla.`, 1);
 });

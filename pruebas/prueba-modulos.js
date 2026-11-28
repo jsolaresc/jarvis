@@ -3212,6 +3212,20 @@ prueba('lo elegido en el instalador (nombre, componentes, inicio) se aplica una 
   } finally { config.guardarConfig(antes); try { fs.rmSync(`${archivo}.aplicado`, { force: true }); } catch {} }
 });
 
+prueba('acceso: marca quién ve la pantalla, la cámara, maneja la PC o está con los archivos', async () => {
+  const acceso = require('../src/main/acceso');
+  let ultimo = null; acceso.configurar({ alCambiar: (r) => { ultimo = r; } });
+  const fin = acceso.abrir('pantalla', 'Moto');
+  acceso.pulso('control', 'Moto', 120);
+  acceso.pulso('control', 'Moto', 120); // repetido: un solo registro
+  await new Promise((r) => setTimeout(r, 60));
+  assert.deepStrictEqual(ultimo, { pantalla: ['Moto'], control: ['Moto'] });
+  fin(); fin();
+  await new Promise((r) => setTimeout(r, 200));
+  assert.deepStrictEqual(acceso.resumen(), {});
+  assert.deepStrictEqual(ultimo, {});
+});
+
 prueba('Información: versión, fecha del release y tamaño en disco', async () => {
   const informacion = require('../src/main/informacion');
   const i = informacion.leer();

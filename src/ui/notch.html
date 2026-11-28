@@ -13,12 +13,17 @@
         <span id="sinred" aria-hidden="true"></span>
         <div class="ojos" id="ojos"><i class="ojo"></i><i class="ojo"></i></div>
         <div id="leyenda"></div>
+        <span id="acceso" hidden><i class="acc-punto"></i><span id="acceso-texto"></span></span>
         <i id="punto" aria-hidden="true"></i>
         <button type="button" id="ajustes" title="Abrir Jarvis (notas, clips, calendario y ajustes)" aria-label="Abrir la ventana de Jarvis"></button>
       </div>
       <div id="panel">
         <div id="panel-in">
           <div class="contenido" id="widgets">
+            <section id="w-acceso" hidden aria-live="polite">
+              <div class="titulo"><span>Desde el celular</span><button type="button" id="acceso-cortar">Cortar</button></div>
+              <div id="acceso-lista"></div>
+            </section>
             <div id="aviso" hidden>
               <span id="aviso-texto">Para escucharte, Jarvis baja una vez sus modelos de voz.</span>
               <button type="button" id="configurar">Bajar</button>

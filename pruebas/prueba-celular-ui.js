@@ -314,6 +314,9 @@ async function hasta(fn, ms = 20000, que = '') {
     await hasta(() => p.locator('#cam-estado.vivo').count(), 25000, `cámara en vivo (${await p.textContent('#cam-estado')})`);
     await hasta(() => p.evaluate(() => { const v = document.querySelector('#cam-video-el'); return v.buffered.length && v.buffered.end(0) > 1 && v.videoWidth > 0; }), 15000, 'llegan cuadros de video');
     await p.screenshot({ path: path.join(SALIDA, '8c-celular-camara.png') });
+    // En la PC, los ojos del notch se ponen rojos y queda el cartel mientras alguien mira la cámara.
+    await hasta(() => notch.evaluate(() => { const n = document.getElementById('notch'); return n.hasAttribute('data-vigilado') && n.dataset.vigia === 'rojo' && /cámara/.test(document.getElementById('acceso-texto').textContent); }), 5000, 'notch: te ven por la cámara');
+    await notch.screenshot({ path: path.join(SALIDA, '8d-pc-notch-camara.png') });
     const histCam = (await notch.evaluate(() => window.jarvis.pedir('historial:leer'))).dato;
     assert.ok(histCam.some((x) => /mirando la cámara de seguridad/.test(`${x.dicho} ${x.respuesta}`)), 'queda en el Historial de la PC');
     await p.click('#cam-cerrar');
@@ -636,6 +639,7 @@ async function hasta(fn, ms = 20000, que = '') {
     await hasta(() => pA.evaluate(() => { const v = document.querySelector('#esc-video'); return v && v.videoWidth > 0 && !v.paused; }), 30000, 'android: se ve la pantalla de la PC');
     await esperar(800);
     await pA.screenshot({ path: path.join(SALIDA, '25b-android-escritorio.png') });
+    await hasta(() => notch.evaluate(() => document.getElementById('notch').hasAttribute('data-vigilado') && /pantalla/.test(document.getElementById('acceso-lista').textContent)), 5000, 'notch: ven tu pantalla');
     const lienzo = await pA.locator('#esc-lienzo').boundingBox();
     await pA.mouse.click(lienzo.x + lienzo.width / 2, lienzo.y + lienzo.height / 2);
     await hasta(() => /mouse_event\(2, 0/.test(fs.readFileSync(REMOTO_LOG, 'utf8')), 5000, 'clic desde el escritorio remoto');
@@ -662,6 +666,7 @@ async function hasta(fn, ms = 20000, que = '') {
     await pA.click('.opciones-lista button:has-text("Fotos")');
     assert.deepStrictEqual((await pA.locator('#lista-pcc li .datos b').allTextContents()).sort(), ['captura.png', 'foto del celu.jpg'], 'filtro Fotos');
     await pA.click('#pcc-activos .ficha-activa:has-text("Fotos")');
+    assert.ok(await notch.evaluate(() => /archivos/i.test(document.getElementById('acceso-lista').textContent)), 'notch: con tus archivos');
     await pA.click('#pcc-lupa');
     await pA.fill('#pcc-buscar', 'presu');
     assert.deepStrictEqual(await pA.locator('#lista-pcc li .datos b').allTextContents(), ['presupuesto.pdf'], 'búsqueda');

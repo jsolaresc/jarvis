@@ -44,6 +44,8 @@ const estadopc = require('./estadopc');
 const disparadores = require('./disparadores');
 const remoto = require('./remoto');
 const escritorio = require('./escritorio');
+const acceso = require('./acceso');
+acceso.configurar({ alCambiar: () => { try { publicarEstado(); } catch {} if (ajustes && !ajustes.isDestroyed()) ajustes.webContents.send('acceso', acceso.resumen()); } });
 const descargas = require('./descargas');
 
 const ANCHO = 380; // tamaño de la ventana del notch (la pastilla y el panel viven adentro)
@@ -103,6 +105,7 @@ function publicarEstado() {
   estado.agenda = calendario.proximos(2);
   estado.conexion = conexion.estado();
   estado.sesion = cerebro.activa();
+  estado.acceso = acceso.resumen();
   if (estado.sesion !== habiaSesion) { habiaSesion = estado.sesion; musica.atenuar(estado.sesion); }
   if (notch && !notch.isDestroyed()) notch.webContents.send('estado', estado);
 }
@@ -741,6 +744,8 @@ manejar('clips:renombrar', ({ archivo, nombre }) => clips.renombrar(archivo, nom
 manejar('clips:recortar', ({ archivo, desde, hasta, reemplazar, edicion }) => clips.recortar(archivo, { desde, hasta, reemplazar: !!reemplazar, edicion: edicion || {}, mandar: (ruta) => shell.trashItem(ruta) }));
 manejar('escritorio:estado', () => escritorio.estado());
 manejar('escritorio:cortar', () => { escritorio.cortar(); return escritorio.estado(); });
+// Desde el notch: cortar a quien esté mirando la pantalla o la cámara (los archivos y el control se cortan solos al terminar).
+manejar('acceso:cortar', () => { escritorio.cortar(); camara.cortarTodo(); return acceso.resumen(); });
 manejar('clips:medidas', (archivo) => clips.medidas(archivo));
 manejar('clips:favorito', ({ archivo, si }) => clips.marcarFavorito(archivo, !!si));
 // Pantalla completa de Ajustes (el editor de clips la usa para ver el video grande).
@@ -1463,7 +1468,9 @@ celular.configurar({
   escritorioCortar: () => escritorio.terminar('cortado desde el celular'),
   abrirEnPC: async (ruta) => { const e = await shell.openPath(ruta); if (e) throw new Error(e); return 'Lo abrí en la PC.'; },
   guardadoEnPC: (ruta, quien) => { const texto = `${quien.nombre || 'El celular'} dejó "${require('path').basename(ruta)}" en la PC.`; historial.terminar(historial.empezar('Archivo desde el celular', 'celular'), { respuesta: texto }); if (notch && !notch.isDestroyed()) notch.webContents.send('decir', { texto, voz: false }); },
+  acceso: (tipo, quien) => { const fin = acceso.abrir(tipo, quien); return () => { fin(); acceso.pulso(tipo, quien, 6000); }; },
   remoto: async (o, quien) => {
+    acceso.pulso('control', (quien && quien.nombre) || 'El celular', 6000);
     const r = await remoto.hacer(o);
     if (r) historial.terminar(historial.empezar(`Control de la PC: ${o.tipo}`, 'celular'), { respuesta: `${r} (${quien.nombre || 'celular'})` });
     return r;
@@ -1481,7 +1488,7 @@ celular.configurar({
     if (enCasa && (!antes || !antes.enCasa || Date.now() - antes.cuando > 2 * 3600000)) return { hechas: await disparadores.evento('llegar', `llegaste a casa (${quien.nombre || 'celular'})`) };
     return { hechas: [] };
   },
-  camara: (res, opciones, quien) => camara.mirar(res, opciones, quien && quien.nombre ? `"${quien.nombre}"` : 'Un celular'),
+  camara: (res, opciones, quien) => { res.once('close', acceso.abrir('camara', (quien && quien.nombre) || 'El celular')); return camara.mirar(res, opciones, quien && quien.nombre ? `"${quien.nombre}"` : 'Un celular'); },
   pc: pcParaCelular,
   inicio: inicioParaCelular,
   avisos: avisosParaCelular,

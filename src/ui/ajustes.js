@@ -3791,6 +3791,8 @@ function editorRutina(r) {
 
 // ---------- [A4][A5] Resumen: estado de todo de un vistazo + primeros pasos ----------
 // Celular: todo lo que el celular puede hacer en esta PC, en un solo lugar, con lo último que hizo.
+let accesoAhora = {};
+jarvis.escuchar('acceso', (a) => { accesoAhora = a || {}; if (seccion === 'celular' && !escribiendo()) pintar(); });
 function permisosCelular(c) {
   const fila = (ic, nombre, detalle, control) => h('div', { class: 'permiso' }, h('span', { class: 'p-ic', html: icono(ic, 18) }), h('div', { class: 'p-texto' }, h('b', {}, nombre), detalle ? h('span', { class: 'nota' }, detalle) : null), control);
   const casillaCon = (clave, nombre, porDefecto) => { const l = casilla(c, clave, () => { guardar(); pintar(); }, porDefecto); l.querySelector('input').setAttribute('aria-label', nombre); return l; };
@@ -3798,7 +3800,11 @@ function permisosCelular(c) {
   const v = c.vigilar = c.vigilar || { activo: false, sensibilidad: 'media', grabar: true };
   const aplicarVig = () => pedir('camara:vigilar', v).then(() => { avisarGuardado(v.activo ? 'Vigilando' : 'Guardado'); pintar(); }).catch((e) => { v.activo = false; avisarGuardado(e.message); pintar(); });
   const casVig = casilla(v, 'activo', aplicarVig); casVig.querySelector('input').setAttribute('aria-label', 'Vigilar');
+  const AHORA = [['camara', 'Viendo la cámara'], ['pantalla', 'Viendo la pantalla'], ['control', 'Manejando el mouse y el teclado'], ['archivos', 'Con los archivos']].filter(([k]) => (accesoAhora[k] || []).length);
   return h('section', { class: 'permisos-cel' },
+    AHORA.length ? h('div', { class: 'acceso-ahora', role: 'status' }, h('span', { class: 'aa-punto' }),
+      h('div', {}, h('b', {}, 'Ahora'), ...AHORA.map(([k, t]) => h('div', { class: 'nota' }, `${t}: ${accesoAhora[k].join(', ')}`))),
+      AHORA.some(([k]) => k === 'pantalla' || k === 'camara') ? boton('Cortar', async () => { accesoAhora = await pedir('acceso:cortar').catch(() => accesoAhora); pintar(); }, 'chico peligro') : null) : null,
     h('h2', {}, 'Qué puede hacer el celular'),
     fila('celular', 'Charla, rutinas, mouse, teclado y energía', 'Siempre, con un celular vinculado', null),
     fila('carpeta', 'Archivos de la PC', (() => { const n = (carpetasCel || c.carpetas || []).length; return `${n} ${n === 1 ? 'carpeta compartida' : 'carpetas compartidas'}`; })(), boton('Elegir', () => { const x = document.querySelector('.carpetas-cel, #carpetas-cel'); if (x) x.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 'chico')),
